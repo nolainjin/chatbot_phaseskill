@@ -1,0 +1,67 @@
+{
+  "task": "lmwiki-chatbot-proto",
+  "created": "2026-07-11",
+  "origin": "docs/planning/lmwiki-chatbot-proto/origin.md",
+  "signals": [
+    "new_project",
+    "chatbot_prototype",
+    "external_api",
+    "deployment",
+    "external_currentness",
+    "security",
+    "rate_limiting",
+    "low_cost_hosting",
+    "data_persistence",
+    "knowledge_base_swap"
+  ],
+  "constraints": {
+    "hosting_cost": "low_cost_or_free",
+    "architecture": "logic_content_separation",
+    "storage": "json_then_daily_sqlite",
+    "rate_limit": "ip_hourly_limit_required",
+    "modality_v1": "text_only",
+    "process": "phase_skill_order",
+    "deploy_deadline": "week_2026-07-20",
+    "dev_mode": "user_implements_directly_with_feedback"
+  },
+  "required_decision_classes": [],
+  "derived_classes": [
+    {"id": "hosting_platform", "load_bearing": true},
+    {"id": "llm_provider_and_key_custody", "load_bearing": true},
+    {"id": "tech_stack", "load_bearing": true},
+    {"id": "rate_limit_semantics", "load_bearing": false},
+    {"id": "knowledge_retrieval_strategy", "load_bearing": false}
+  ],
+  "resolved_decisions": [
+    {
+      "id": "D01",
+      "rubric_id": "",
+      "decision_class": "hosting_platform",
+      "decision_key": "hosting_platform",
+      "answer": "",
+      "status": "deferred",
+      "author_or_defer_state": "explicit_defer",
+      "reason": "사용자 답변(2026-07-11): 배포 플랫폼은 이후 결정할 예정. 후보는 research.md 4종(Railway/Fly.io/Oracle Free VM/Hetzner)으로 압축, 배포 phase 전 확정"
+    },
+    {
+      "id": "D02",
+      "rubric_id": "",
+      "decision_class": "llm_provider_and_key_custody",
+      "decision_key": "llm_provider",
+      "answer": "Anthropic Claude 단일 + 운영자 키 서버측 env",
+      "status": "answered",
+      "author_or_defer_state": "explicit_defer",
+      "reason": "사용자 D04 선택(2026-07-11): 이번 task 한정 처리, 재사용 rubric 등록 유보"
+    },
+    {
+      "id": "D03",
+      "rubric_id": "",
+      "decision_class": "tech_stack",
+      "decision_key": "tech_stack",
+      "answer": "Python + FastAPI + 바닐라 HTML/JS 채팅 페이지",
+      "status": "answered",
+      "author_or_defer_state": "explicit_defer",
+      "reason": "사용자 D04 선택(2026-07-11): 이번 task 한정 처리, 재사용 rubric 등록 유보"
+    }
+  ]
+}
