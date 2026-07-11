@@ -134,6 +134,13 @@ decision_surface:
     - decision_key: "default_model"
       answer: "claude-haiku-4-5 (MODEL env로 교체 가능)"
       source: "spec judge needs_user 해소 2026-07-11 (D07)"
+    # --- phase-add 델타 (Phase 9, 2026-07-11) — 기존 항목 무수정, append만 ---
+    - decision_key: "intake_persona_injection"
+      answer: "knowledge/_persona.md — `_` 접두 파일 검색 제외 + 시스템 프롬프트 선두 결합, 부재 시 프리앰블 폴백"
+      source: "phase-add AskUserQuestion 2026-07-11 (D08)"
+    - decision_key: "intake_summary_storage"
+      answer: "포함 — MAX_TURNS 도달 시 role=intake_summary 턴으로 구조화 요약 저장"
+      source: "phase-add AskUserQuestion 2026-07-11 (D09)"
   deferrals:
     - decision_key: "hosting_platform"
       reason: "사용자 답변(2026-07-11): 배포 플랫폼은 이후 결정할 예정. 후보 4종(Railway Hobby/Fly.io/Oracle Free VM/Hetzner)으로 압축, Phase 8 진입 시 GM1 needs_user로 확정"

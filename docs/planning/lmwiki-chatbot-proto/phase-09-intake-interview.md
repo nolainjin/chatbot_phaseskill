@@ -147,3 +147,6 @@ bash scripts/smoke_local.sh
 
 #### 질문 / 결정 사항
 없음.
+
+#### Commit
+- `e5af60f` feat(intake): Phase 9 — 접수 면담 페르소나 주입 + 턴 진행 표기 + 요약 저장 (review pass 0 issues — 오케스트레이터 검증 재실행 1회차 2건 실패 → 테스트 격리 fix 재디스패치 → 2회 연속 멱등 pass, simplify 변경 0)

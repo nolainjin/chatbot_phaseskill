@@ -1,7 +1,7 @@
 ---
 task: lmwiki-chatbot-proto
 created: 2026-07-11
-decision_count: 7
+decision_count: 9
 ---
 
 # LM Wiki 챗봇 프로토타입 — Decisions
@@ -207,6 +207,58 @@ decisions:
     status: answered
     accepted_default: ""
     answer: "Haiku 4.5 (claude-haiku-4-5)"
+
+  - id: D08
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "intake_persona_injection"
+    decision_key: "intake_persona_injection"
+    question: "접수 면담 페르소나(면담 주도 지시문)를 어디에 둘까? (Phase 6 지식/로직 분리 invariant을 깨지 않아야 함)"
+    options:
+      - label: "knowledge/_persona.md (권장)"
+        recommended: true
+        tradeoff: "`_` 접두 파일은 검색 제외 + 존재 시 시스템 프롬프트 선두 결합. 지식셋 스왑 시 페르소나도 함께 스왑, 부재 시 기존 Q&A 프리앰블 폴백 — invariant 보존, 코드 수정 최소."
+      - label: "PERSONA_FILE 환경변수"
+        tradeoff: "지식과 페르소나 독립 교체 가능하나 설정 항목·배포 문서 갱신 부담."
+      - label: "chat.py 직접 작성"
+        tradeoff: "가장 단순하나 지식/로직 분리 invariant 파괴 — Phase 6 스왑 검증과 충돌."
+    default: "knowledge/_persona.md"
+    provenance:
+      source_type: user
+      source_refs: ["phase-add AskUserQuestion 2026-07-11"]
+      last_reviewed: "2026-07-11"
+      volatility: low
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: false
+    status: answered
+    accepted_default: ""
+    answer: "knowledge/_persona.md — `_` 접두 검색 제외 + 부재 시 프리앰블 폴백"
+
+  - id: D09
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "intake_summary_storage"
+    decision_key: "intake_summary_storage"
+    question: "면담 종료(10턴 도달) 시 접수 요약을 구조화해서 저장할까?"
+    options:
+      - label: "이번 phase는 제외 (권장)"
+        recommended: true
+        tradeoff: "대화 원문이 전부 저장되므로 요약은 나중에 배치로도 추출 가능 — YAGNI."
+      - label: "포함"
+        tradeoff: "면담 종료 시 구조화 요약 생성·저장. 실모델 호출 1회 추가 비용, 저장 스키마에 role 값 추가."
+    default: "이번 phase는 제외"
+    provenance:
+      source_type: user
+      source_refs: ["phase-add AskUserQuestion 2026-07-11"]
+      last_reviewed: "2026-07-11"
+      volatility: low
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: false
+    status: answered
+    accepted_default: ""
+    answer: "포함 — MAX_TURNS 도달 시 role=\"intake_summary\" 턴으로 구조화 요약 저장 (사용자가 권장 대신 포함 선택)"
 ```
 
 ## Notes
