@@ -1,7 +1,7 @@
 ---
 task: lmwiki-chatbot-proto
 created: 2026-07-11
-decision_count: 4
+decision_count: 7
 ---
 
 # LM Wiki 챗봇 프로토타입 — Decisions
@@ -128,6 +128,85 @@ decisions:
     status: answered
     accepted_default: ""
     answer: "이번 task 한정 (explicit defer)"
+
+  - id: D05
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "rate_limit_semantics"
+    decision_key: "rate_limit_unit"
+    question: "'IP당 1시간 5회'의 단위는? (phase-init purpose review에서 승격된 질문)"
+    options:
+      - label: "대화 세션 5회 (권장)"
+        recommended: true
+        tradeoff: "상담형 UX 자연스러움, 세션당 최대 10턴으로 비용 캡"
+      - label: "메시지 5건"
+        tradeoff: "엄격하나 대화 한 번이면 소진 — UX 충돌"
+      - label: "세션 5회 + 메시지 총량 병행"
+        tradeoff: "이중 방어, 구현 추가"
+    default: "대화 세션 5회"
+    provenance:
+      source_type: repo_local
+      source_refs: ["spec purpose review 2026-07-11", "docs/planning/lmwiki-chatbot-proto/origin.md §6"]
+      last_reviewed: "2026-07-11"
+      volatility: low
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: true
+    status: answered
+    accepted_default: ""
+    answer: "대화 세션 5회"
+
+  - id: D06
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "deployment_scope"
+    decision_key: "sc5_scope"
+    question: "SC5(실배포 검증)를 이번 task에서 어디까지 완결할까? (실배포는 계정·과금 승인 필요)"
+    options:
+      - label: "실배포까지 함께 (권장)"
+        recommended: true
+        tradeoff: "Phase 8 intervention에서 사용자 참여로 실배포+실환경 검증 완결. 원 요청 그대로"
+      - label: "배포 준비물까지만"
+        tradeoff: "실배포는 후속 세션 — SC5 공식 축소 필요"
+    default: "실배포까지 함께"
+    provenance:
+      source_type: repo_local
+      source_refs: ["spec purpose review 2026-07-11", "docs/planning/lmwiki-chatbot-proto/capabilities.md CAP11/CAP12"]
+      last_reviewed: "2026-07-11"
+      volatility: low
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: true
+    status: answered
+    accepted_default: ""
+    answer: "실배포까지 함께"
+
+  - id: D07
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "llm_model_tier"
+    decision_key: "default_model"
+    question: "챗봇 기본 모델 티어는? (spec critic O5에서 승격 — MODEL env로 교체 가능)"
+    options:
+      - label: "Haiku 4.5 (권장)"
+        recommended: true
+        tradeoff: "$1/$5 최저가 — 지식기반 짧은 Q&A에 충분, 비용 공격 노출 최소"
+      - label: "Sonnet 5"
+        tradeoff: "$3/$15 — 품질·비용 균형"
+      - label: "Opus 4.8"
+        tradeoff: "$5/$25 — 최고 품질, 비용 노출 최대"
+    default: "Haiku 4.5"
+    provenance:
+      source_type: research
+      source_refs: ["claude-api 번들 스킬 (cached 2026-06-24) 모델 가격표", "spec critic O5 2026-07-11"]
+      last_reviewed: "2026-07-11"
+      volatility: medium
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: true
+    status: answered
+    accepted_default: ""
+    answer: "Haiku 4.5 (claude-haiku-4-5)"
 ```
 
 ## Notes
