@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: 지식 스왑 e2e + 로컬 통합 스모크
-status: pending
+status: completed
 depends_on: [3, 4, 5]
 scope:
   - tests/test_swap_e2e.py
@@ -55,9 +55,9 @@ smoke_local.sh (MODEL=fake, 임시 포트):
 
 ## 체크리스트
 
-- [ ] tests/test_swap_e2e.py: 로직 무수정 상태에서 KNOWLEDGE_DIR=knowledge-alt 구동 시 다른 도메인 문서가 프롬프트 컨텍스트에 실림을 검증 (LLM mock)
-- [ ] scripts/smoke_local.sh: MODEL=fake로 서버 기동→채팅→JSON 저장 확인→배치 실행→SQLite 조회→6번째 세션 429 확인 전 구간 스모크
-- [ ] 스모크 실패 시 비 0 종료코드
+- [x] tests/test_swap_e2e.py: 로직 무수정 상태에서 KNOWLEDGE_DIR=knowledge-alt 구동 시 다른 도메인 문서가 프롬프트 컨텍스트에 실림을 검증 (LLM mock)
+- [x] scripts/smoke_local.sh: MODEL=fake로 서버 기동→채팅→JSON 저장 확인→배치 실행→SQLite 조회→6번째 세션 429 확인 전 구간 스모크
+- [x] 스모크 실패 시 비 0 종료코드
 
 ## 영향 범위
 
@@ -68,3 +68,35 @@ smoke_local.sh (MODEL=fake, 임시 포트):
 ```bash
 .venv/bin/python -m pytest tests/test_swap_e2e.py -q && bash scripts/smoke_local.sh
 ```
+
+## 실행 결과
+
+### 1회차 (2026-07-11 17:33 KST) — completed
+
+**상태**: completed
+**소요 시간**: 약 20분
+**진행 모델**: Claude sonnet
+
+#### 요약
+
+`tests/test_swap_e2e.py`는 `app/chat.py`·`app/knowledge.py` 코드를 전혀 건드리지 않고 `Settings.knowledge_dir`만 `knowledge` → `knowledge-alt`로 바꿔 `chat.handle_message`를 두 번 호출해, MODEL=fake 스텁이 인용하는 문서 제목이 도메인에 따라 완전히 갈리는지(상담 도메인 제목은 alt 쪽에서 사라지고 커피 도메인 제목이 그 자리를 대체) 확인했다. `scripts/smoke_local.sh`는 매 실행마다 새 임시 디렉토리를 cwd로 삼아 uvicorn을 기동해 `data/ratelimit.json`·`data/conversations`를 실행 간 완전히 격리한 뒤, 신규 세션 5회 성공→6번째 429 → 기존 세션에 2턴 추가로 총 3턴 → JSON 파일 존재·턴 수 확인 → `load_to_sqlite.py --date` 배치 실행 → SQLite 행 수 확인까지 전 구간을 스모크하고, 실패 지점마다 비 0 종료코드로 빠진다.
+
+#### 변경 파일
+
+- `tests/test_swap_e2e.py` (신규, +46)
+- `scripts/smoke_local.sh` (신규, +90, 실행권한 부여)
+
+#### 검증 결과
+
+- `pass` — `.venv/bin/python -m pytest tests/test_swap_e2e.py -q` → 1 passed
+- `pass` — `bash scripts/smoke_local.sh` → `OK: 로컬 통합 스모크 전 구간 통과` (연속 재실행 2회 모두 통과 — rate limit 윈도우 격리가 실제로 실행 간 간섭 없이 동작함을 확인)
+- `pass` — `.venv/bin/python -m pytest -q` (전체 스위트) → 30 passed, 회귀 없음
+
+#### 추가 발견사항
+
+- `app/ratelimit.py`의 `RateLimiter.DATA_PATH`("data/ratelimit.json")와 `app/storage.py`의 `DEFAULT_CONVERSATIONS_DIR`("data/conversations")는 상대경로로 고정돼 있고 env로 주입할 방법이 없다. 설계 pseudocode 순서(3턴/JSON 확인을 먼저, 6세션 rate-limit 확인을 나중)대로 그대로 구현하면 두 확인이 같은 IP의 rate limit 윈도우를 공유하게 되어 "6번째 신규 세션이 429"라는 경계가 어긋난다(3턴 체크에 쓴 세션 1개가 이미 윈도우를 1칸 소모하기 때문). smoke_local.sh에서는 순서를 (1) 6세션 rate-limit 경계 확인 → (2) 이미 등록된 세션 1개를 재사용해 2턴을 더 채워 총 3턴/JSON/SQLite 확인으로 재배열해 이 카운팅 충돌을 피했다. 스크립트가 매 실행마다 새 임시 cwd에서 서버를 띄우므로 상태 파일 자체도 실행마다 격리된다(재실행 2회 연속 통과로 확인).
+- CAP06(지식 스왑) 실증은 이미 Phase 1에서 `tests/test_knowledge.py::test_directory_swap`, `test_sample_knowledge_sets_have_min_five_docs`로 `knowledge.load_documents/search` 레벨까지는 검증돼 있었다. 이번 Phase 6 테스트는 그 위에서 `chat.handle_message`(검색+LLM 호출 전 구간)를 통해 "코드 무수정 + env 값만 교체"로 실제 응답 문구까지 바뀜을 증명한다는 점에서 레이어가 다르다.
+
+#### 질문 / 결정 사항
+
+없음.
