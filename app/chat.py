@@ -7,7 +7,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app import knowledge, llm, storage
+from app import intake, knowledge, llm, storage
 from app.config import Settings
 
 MAX_TURNS = 10
@@ -33,6 +33,7 @@ class ChatSession:
     session_id: str
     turns: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
+    slots: dict[str, str] = field(default_factory=dict)
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -54,6 +55,45 @@ def _load_persona(knowledge_dir: str) -> str:
     return _SYSTEM_PREAMBLE
 
 
+def _build_slot_section(
+    schema: intake.Schema,
+    filled: dict[str, str],
+    unfilled: list[intake.Slot],
+    turns_before: int,
+) -> str:
+    """모드 공통 슬롯 섹션 — 채워진/미충족(우선순위순)/레드플래그 규칙/턴 예산."""
+    filled_text = ", ".join(
+        f"{slot.label}={filled[slot.id]}" for slot in schema.slots if slot.id in filled
+    )
+    unfilled_text = ", ".join(slot.label for slot in unfilled)
+    lines = [
+        "[접수 슬롯 상태]",
+        f"채워진 슬롯: {filled_text or '없음'}",
+        f"미충족 슬롯(우선순위순): {unfilled_text or '없음'}",
+        "레드플래그 규칙: 미충족 목록 최상단 슬롯이 레드플래그면 그 슬롯을 최우선으로 질문하라.",
+        f"턴 예산: 잔여 {MAX_TURNS - turns_before}턴 — 우선순위 높은 슬롯부터 소비하라.",
+    ]
+    if turns_before == 0:
+        lines.append(f"1턴이므로 다음 개방형 질문으로 시작하라: {schema.opening_question}")
+    return "\n".join(lines)
+
+
+def _fake_progress_suffix(
+    schema: intake.Schema,
+    new_fills: dict[str, str],
+    unfilled: list[intake.Slot],
+) -> str:
+    """fake 모드 reply에 붙일 진행 접미사. 새 채움/다음 질문이 없으면 빈 문자열."""
+    label_by_id = {slot.id: slot.label for slot in schema.slots}
+    parts = []
+    if new_fills:
+        fills_text = ", ".join(f"{label_by_id[sid]}={value}" for sid, value in new_fills.items())
+        parts.append(f"채움: {fills_text}")
+    if unfilled:
+        parts.append(f"다음 질문: {unfilled[0].label}")
+    return f" | {' | '.join(parts)}" if parts else ""
+
+
 def handle_message(session_id: str, message: str, settings: Settings | None = None) -> dict:
     settings = settings or Settings.from_env()
     session = _get_session(session_id)
@@ -67,7 +107,21 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     persona = _load_persona(settings.knowledge_dir)
     progress = f"[진행: {session.turns + 1}/{MAX_TURNS}턴]"
     doc_section = "\n\n".join(f"# {doc.title}\n{doc.body}" for doc in docs)
-    system = f"{persona}\n\n{progress}\n\n{doc_section}"
+
+    schema = intake.load_schema(settings.knowledge_dir)
+    new_fills: dict[str, str] = {}
+    unfilled: list[intake.Slot] = []
+    if schema is None:
+        # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
+        system = f"{persona}\n\n{progress}\n\n{doc_section}"
+    else:
+        if settings.model == "fake":
+            new_fills = intake.extract_fake(message, schema, session.slots)
+            session.slots.update(new_fills)
+        red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
+        unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)
+        system = f"{persona}\n\n{progress}\n\n{slot_section}\n\n{doc_section}"
 
     reply = llm.ask(
         system=system,
@@ -76,6 +130,9 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         doc_titles=[doc.title for doc in docs],
         settings=settings,
     )
+
+    if schema is not None and settings.model == "fake":
+        reply += _fake_progress_suffix(schema, new_fills, unfilled)
 
     storage.append_turn(session_id, "user", message)
     storage.append_turn(session_id, "assistant", reply)

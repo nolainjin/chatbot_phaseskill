@@ -114,3 +114,6 @@ pytest -q
 
 #### 질문 / 결정 사항
 없음
+
+#### Commit
+- `e4596a3` docs(intake-slot-engine): Phase 2 — 상담 3-트랙 스키마 + 페르소나 소유권 정리

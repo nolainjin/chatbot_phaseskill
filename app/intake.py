@@ -60,6 +60,56 @@ class Schema:
         return sorted(unfilled, key=lambda slot: (slot.id not in red_flag_ids, slot.priority))
 
 
+def _match_signal(message: str, signals) -> str | None:
+    """message에서 signals 부분문자열 매칭 결과를 반환한다. 없으면 None.
+
+    signals가 dict(값 -> 부분문자열 목록)이면 매칭된 값(키)을 반환하고,
+    list(부분문자열 목록)이면 매칭된 부분문자열 자체를 반환한다.
+    """
+    if isinstance(signals, dict):
+        for value, substrings in signals.items():
+            if any(sub in message for sub in substrings):
+                return value
+        return None
+    for sub in signals:
+        if sub in message:
+            return sub
+    return None
+
+
+def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
+    """fake 모드 전용 결정론적 슬롯 추출.
+
+    활성 상태이면서 아직 채워지지 않은 슬롯만 대상으로 signals 부분문자열
+    매칭을 시도한다. 한 발화에서 여러 슬롯이 동시에 매칭될 수 있다. 이미
+    채워진 슬롯은 절대 덮어쓰지 않는다(트랙 뒤집힘 방지) — 이 함수는 filled를
+    변경하지 않고 이번 발화로 새로 채워진 슬롯만 담은 dict를 반환한다.
+    """
+    new_fills: dict[str, str] = {}
+    for slot in schema.active_slots(filled):
+        if slot.id in filled or slot.signals is None:
+            continue
+        value = _match_signal(message, slot.signals)
+        if value is not None:
+            new_fills[slot.id] = value
+    return new_fills
+
+
+def detect_red_flags(message: str, schema: Schema, filled: dict) -> set[str]:
+    """이번 발화가 red_flag 슬롯의 signals에 걸리면 그 슬롯 id 집합을 반환한다.
+
+    채움 여부와 무관하게 감지한다 — 결과는 unfilled_by_priority의 우선 정렬
+    신호로만 쓰인다(이미 채워진 슬롯은 unfilled_by_priority가 알아서 제외).
+    """
+    hits = set()
+    for slot in schema.active_slots(filled):
+        if not slot.red_flag or slot.signals is None:
+            continue
+        if _match_signal(message, slot.signals) is not None:
+            hits.add(slot.id)
+    return hits
+
+
 def _parse_slot(raw) -> Slot:
     if not isinstance(raw, dict):
         raise TypeError("slot 항목은 매핑이어야 한다")
