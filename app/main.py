@@ -5,7 +5,7 @@ import os
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
-from app import chat, ratelimit
+from app import chat, ratelimit, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
@@ -20,8 +20,10 @@ def post_chat(request: Request, payload: dict = Body(...)):
     session_id = payload.get("session_id")
     message = payload.get("message")
 
-    if not isinstance(session_id, str) or not session_id:
-        raise HTTPException(status_code=400, detail="session_id는 비어있지 않은 문자열이어야 합니다.")
+    # session_id는 파일명이 되므로 API 경계에서 화이트리스트를 강제한다 —
+    # 통과 못 하면 400. 아래 storage 층 검증까지 내려가 500으로 새는 걸 막는다.
+    if not isinstance(session_id, str) or not storage.valid_session_id(session_id):
+        raise HTTPException(status_code=400, detail="session_id 형식이 올바르지 않습니다.")
     if not isinstance(message, str) or not message.strip():
         raise HTTPException(status_code=400, detail="message는 비어있지 않은 문자열이어야 합니다.")
     if len(message) > MAX_MESSAGE_LEN:

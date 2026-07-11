@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: 보안 검토 + 하드닝
-status: pending
+status: completed
 depends_on: [6]
 scope:
   - docs/security-review.md
@@ -57,10 +57,10 @@ high/critical은 이 phase에서 즉시 수정한다. 수정하지 않기로 한
 
 ## 체크리스트
 
-- [ ] AI 보안 검토: 키 노출·입력 검증·프롬프트 인젝션(지식 문서/사용자 입력 경계)·rate limit 우회(XFF 스푸핑)·저장 데이터 취급 점검 → docs/security-review.md 기록
-- [ ] high/critical 항목 즉시 수정, 미수정 항목은 리스크+권고(보안 개발자 검토 필요 여부 포함)로 문서화
-- [ ] 리포 시크릿 스캔 통과 (git 히스토리 포함)
-- [ ] tests/test_security.py: 과길이 입력 거부·비JSON content-type 거부 등 경계 테스트 통과
+- [x] AI 보안 검토: 키 노출·입력 검증·프롬프트 인젝션(지식 문서/사용자 입력 경계)·rate limit 우회(XFF 스푸핑)·저장 데이터 취급 점검 → docs/security-review.md 기록
+- [x] high/critical 항목 즉시 수정, 미수정 항목은 리스크+권고(보안 개발자 검토 필요 여부 포함)로 문서화
+- [x] 리포 시크릿 스캔 통과 (git 히스토리 포함)
+- [x] tests/test_security.py: 과길이 입력 거부·비JSON content-type 거부 등 경계 테스트 통과
 
 ## 영향 범위
 
@@ -71,3 +71,42 @@ app/ 전반에 소규모 하드닝 수정이 들어갈 수 있다(scope에 app/ 
 ```bash
 .venv/bin/python -m pytest tests/test_security.py -q
 ```
+
+## 실행 결과
+
+### 1회차 (2026-07-11 22:30 KST) — completed
+
+**상태**: completed
+**소요 시간**: 약 20분
+**진행 모델**: Claude opus
+
+#### 요약
+
+6개 고정 점검 항목을 실증 검토하고 `docs/security-review.md`에 항목별 판정으로 기록했다. high/critical급 취약점은 없었고, 발견한 유일한 실질 하드닝 항목(잘못된 session_id가 API 경계를 지나 storage 층에서 500으로 새던 입력 검증 갭)을 즉시 수정했다. 나머지는 PASS이거나, 코드로 못 막는 잔여 위험(LLM 프롬프트 인젝션) 및 공개 서비스 전환 시 필요한 후속 과제(상담 데이터 보존/삭제/암호화)로 문서화했다.
+
+핵심 수정: `storage.valid_session_id()` 공개 헬퍼를 추가해 `main.py`(API 경계)와 `storage.append_turn`(저장 층)이 같은 화이트리스트 규칙 하나를 공유하도록 했다. 경계에서 불합격이면 400을 반환해 downstream 500 누출을 막는다.
+
+#### 변경 파일
+
+- `docs/security-review.md` (신규, +90/-0) — 6개 항목 판정 + XSS 참고 + 요약
+- `app/main.py` (+5/-3) — session_id 화이트리스트 검증을 API 경계로 상향, 400 반환
+- `app/storage.py` (+6/-1) — `valid_session_id()` 공개 헬퍼 추출, `append_turn`이 재사용
+- `tests/test_security.py` (신규, +82/-0) — 과길이 입력·비JSON content-type·session_id 화이트리스트 경계 테스트 7건
+
+#### 검증 결과
+
+- `.venv/bin/python -m pytest tests/test_security.py -q` → **7 passed**
+- 전체 스위트 `.venv/bin/python -m pytest -q` → **37 passed** (기존 30 + 신규 7), 회귀 없음
+- 시크릿 스캔: `git rev-list --all` 전체 대상 `sk-ant-...` 매치 0건, `.env`/`data/` 히스토리 추적 이력 0건 → 통과
+- 비JSON content-type: form-urlencoded·text/plain·빈 본문 실측 422 확인
+- session_id 하드닝 전/후: `../../etc/passwd`·200자 입력이 수정 전 500 → 수정 후 400 확인
+
+#### 추가 발견사항
+
+- static/app.js는 `textContent`로만 렌더(innerHTML 미사용) → LLM 응답발 XSS 없음. scope 밖이라 수정 없이 관측만 기록(security-review.md 말미).
+- `requirements.txt` 버전 미고정 + pip-audit 미설치 → 취약점 자동 조회 불가. 버전 핀 고정 + Phase 8(배포)에서 pip-audit 정기 실행을 권고로 문서화.
+- 상담 도메인 민감정보: 현재 평문 저장·암호화 없음. 내부 시연이라 비차단, 공개 전환 시 보존기간/삭제/고지/암호화 + 사람 보안·법무 검토를 FOLLOW-UP/권고로 남김.
+
+#### 질문 / 결정 사항
+
+없음. 모든 항목 비차단 처리. 사람 보안 개발자 검토는 "공개 서비스 전환 시"로 조건부 권고(현재 내부 시연이라 불필요).

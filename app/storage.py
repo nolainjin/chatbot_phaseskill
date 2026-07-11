@@ -17,6 +17,11 @@ DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
 _SESSION_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
+def valid_session_id(session_id: str) -> bool:
+    """session_id가 파일명으로 안전한 화이트리스트(길이·문자셋)에 맞는지 검사한다."""
+    return bool(_SESSION_ID_RE.fullmatch(session_id))
+
+
 def append_turn(
     session_id: str,
     role: str,
@@ -24,7 +29,7 @@ def append_turn(
     base_dir: str | Path = DEFAULT_CONVERSATIONS_DIR,
 ) -> None:
     """오늘 날짜 디렉토리의 세션 JSON에 (role, text) 턴을 추가한다."""
-    if not _SESSION_ID_RE.fullmatch(session_id):
+    if not valid_session_id(session_id):
         raise ValueError(f"잘못된 session_id: {session_id!r}")
     day_dir = Path(base_dir) / date.today().isoformat()
     day_dir.mkdir(parents=True, exist_ok=True)
