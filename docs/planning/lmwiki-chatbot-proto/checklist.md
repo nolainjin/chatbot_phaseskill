@@ -20,9 +20,9 @@ created: 2026-07-11
 | 4 | [phase-04-ratelimit.md](./phase-04-ratelimit.md) | 6 | 6 | 100% | completed | 3274b10 |
 | 5 | [phase-05-chat-ui.md](./phase-05-chat-ui.md) | 5 | 5 | 100% | completed | 792b84b |
 | 6 | [phase-06-swap-e2e-smoke.md](./phase-06-swap-e2e-smoke.md) | 3 | 3 | 100% | completed | 1162dfb |
-| 7 | [phase-07-security-review.md](./phase-07-security-review.md) | 4 | 0 | 0% | pending | - |
+| 7 | [phase-07-security-review.md](./phase-07-security-review.md) | 4 | 4 | 100% | completed | e2047df |
 | 8 | [phase-08-deploy.md](./phase-08-deploy.md) | 5 | 0 | 0% | pending | - |
-| **Total** | | **39** | **30** | **77%** | | |
+| **Total** | | **39** | **34** | **87%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
