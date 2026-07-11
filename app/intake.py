@@ -10,6 +10,7 @@
 데이터가 소유한다.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,8 @@ import yaml
 
 _SCHEMA_FILENAME = "_intake_schema.md"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
+_SLOTS_FENCE_RE = re.compile(r"```slots\s*?\n(.*?)```", re.DOTALL)
+_MAX_SLOT_VALUE_LEN = 200
 
 
 @dataclass
@@ -108,6 +111,46 @@ def detect_red_flags(message: str, schema: Schema, filled: dict) -> set[str]:
         if _match_signal(message, slot.signals) is not None:
             hits.add(slot.id)
     return hits
+
+
+def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[str, str]]:
+    """실모드 LLM 응답에서 ```slots fenced JSON 블록을 분리해 신뢰 경계로 거른다.
+
+    LLM 출력은 신뢰 경계 밖이다 — fenced 블록 분리 실패나 JSON 파싱 실패는
+    그 턴의 추출을 스킵한다(원문 그대로, 빈 dict 반환. 다음 턴에 만회하므로
+    파싱 실패의 영향은 그 턴 한정 — FP19 방지). 파싱에 성공해도 각 항목을
+    4중 필터로 거른다: 스키마 활성 슬롯 id 화이트리스트에 없으면 폐기,
+    문자열이 아니면 폐기, 200자를 넘으면 폐기, 이미 채워진 슬롯이면 폐기
+    (덮어쓰기 금지). 통과분만 반환하고, reply에서는 슬롯 JSON 블록을 제거해
+    사용자·history·storage에는 절대 노출하지 않는다.
+    """
+    match = _SLOTS_FENCE_RE.search(reply)
+    if match is None:
+        return reply, {}
+
+    try:
+        parsed = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return reply, {}
+
+    if not isinstance(parsed, dict):
+        return reply, {}
+
+    active_ids = {slot.id for slot in schema.active_slots(filled)}
+    accepted: dict[str, str] = {}
+    for slot_id, value in parsed.items():
+        if slot_id not in active_ids:
+            continue
+        if not isinstance(value, str):
+            continue
+        if len(value) > _MAX_SLOT_VALUE_LEN:
+            continue
+        if slot_id in filled:
+            continue
+        accepted[slot_id] = value
+
+    clean_reply = (reply[: match.start()] + reply[match.end() :]).rstrip()
+    return clean_reply, accepted
 
 
 def _parse_slot(raw) -> Slot:

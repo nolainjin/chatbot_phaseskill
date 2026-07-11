@@ -27,6 +27,15 @@ _SUMMARY_INSTRUCTION = (
     "다음 단계 네 항목을 포함하라."
 )
 
+# 실모드 단일 호출 통합(D02) — 응답 생성 호출 안에 슬롯 추출 지시를 함께
+# 넣는다. 모델 출력은 intake.extract_real이 신뢰 경계 검증 후 분리한다.
+_EXTRACTION_INSTRUCTION = (
+    "응답을 마친 뒤 마지막 줄에 ```slots 로 시작하는 fenced 코드블록을 추가하고, "
+    "그 안에 이번 발화에서 새로 확인된 슬롯만 담은 JSON 객체를 출력하라. "
+    '형식: ```slots\n{"슬롯id": "값"}\n```. 새로 확인된 슬롯이 없으면 빈 객체 '
+    "{}를 출력하라."
+)
+
 
 @dataclass
 class ChatSession:
@@ -121,7 +130,11 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
         unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
         slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)
-        system = f"{persona}\n\n{progress}\n\n{slot_section}\n\n{doc_section}"
+        sections = [persona, progress, slot_section]
+        if settings.model != "fake":
+            sections.append(_EXTRACTION_INSTRUCTION)
+        sections.append(doc_section)
+        system = "\n\n".join(sections)
 
     reply = llm.ask(
         system=system,
@@ -133,6 +146,12 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
 
     if schema is not None and settings.model == "fake":
         reply += _fake_progress_suffix(schema, new_fills, unfilled)
+    elif schema is not None:
+        # 실모드 단일 호출 통합(D02) — 응답 텍스트에 섞여온 슬롯 JSON을 신뢰
+        # 경계 검증(intake.extract_real) 후 분리한다. reply는 이제 슬롯 JSON이
+        # 제거된 clean 버전이라 history·storage에도 그대로 안전하게 쓴다.
+        reply, real_fills = intake.extract_real(reply, schema, session.slots)
+        session.slots.update(real_fills)
 
     storage.append_turn(session_id, "user", message)
     storage.append_turn(session_id, "assistant", reply)

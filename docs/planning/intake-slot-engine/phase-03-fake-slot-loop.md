@@ -128,3 +128,6 @@ pytest -q
 
 #### 질문 / 결정 사항
 없음
+
+#### Commit
+- `b6db56f` feat(chat): Phase 3 — fake 슬롯 루프 통합 (조건부 활성·다중 추출·레드플래그 정렬)
