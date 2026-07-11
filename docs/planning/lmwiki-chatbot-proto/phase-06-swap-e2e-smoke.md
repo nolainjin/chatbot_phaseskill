@@ -100,3 +100,6 @@ smoke_local.sh (MODEL=fake, 임시 포트):
 #### 질문 / 결정 사항
 
 없음.
+
+#### Commit
+- `1162dfb` test(swap-e2e): Phase 6 — 지식 스왑 e2e + 로컬 통합 스모크 (review pass, simplify 변경 0, 검증 재실행 pass)
