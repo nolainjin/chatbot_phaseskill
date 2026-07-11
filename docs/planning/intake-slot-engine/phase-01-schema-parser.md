@@ -128,3 +128,6 @@ pytest -q
 
 #### 질문 / 결정 사항
 없음
+
+#### Commit
+- `2be747a` feat(intake): Phase 1 — 스키마 파서 + 슬롯 모델 구현
