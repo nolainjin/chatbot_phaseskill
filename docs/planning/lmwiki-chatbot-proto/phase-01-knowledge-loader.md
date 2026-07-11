@@ -135,3 +135,6 @@ search(query, documents, top_n=3):
 
 #### 질문 / 결정 사항
 없음.
+
+#### Commit
+- `664167b` feat(knowledge): Phase 1 — 지식베이스 로더 + 프로젝트 뼈대 (review pass, simplify 변경 0, 검증 재실행 pass)
