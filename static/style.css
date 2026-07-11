@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  display: flex;
+  justify-content: center;
+}
+
+.chat {
+  width: 100%;
+  max-width: 640px;
+  min-height: 100vh;
+  padding: 1rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.chat-header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.turn-counter {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.notice {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  margin: 0;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.message {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.message-user {
+  align-self: flex-end;
+  background: #3b6fd6;
+  color: #fff;
+}
+
+.message-assistant {
+  align-self: flex-start;
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.status {
+  min-height: 1.2em;
+  color: #c0392b;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#message-input {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
+#message-input:disabled,
+#send-button:disabled {
+  opacity: 0.5;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

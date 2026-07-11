@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: 채팅 웹 UI
-status: pending
+status: completed
 depends_on: [2]
 scope:
   - static/index.html
@@ -54,11 +54,11 @@ app.js:
 
 ## 체크리스트
 
-- [ ] static/index.html: 채팅 화면(메시지 목록·입력창·전송 버튼)
-- [ ] static/app.js: /api/chat 호출, session_id 생성·sessionStorage 유지, 턴 카운터 표시
-- [ ] 오류·429(rate limit)·턴 초과 상태를 사용자에게 표시
-- [ ] 대화 내용이 저장됩니다 고지 문구 표시
-- [ ] tests/test_ui_serving.py: / 접근 시 index.html 200 서빙 확인
+- [x] static/index.html: 채팅 화면(메시지 목록·입력창·전송 버튼)
+- [x] static/app.js: /api/chat 호출, session_id 생성·sessionStorage 유지, 턴 카운터 표시
+- [x] 오류·429(rate limit)·턴 초과 상태를 사용자에게 표시
+- [x] 대화 내용이 저장됩니다 고지 문구 표시
+- [x] tests/test_ui_serving.py: / 접근 시 index.html 200 서빙 확인
 
 ## 영향 범위
 
@@ -69,3 +69,36 @@ app.js:
 ```bash
 .venv/bin/python -m pytest tests/test_ui_serving.py -q
 ```
+
+## 실행 결과
+
+### 1회차 (2026-07-11 13:54 KST) — completed
+
+**상태**: completed
+**소요 시간**: 약 15분
+**진행 모델**: Claude sonnet
+
+#### 요약
+
+바닐라 HTML/CSS/JS로 채팅 화면 1장을 구성했다. `static/index.html`은 메시지 목록·입력창·전송 버튼·저장 고지 문구를 담고, `static/app.js`가 `session_id`를 `sessionStorage`(없으면 `crypto.randomUUID()`)로 관리하며 `POST /api/chat`을 호출해 `{reply, turn, limit_reached}` 계약대로 응답을 반영한다. 429(rate limit), 기타 HTTP 오류, `limit_reached`(입력창 비활성화), 네트워크 오류 네 갈래를 각각 다른 안내 문구로 표시한다. 접근성은 `<label>` + `input[type=text]`로 처리해 별도 JS 없이 Enter 키 전송이 네이티브로 동작한다(ponytail: textarea+keydown 핸들러 대신 input 기본 submit 활용).
+
+#### 변경 파일
+
+- `static/index.html` (신규, +35)
+- `static/style.css` (신규, +105)
+- `static/app.js` (신규, +96)
+- `tests/test_ui_serving.py` (신규, +18)
+
+#### 검증 결과
+
+- `.venv/bin/python -m pytest tests/test_ui_serving.py -q` → 2 passed
+- `.venv/bin/python -m pytest -q` (전체) → 19 passed (Phase 1/2 기존 테스트 포함, 회귀 없음)
+- `app/main.py` 읽어서 확인: static 디렉터리 존재 시 `/`에 `StaticFiles(html=True)`로 마운트, `/api/chat`은 그보다 먼저 등록된 명시적 라우트라 경로 충돌 없음. 코드 미수정.
+
+#### 추가 발견사항
+
+없음. Phase 4(app/ratelimit.py, app/main.py)와 Phase 3(app/storage.py 등) 파일에는 손대지 않았다.
+
+#### 질문 / 결정 사항
+
+없음.
