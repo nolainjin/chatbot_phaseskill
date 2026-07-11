@@ -47,3 +47,16 @@ cluster: optional-cluster-name   # 선택
 제목은 프론트매터 `title` 키가 아니라 본문 첫 H1(`# 제목`)에서 가져온다.
 H1도 없으면 파일명이 제목이 된다. `type`/`aliases`/`author`/`date`/`cluster`
 등 스키마에 정의되지 않은 키는 `Document.meta`에 그대로 보존된다.
+
+## 대화 저장 & SQLite 배치 적재
+
+대화 턴은 `data/conversations/YYYY-MM-DD/{session_id}.json`에 실시간
+저장된다(`app/storage.py`). 하루 1회 `scripts/load_to_sqlite.py`가 전일자
+JSON을 `data/chatlog.db`에 UPSERT로 적재한다 — 세션+턴순번 PK라 재실행해도
+중복되지 않는다(멱등). `--date YYYY-MM-DD`로 특정 날짜를 지정할 수 있다.
+
+실제 배포 환경에서는 크론에 등록한다 (등록 자체는 배포 phase에서 진행):
+
+```bash
+0 3 * * * cd /path/to/repo && .venv/bin/python scripts/load_to_sqlite.py
+```

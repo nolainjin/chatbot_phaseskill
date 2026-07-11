@@ -6,11 +6,11 @@
 
 from dataclasses import dataclass, field
 
-from app import knowledge, llm
+from app import knowledge, llm, storage
 from app.config import Settings
 
 MAX_TURNS = 10
-LIMIT_MESSAGE = "이 세션은 대화 10턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
+LIMIT_MESSAGE = f"이 세션은 대화 {MAX_TURNS}턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
 
 # 지식 문서 내용만 근거로 답하라는 지시일 뿐, 도메인 문구는 없다 — knowledge_dir을
 # 바꿔 다른 분야로 스왑해도 이 프리앰블은 그대로 쓴다 (Phase 6 스왑 검증 대상).
@@ -56,6 +56,9 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         doc_titles=[doc.title for doc in docs],
         settings=settings,
     )
+
+    storage.append_turn(session_id, "user", message)
+    storage.append_turn(session_id, "assistant", reply)
 
     session.history.append({"role": "user", "content": message})
     session.history.append({"role": "assistant", "content": reply})
