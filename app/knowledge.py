@@ -49,10 +49,16 @@ def _resolve_title(meta: dict, body: str, path: Path) -> str:
 
 
 def load_documents(knowledge_dir) -> list:
-    """knowledge_dir 안의 *.md를 전부 읽어 Document 목록으로 반환한다."""
+    """knowledge_dir 안의 *.md를 전부 읽어 Document 목록으로 반환한다.
+
+    "_"로 시작하는 파일(예: _persona.md)은 페르소나·메타 용도로 예약되어
+    검색 대상에서 제외한다.
+    """
     directory = Path(knowledge_dir)
     documents = []
     for md_file in sorted(directory.glob("*.md")):
+        if md_file.name.startswith("_"):
+            continue
         text = md_file.read_text(encoding="utf-8")
         meta, body = _split_frontmatter(text)
         title = _resolve_title(meta, body, md_file)

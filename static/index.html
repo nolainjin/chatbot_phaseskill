@@ -3,18 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LM Wiki 챗봇</title>
+  <title>접수 면담 챗봇</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main class="chat">
     <header class="chat-header">
-      <h1>LM Wiki 챗봇</h1>
+      <h1>접수 면담 챗봇</h1>
       <p class="turn-counter" id="turn-counter" aria-live="polite">0/10</p>
     </header>
     <p class="notice">이 대화 내용은 서버에 저장됩니다.</p>
 
-    <ul class="messages" id="messages" aria-live="polite"></ul>
+    <ul class="messages" id="messages" aria-live="polite">
+      <li class="message message-assistant">안녕하세요. 접수 면담을 시작하겠습니다. 오늘 상담을 받으러 오신 이유를 편하게 말씀해 주세요.</li>
+    </ul>
     <p class="status" id="status" role="alert"></p>
 
     <form id="chat-form" class="chat-form">
