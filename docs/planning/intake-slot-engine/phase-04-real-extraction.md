@@ -115,3 +115,6 @@ pytest -q
 
 #### 질문 / 결정 사항
 없음
+
+#### Commit
+- `8d82ff5` feat(intake): Phase 4 — 실모드 단일 호출 슬롯 추출 + 신뢰 경계 검증

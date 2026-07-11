@@ -153,6 +153,25 @@ def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[st
     return clean_reply, accepted
 
 
+def build_summary_json(schema: Schema, filled: dict) -> dict:
+    """스키마 활성 시 세션 슬롯 상태만으로 구조화 접수 요약을 만든다(LLM 무호출).
+
+    채워진 슬롯은 이미 세션 상태에 있으므로 LLM을 부를 이유가 없다 —
+    결정론 생성이라 fake 모드에서도 동일하게 돈다. 활성인데 못 채운 슬롯은
+    "미확인"으로 남긴다(CAP07). red_flags는 별도 감지 이력 없이 채워진
+    red_flag 슬롯에서 파생한다 — 신호는 감지됐지만 끝내 못 채운 레드플래그
+    슬롯은 unfilled의 미확인으로 표기되어 정보 손실이 없다.
+    """
+    active = schema.active_slots(filled)
+    unfilled = [slot for slot in active if slot.id not in filled]
+    return {
+        "track": filled.get("track", "미확인"),
+        "slots": dict(filled),
+        "unfilled": {slot.id: "미확인" for slot in unfilled},
+        "red_flags": [slot.id for slot in active if slot.red_flag and slot.id in filled],
+    }
+
+
 def _parse_slot(raw) -> Slot:
     if not isinstance(raw, dict):
         raise TypeError("slot 항목은 매핑이어야 한다")

@@ -4,6 +4,7 @@
 대화 내역 영속은 Phase 3의 JSON 저장이 맡는다.
 """
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -161,16 +162,24 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     session.turns += 1
 
     if session.turns >= MAX_TURNS:
-        try:
-            summary = llm.ask(
-                system=_SUMMARY_INSTRUCTION,
-                history=session.history,
-                user=_SUMMARY_INSTRUCTION,
-                doc_titles=[],
-                settings=settings,
+        if schema is not None:
+            # 채워진 슬롯이 이미 세션 상태에 있으므로 LLM을 부를 이유가 없다 —
+            # 결정론 생성이라 fake 모드에서도 동일하게 돈다(CAP08).
+            summary_json = intake.build_summary_json(schema, session.slots)
+            storage.append_turn(
+                session_id, "intake_summary", json.dumps(summary_json, ensure_ascii=False)
             )
-            storage.append_turn(session_id, "intake_summary", summary)
-        except Exception:
-            pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리
+        else:
+            try:
+                summary = llm.ask(
+                    system=_SUMMARY_INSTRUCTION,
+                    history=session.history,
+                    user=_SUMMARY_INSTRUCTION,
+                    doc_titles=[],
+                    settings=settings,
+                )
+                storage.append_turn(session_id, "intake_summary", summary)
+            except Exception:
+                pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리
 
     return {"reply": reply, "turn": session.turns, "limit_reached": False}

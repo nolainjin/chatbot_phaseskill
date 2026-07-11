@@ -94,11 +94,24 @@ def test_intake_summary_recorded_once_at_max_turns(monkeypatch, tmp_path):
     assert roles.count("assistant") == chat.MAX_TURNS
     assert roles.count("intake_summary") == 1
 
+    # 요약이 LLM 산문이 아니라 파싱 가능한 구조화 JSON인지, 미충족 슬롯이
+    # "미확인"으로 남는지 확인한다(CAP07·CAP08).
+    summary_text = next(t["text"] for t in turns if t["role"] == "intake_summary")
+    summary = json.loads(summary_text)
+    assert summary["unfilled"]
+    assert all(value == "미확인" for value in summary["unfilled"].values())
+
 
 def test_summary_failure_does_not_break_conversation_storage(monkeypatch, tmp_path):
     # 상대경로 data/conversations 를 tmp 아래로 격리 — 재실행 시 이전 실행분 누적 방지
     monkeypatch.chdir(tmp_path)
     session_id = "session-intake-summary-fail"
+
+    # 스키마 활성 시 요약이 LLM을 안 타므로(build_summary_json), 이 테스트가
+    # 검증하는 "요약 LLM 실패 격리" 경로는 스키마 없는 지식셋에서만 재현된다.
+    knowledge_no_schema = tmp_path / "knowledge-no-schema"
+    knowledge_no_schema.mkdir()
+    (knowledge_no_schema / "doc.md").write_text("# 문서\n\n내용.\n", encoding="utf-8")
 
     def flaky_ask(system, history, user, doc_titles, settings):
         if system == chat._SUMMARY_INSTRUCTION:
@@ -109,7 +122,9 @@ def test_summary_failure_does_not_break_conversation_storage(monkeypatch, tmp_pa
 
     result = None
     for i in range(chat.MAX_TURNS):
-        result = chat.handle_message(session_id, f"질문 {i}", _settings())
+        result = chat.handle_message(
+            session_id, f"질문 {i}", _settings(str(knowledge_no_schema))
+        )
 
     assert result["limit_reached"] is False
     assert result["turn"] == chat.MAX_TURNS
