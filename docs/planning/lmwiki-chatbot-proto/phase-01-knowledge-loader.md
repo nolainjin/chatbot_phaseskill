@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: 지식베이스 로더 + 프로젝트 뼈대
-status: pending
+status: completed
 depends_on: []
 scope:
   - app/__init__.py
@@ -75,12 +75,12 @@ search(query, documents, top_n=3):
 
 ## 체크리스트
 
-- [ ] python3 -m venv .venv 생성 후 .venv/bin/pip install -r requirements.txt 성공 — requirements.txt에 전체 의존성 선기재(fastapi, uvicorn, anthropic, pyyaml, pytest, httpx)
-- [ ] app/knowledge.py: KNOWLEDGE_DIR 환경변수가 가리키는 디렉토리에서 *.md 로딩, YAML 프론트매터 파싱 (PyYAML) — SecondBrain 스키마 호환(title 부재 시 H1→파일명 stem 폴백, 미지정 키 meta 보존)
-- [ ] 키워드 기반 검색 함수: 질문어를 제목/태그/본문과 매칭해 상위 N개 문서 반환
-- [ ] 샘플 지식셋 2벌: knowledge/ (상담 초기 면담 도메인 — 사용자 확정 2026-07-11) + knowledge-alt/ (다른 도메인, 스왑 검증용) 각 5개 이상 문서, SecondBrain 프론트매터 스키마(type/aliases/author/date/tags) 준수
-- [ ] .env.example에 ANTHROPIC_API_KEY/KNOWLEDGE_DIR/MODEL/TRUST_PROXY_HOPS/DAILY_REQUEST_CAP 명시, .gitignore에 .env·data/·.venv/ 포함
-- [ ] tests/test_knowledge.py: 프론트매터 파싱(title 부재 폴백 포함)·디렉토리 교체·검색 테스트 통과
+- [x] python3 -m venv .venv 생성 후 .venv/bin/pip install -r requirements.txt 성공 — requirements.txt에 전체 의존성 선기재(fastapi, uvicorn, anthropic, pyyaml, pytest, httpx)
+- [x] app/knowledge.py: KNOWLEDGE_DIR 환경변수가 가리키는 디렉토리에서 *.md 로딩, YAML 프론트매터 파싱 (PyYAML) — SecondBrain 스키마 호환(title 부재 시 H1→파일명 stem 폴백, 미지정 키 meta 보존)
+- [x] 키워드 기반 검색 함수: 질문어를 제목/태그/본문과 매칭해 상위 N개 문서 반환
+- [x] 샘플 지식셋 2벌: knowledge/ (상담 초기 면담 도메인 — 사용자 확정 2026-07-11) + knowledge-alt/ (다른 도메인, 스왑 검증용) 각 5개 이상 문서, SecondBrain 프론트매터 스키마(type/aliases/author/date/tags) 준수
+- [x] .env.example에 ANTHROPIC_API_KEY/KNOWLEDGE_DIR/MODEL/TRUST_PROXY_HOPS/DAILY_REQUEST_CAP 명시, .gitignore에 .env·data/·.venv/ 포함
+- [x] tests/test_knowledge.py: 프론트매터 파싱(title 부재 폴백 포함)·디렉토리 교체·검색 테스트 통과
 
 ## 영향 범위
 
@@ -93,3 +93,45 @@ search(query, documents, top_n=3):
 ```
 
 > 참고: 1회차 실행 결과(2026-07-11, 커밋 829fa33)는 사용자 요청으로 폐기 — intake open questions 답변(상담 도메인·SecondBrain 스키마) 반영 후 재실행 예정.
+
+## 실행 결과
+
+### 2회차 (2026-07-11 00:00 KST) — completed
+**상태**: completed
+**소요 시간**: 약 15분
+**진행 모델**: Claude sonnet
+
+#### 요약
+지식베이스 로더(`app/knowledge.py`)와 설정 모듈(`app/config.py`)을 새로 만들고, SecondBrain 프론트매터 스키마(title 없이 H1/파일명 stem 폴백, 미지정 키 meta 보존)를 따르는 상담 초기 면담 샘플 지식셋(`knowledge/`, 6개 문서)과 커피 브루잉 샘플 지식셋(`knowledge-alt/`, 6개 문서)을 작성했다. `.venv` + `requirements.txt`, `.env.example`, `.gitignore`, `README.md`까지 프로젝트 뼈대를 갖췄고 pytest 5건 모두 통과했다.
+
+#### 변경 파일
+- `app/__init__.py` (new, +0/-0)
+- `app/config.py` (new, +23/-0)
+- `app/knowledge.py` (new, +81/-0)
+- `requirements.txt` (new, +6/-0)
+- `.env.example` (new, +14/-0)
+- `.gitignore` (new, +6/-0)
+- `README.md` (new, +49/-0)
+- `tests/test_knowledge.py` (new, +90/-0)
+- `knowledge/초기-면담-목적과-구조.md` (new, +24/-0)
+- `knowledge/라포-형성-기법.md` (new, +23/-0)
+- `knowledge/비밀보장-원칙과-예외.md` (new, +22/-0)
+- `knowledge/위기-상황-스크리닝.md` (new, +25/-0)
+- `knowledge/접수-면접-질문지-구성.md` (new, +23/-0)
+- `knowledge/상담-목표-설정.md` (new, +21/-0)
+- `knowledge-alt/원두-로스팅-단계.md` (new, +22/-0)
+- `knowledge-alt/드립-커피-추출-원리.md` (new, +22/-0)
+- `knowledge-alt/원두-보관법.md` (new, +20/-0)
+- `knowledge-alt/그라인더-선택-가이드.md` (new, +21/-0)
+- `knowledge-alt/물-온도와-맛의-관계.md` (new, +20/-0)
+- `knowledge-alt/프렌치프레스-사용법.md` (new, +23/-0)
+
+#### 검증 결과
+- [x] python3 -m venv .venv && .venv/bin/pip install -r requirements.txt: 성공 (fastapi/uvicorn/anthropic/pyyaml/pytest/httpx 전부 설치)
+- [x] `.venv/bin/python -m pytest tests/test_knowledge.py -q`: `5 passed in 0.02s`
+
+#### 추가 발견사항
+없음. (1회차에서 보고된 starlette+httpx TestClient deprecation 경고는 이번 phase 범위에서 재현되지 않음 — FastAPI TestClient는 Phase 2에서 처음 쓰이므로 그때 확인 필요.)
+
+#### 질문 / 결정 사항
+없음.
