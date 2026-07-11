@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: 지식베이스 로더 + 프로젝트 뼈대
-status: pending
+status: completed
 depends_on: []
 scope:
   - app/__init__.py
@@ -72,12 +72,12 @@ search(query, documents, top_n=3):
 
 ## 체크리스트
 
-- [ ] python3 -m venv .venv 생성 후 .venv/bin/pip install -r requirements.txt 성공 — requirements.txt에 전체 의존성 선기재(fastapi, uvicorn, anthropic, pyyaml, pytest, httpx)
-- [ ] app/knowledge.py: KNOWLEDGE_DIR 환경변수가 가리키는 디렉토리에서 *.md 로딩, YAML 프론트매터 파싱 (PyYAML)
-- [ ] 키워드 기반 검색 함수: 질문어를 제목/태그/본문과 매칭해 상위 N개 문서 반환
-- [ ] 샘플 지식셋 2벌: knowledge/ (기본 도메인) + knowledge-alt/ (다른 도메인, 스왑 검증용) 각 5개 이상 문서
-- [ ] .env.example에 ANTHROPIC_API_KEY/KNOWLEDGE_DIR/MODEL/TRUST_PROXY_HOPS/DAILY_REQUEST_CAP 명시, .gitignore에 .env·data/·.venv/ 포함
-- [ ] tests/test_knowledge.py: 프론트매터 파싱·디렉토리 교체·검색 테스트 통과
+- [x] python3 -m venv .venv 생성 후 .venv/bin/pip install -r requirements.txt 성공 — requirements.txt에 전체 의존성 선기재(fastapi, uvicorn, anthropic, pyyaml, pytest, httpx)
+- [x] app/knowledge.py: KNOWLEDGE_DIR 환경변수가 가리키는 디렉토리에서 *.md 로딩, YAML 프론트매터 파싱 (PyYAML)
+- [x] 키워드 기반 검색 함수: 질문어를 제목/태그/본문과 매칭해 상위 N개 문서 반환
+- [x] 샘플 지식셋 2벌: knowledge/ (기본 도메인) + knowledge-alt/ (다른 도메인, 스왑 검증용) 각 5개 이상 문서
+- [x] .env.example에 ANTHROPIC_API_KEY/KNOWLEDGE_DIR/MODEL/TRUST_PROXY_HOPS/DAILY_REQUEST_CAP 명시, .gitignore에 .env·data/·.venv/ 포함
+- [x] tests/test_knowledge.py: 프론트매터 파싱·디렉토리 교체·검색 테스트 통과
 
 ## 영향 범위
 
@@ -88,3 +88,50 @@ search(query, documents, top_n=3):
 ```bash
 .venv/bin/python -m pytest tests/test_knowledge.py -q
 ```
+
+## 실행 결과
+
+### 1회차 (2026-07-11 13:05 KST) — completed
+**상태**: completed
+**소요 시간**: 약 20분
+**진행 모델**: Claude `sonnet`
+
+#### 요약
+지식 로더(app/knowledge.py) + 설정 모듈(app/config.py) + 서로 다른 도메인 샘플 지식셋 2벌(사내 IT 헬프데스크 / 홈카페 원두 가이드)을 새로 만들었다. .venv 생성 후 requirements.txt 설치가 성공했고, pytest 5건이 모두 통과했다.
+
+#### 변경 파일
+- `app/__init__.py` (new, +0 lines)
+- `app/config.py` (new, +29 lines)
+- `app/knowledge.py` (new, +72 lines)
+- `requirements.txt` (new, +6 lines)
+- `.env.example` (new, +5 lines)
+- `.gitignore` (new, +6 lines)
+- `README.md` (new, +35 lines)
+- `tests/test_knowledge.py` (new, +48 lines)
+- `knowledge/vpn-setup.md` (new, +16 lines)
+- `knowledge/password-reset.md` (new, +16 lines)
+- `knowledge/printer-setup.md` (new, +15 lines)
+- `knowledge/remote-work.md` (new, +15 lines)
+- `knowledge/laptop-issue.md` (new, +15 lines)
+- `knowledge-alt/roasting-levels.md` (new, +14 lines)
+- `knowledge-alt/brew-methods.md` (new, +14 lines)
+- `knowledge-alt/grinder-guide.md` (new, +15 lines)
+- `knowledge-alt/milk-steaming.md` (new, +14 lines)
+- `knowledge-alt/bean-storage.md` (new, +15 lines)
+
+> 라인 수는 각 신규(untracked) 파일에 `wc -l` 실측값(+N/-0 형식)을 사용했다.
+
+#### 검증 결과
+- [x] python3 -m venv .venv && .venv/bin/pip install -r requirements.txt: `.venv/bin/pip install -r requirements.txt` -> pass (설치 완료, 캐시 역직렬화 경고만 있고 에러 없음)
+- [x] tests/test_knowledge.py 5건 (프론트매터 파싱·디렉토리 스왑·검색 top_n·검색 0건): `.venv/bin/python -m pytest tests/test_knowledge.py -q` -> pass (`5 passed in 0.17s`)
+- [x] (추가 스모크) app.config.Settings 기본값 로딩: `.venv/bin/python -c "from app.config import Settings; ..."` -> pass (`CONFIG_SMOKE_OK`)
+- [x] (추가 스모크) knowledge-alt/ 5개 문서 로딩: `.venv/bin/python -c "from app.knowledge import load_documents; ..."` -> pass (`ALT_LOAD_OK`, 5개 문서 확인)
+
+#### 추가 발견사항
+없음.
+
+#### 질문 / 결정 사항
+없음.
+
+#### 사용 도구
+Read 6회, Write 14회, Edit 2회, Bash 8회.
