@@ -14,15 +14,15 @@ created: 2026-07-11
 
 | Phase | 파일 | 항목 | 완료 | 진행률 | 상태 | 커밋 |
 |-------|------|------|------|--------|------|------|
-| 1 | [phase-01-knowledge-loader.md](./phase-01-knowledge-loader.md) | 6 | 6 | 100% | completed | 829fa33 |
-| 2 | [phase-02-chat-api.md](./phase-02-chat-api.md) | 5 | 5 | 100% | completed | 9d9c0c4 |
+| 1 | [phase-01-knowledge-loader.md](./phase-01-knowledge-loader.md) | 6 | 0 | 0% | pending | - |
+| 2 | [phase-02-chat-api.md](./phase-02-chat-api.md) | 5 | 0 | 0% | pending | - |
 | 3 | [phase-03-storage-batch.md](./phase-03-storage-batch.md) | 5 | 0 | 0% | pending | - |
 | 4 | [phase-04-ratelimit.md](./phase-04-ratelimit.md) | 6 | 0 | 0% | pending | - |
 | 5 | [phase-05-chat-ui.md](./phase-05-chat-ui.md) | 5 | 0 | 0% | pending | - |
 | 6 | [phase-06-swap-e2e-smoke.md](./phase-06-swap-e2e-smoke.md) | 3 | 0 | 0% | pending | - |
 | 7 | [phase-07-security-review.md](./phase-07-security-review.md) | 4 | 0 | 0% | pending | - |
 | 8 | [phase-08-deploy.md](./phase-08-deploy.md) | 5 | 0 | 0% | pending | - |
-| **Total** | | **39** | **11** | **28%** | | |
+| **Total** | | **39** | **0** | **0%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
@@ -65,7 +65,8 @@ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ─┐
 
 ## Cross-Phase 메모
 
-- cross-phase (Phase 2): starlette(1.3.1)+httpx(0.28.1) 조합에서 testclient deprecation 경고 — httpx2 전환 추후 검토, 테스트는 통과
+- cross-phase (2026-07-11 리셋): Phase 1·2 1회차 실행 산출물(커밋 829fa33·9d9c0c4의 코드)은 사용자 요청으로 삭제 — 아래 답변 반영해 Phase 1부터 재실행. 1회차에서 starlette(1.3.1)+httpx(0.28.1) testclient deprecation 경고 있었음(테스트는 통과) — 재실행 시 참고
+- cross-phase (2026-07-11 사용자 답변, intake open questions 전부 해소): 첫 도메인 = **상담 초기 면담 챗봇**. 지식 프론트매터 레퍼런스 = SecondBrain wiki (`type/aliases/author/date/tags[/cluster]`, 제목은 H1) — Phase 1 스펙에 스키마 호환 요건(title 폴백·meta 보존) 반영됨. 턴 = 사용자 발화 기준(Phase 2 구현대로). 상담 도메인 민감정보 가능성 → Phase 7 저장 데이터 점검 가중. 실배포용 상담 지식셋 작성은 Phase 8 전 별도 콘텐츠 작업 (Phase 6 스왑 검증은 기존 샘플 2벌로 충분)
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 관련 문서
