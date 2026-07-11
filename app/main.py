@@ -2,20 +2,21 @@
 
 import os
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
-from app import chat
+from app import chat, ratelimit
+from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
 STATIC_DIR = "static"
 
 app = FastAPI()
+_rate_limiter = ratelimit.RateLimiter()
 
 
 @app.post("/api/chat")
-def post_chat(payload: dict = Body(...)):
-    # rate limit 검사는 Phase 4에서 의존성으로 붙는다 — 여기서는 자리만 남긴다.
+def post_chat(request: Request, payload: dict = Body(...)):
     session_id = payload.get("session_id")
     message = payload.get("message")
 
@@ -25,6 +26,13 @@ def post_chat(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="message는 비어있지 않은 문자열이어야 합니다.")
     if len(message) > MAX_MESSAGE_LEN:
         raise HTTPException(status_code=400, detail=f"message는 {MAX_MESSAGE_LEN}자를 넘을 수 없습니다.")
+
+    settings = Settings.from_env()
+    ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
+    try:
+        _rate_limiter.check(ip, session_id, daily_cap=settings.daily_request_cap)
+    except ratelimit.RateLimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     return chat.handle_message(session_id, message)
 
