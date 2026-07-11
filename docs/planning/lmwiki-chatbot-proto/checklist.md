@@ -14,7 +14,7 @@ created: 2026-07-11
 
 | Phase | 파일 | 항목 | 완료 | 진행률 | 상태 | 커밋 |
 |-------|------|------|------|--------|------|------|
-| 1 | [phase-01-knowledge-loader.md](./phase-01-knowledge-loader.md) | 6 | 0 | 0% | pending | - |
+| 1 | [phase-01-knowledge-loader.md](./phase-01-knowledge-loader.md) | 6 | 6 | 100% | completed | 829fa33 |
 | 2 | [phase-02-chat-api.md](./phase-02-chat-api.md) | 5 | 0 | 0% | pending | - |
 | 3 | [phase-03-storage-batch.md](./phase-03-storage-batch.md) | 5 | 0 | 0% | pending | - |
 | 4 | [phase-04-ratelimit.md](./phase-04-ratelimit.md) | 6 | 0 | 0% | pending | - |
@@ -22,7 +22,7 @@ created: 2026-07-11
 | 6 | [phase-06-swap-e2e-smoke.md](./phase-06-swap-e2e-smoke.md) | 3 | 0 | 0% | pending | - |
 | 7 | [phase-07-security-review.md](./phase-07-security-review.md) | 4 | 0 | 0% | pending | - |
 | 8 | [phase-08-deploy.md](./phase-08-deploy.md) | 5 | 0 | 0% | pending | - |
-| **Total** | | **39** | **0** | **0%** | | |
+| **Total** | | **39** | **6** | **15%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
