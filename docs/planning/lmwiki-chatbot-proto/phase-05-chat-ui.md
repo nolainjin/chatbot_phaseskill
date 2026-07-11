@@ -102,3 +102,6 @@ app.js:
 #### 질문 / 결정 사항
 
 없음.
+
+#### Commit
+- `792b84b` feat(chat-ui): Phase 5 — 바닐라 채팅 웹 UI + /api/chat 연동 (review pass, simplify 429 분기 중복 제거, 검증 재실행 pass)

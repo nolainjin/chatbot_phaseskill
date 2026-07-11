@@ -128,3 +128,6 @@ app/storage.py에 append_turn 함수를 신규 작성해 세션 대화 턴을 da
 
 #### 질문 / 결정 사항
 없음.
+
+#### Commit
+- `cd6cf72` feat(storage): Phase 3 — 대화 JSON 저장 + SQLite 일배치 적재 (review fix_required → session_id 검증 반영 후 pass, README ripple 인정, 검증 재실행 pass)
