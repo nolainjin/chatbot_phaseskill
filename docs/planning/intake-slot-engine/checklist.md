@@ -18,10 +18,10 @@ created: 2026-07-12
 | 2 | [phase-02-counseling-schema.md](./phase-02-counseling-schema.md) | 5 | 5 | 100% | completed | e4596a3 |
 | 3 | [phase-03-fake-slot-loop.md](./phase-03-fake-slot-loop.md) | 8 | 8 | 100% | completed | b6db56f |
 | 4 | [phase-04-real-extraction.md](./phase-04-real-extraction.md) | 5 | 5 | 100% | completed | 8d82ff5 |
-| 5 | [phase-05-structured-summary.md](./phase-05-structured-summary.md) | 6 | 0 | 0% | pending | - |
+| 5 | [phase-05-structured-summary.md](./phase-05-structured-summary.md) | 6 | 6 | 100% | completed | e52a915 |
 | 6 | [phase-06-slot-e2e.md](./phase-06-slot-e2e.md) | 6 | 0 | 0% | pending | - |
 | 7 | [phase-07-demo-docs.md](./phase-07-demo-docs.md) | 4 | 0 | 0% | pending | - |
-| **Total** | | **38** | **22** | **58%** | | |
+| **Total** | | **38** | **28** | **74%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
