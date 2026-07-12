@@ -101,3 +101,6 @@ None
 
 #### 질문 / 결정 사항
 None
+
+#### Commit
+- `8f7af8d` docs(demo): Phase 7 — 데모 시나리오 문서 + 부모 supersede 메모

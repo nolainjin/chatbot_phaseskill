@@ -20,8 +20,8 @@ created: 2026-07-12
 | 4 | [phase-04-real-extraction.md](./phase-04-real-extraction.md) | 5 | 5 | 100% | completed | 8d82ff5 |
 | 5 | [phase-05-structured-summary.md](./phase-05-structured-summary.md) | 6 | 6 | 100% | completed | e52a915 |
 | 6 | [phase-06-slot-e2e.md](./phase-06-slot-e2e.md) | 6 | 6 | 100% | completed | 5620380 |
-| 7 | [phase-07-demo-docs.md](./phase-07-demo-docs.md) | 4 | 0 | 0% | pending | - |
-| **Total** | | **38** | **34** | **89%** | | |
+| 7 | [phase-07-demo-docs.md](./phase-07-demo-docs.md) | 4 | 4 | 100% | completed | 8f7af8d |
+| **Total** | | **38** | **38** | **100%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성

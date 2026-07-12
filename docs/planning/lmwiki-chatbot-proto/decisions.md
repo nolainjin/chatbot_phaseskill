@@ -1,7 +1,7 @@
 ---
 task: lmwiki-chatbot-proto
 created: 2026-07-11
-decision_count: 9
+decision_count: 10
 ---
 
 # LM Wiki 챗봇 프로토타입 — Decisions
@@ -259,6 +259,33 @@ decisions:
     status: answered
     accepted_default: ""
     answer: "포함 — MAX_TURNS 도달 시 role=\"intake_summary\" 턴으로 구조화 요약 저장 (사용자가 권장 대신 포함 선택)"
+
+  - id: D10
+    kind: DECISION_OFFER
+    rubric_id: ""
+    decision_class: "interview_sequencing"
+    decision_key: "interview_sequencing"
+    question: "10턴 면담의 단계별 질문을 미리 정의해 순차 진행하는 방식을 어떻게 구현할까?"
+    options:
+      - label: "대화형 순차 진행 (권장)"
+        recommended: true
+        tradeoff: "단계 스크립트를 매 턴 시스템 프롬프트에 주입, 봇이 공감+단계 질문을 자연스럽게 수행. 대화 느낌 유지 + 단계 누락 방지."
+      - label: "단계 라벨 + 대화형"
+        tradeoff: "위와 동일하되 UI에 현재 단계 표시 — 투명하나 UI 변경 추가."
+      - label: "설문형 UI"
+        tradeoff: "질문 고정 표시, 예측 가능성 최대지만 라포 형성 원칙과 멀어짐."
+    default: "대화형 순차 진행"
+    provenance:
+      source_type: user
+      source_refs: ["phase-add AskUserQuestion 2026-07-11"]
+      last_reviewed: "2026-07-11"
+      volatility: low
+      refresh_required: false
+    needs_research: false
+    blocks_phase_init: false
+    status: answered
+    accepted_default: ""
+    answer: "대화형 순차 진행 — knowledge/_script.md 단계 스크립트 + 매 턴 단계 지시 주입, 부재 시 폴백. fake 모드는 단계 예시 질문 반환"
 ```
 
 ## Notes

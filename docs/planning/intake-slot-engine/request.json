@@ -1,0 +1,62 @@
+{
+  "task": "intake-slot-engine",
+  "created": "2026-07-11",
+  "origin": "docs/planning/intake-slot-engine/origin.md",
+  "signals": [
+    "existing_project_extension",
+    "slot_schema_engine",
+    "knowledge_declared_collection_items",
+    "conditional_slots",
+    "red_flag_priority",
+    "multi_slot_extraction_per_utterance",
+    "turn_budget_priority_consumption",
+    "structured_intake_summary_json",
+    "schema_absent_fallback",
+    "fake_mode_demo",
+    "counseling_domain_demo",
+    "physician_demo_preview_3track"
+  ],
+  "constraints": {
+    "underscore_reserved_file_rule": "preserved",
+    "api_contract": "reply_turn_limit_reached_unchanged",
+    "rate_limit": "unchanged",
+    "storage_schema": "unchanged",
+    "sqlite_batch": "unchanged",
+    "swap_fallback": "knowledge_alt_qa_regression_free",
+    "fake_mode": "full_intake_flow_without_api_key",
+    "persona_ownership": "schema_owns_order_items_persona_owns_attitude_confidentiality_summary_format",
+    "scope_exclusion_knowledge_rehab": "out_of_scope_followup_task",
+    "phase8_residual_deploy_verification": "after_this_task",
+    "supersede_record": "phase10_d10_superseded_note_in_parent_checklist_cross_phase_memo"
+  },
+  "required_decision_classes": [],
+  "derived_classes": [
+    {"id": "schema_file_format", "load_bearing": true},
+    {"id": "slot_extraction_strategy", "load_bearing": true},
+    {"id": "fake_mode_slot_demo", "load_bearing": false},
+    {"id": "red_flag_priority_semantics", "load_bearing": false},
+    {"id": "turn_budget_semantics", "load_bearing": false}
+  ],
+  "resolved_decisions": [
+    {
+      "id": "D01",
+      "rubric_id": "",
+      "decision_class": "schema_file_format",
+      "decision_key": "intake_schema_file_format",
+      "answer": "마크다운 문서 안에 기계 파싱용 YAML 블록 하나 (주변 산문 자유, 파싱 실패 = 형식 오류 → 폴백)",
+      "status": "answered",
+      "author_or_defer_state": "explicit_defer",
+      "reason": "사용자 답변(2026-07-11): YAML 블록 선택. 이번 task 한정 처리, 재사용 rubric 등록 유보"
+    },
+    {
+      "id": "D02",
+      "rubric_id": "",
+      "decision_class": "slot_extraction_strategy",
+      "decision_key": "real_mode_slot_extraction",
+      "answer": "단일 호출 통합 — 응답 생성 호출에 슬롯 추출 지시 포함, 모델 출력에서 응답 텍스트/슬롯 JSON 분리 (턴당 호출 1회 유지, 파싱 실패 턴은 추출 스킵)",
+      "status": "answered",
+      "author_or_defer_state": "explicit_defer",
+      "reason": "사용자 답변(2026-07-11): 단일 호출 통합 선택(비용 무증가). 이번 task 한정 처리, 재사용 rubric 등록 유보"
+    }
+  ]
+}

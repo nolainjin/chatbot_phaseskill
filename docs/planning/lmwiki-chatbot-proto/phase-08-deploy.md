@@ -1,7 +1,7 @@
 ---
 phase: 8
 title: 배포 구성 + 실배포 검증
-status: pending
+status: needs_user
 depends_on: [7]
 scope:
   - Dockerfile
@@ -60,10 +60,10 @@ deploy/checklist.md (실배포 후 사용자와 함께 확인):
 
 ## 체크리스트
 
-- [ ] Dockerfile: 앱 실행 이미지(uvicorn 워커 1 고정 — rate limit 파일 카운터 전제), data/ 영속 볼륨 경로 명시, 배치 실행 진입점 포함
-- [ ] deploy/README.md: 후보 4개 플랫폼별 배포 절차(볼륨 마운트·env 설정·TRUST_PROXY_HOPS 권장값·크론/스케줄 등록) — research.md 소스 기반
-- [ ] 로컬 컨테이너 스모크: docker 가용 시 build+기동 확인(불가 시 사유 기록), ANTHROPIC_API_KEY 제공 시 실모델 1회 호출 스모크로 SDK 통합 사전 확인
-- [ ] deploy/checklist.md: 실배포 후 검증 항목(공개 URL 응답·대화 후 JSON 저장 확인·배치 1회 수동 실행+SQLite 확인·6번째 세션 차단 확인·TRUST_PROXY_HOPS 플랫폼 권장값 설정 확인·서로 다른 두 클라이언트(예: PC/폰 LTE)가 각자 독립 카운트되는지 확인)
+- [x] Dockerfile: 앱 실행 이미지(uvicorn 워커 1 고정 — rate limit 파일 카운터 전제), data/ 영속 볼륨 경로 명시, 배치 실행 진입점 포함
+- [x] deploy/README.md: 후보 4개 플랫폼별 배포 절차(볼륨 마운트·env 설정·TRUST_PROXY_HOPS 권장값·크론/스케줄 등록) — research.md 소스 기반
+- [x] 로컬 컨테이너 스모크: docker 가용 시 build+기동 확인(불가 시 사유 기록), ANTHROPIC_API_KEY 제공 시 실모델 1회 호출 스모크로 SDK 통합 사전 확인
+- [x] deploy/checklist.md: 실배포 후 검증 항목(공개 URL 응답·대화 후 JSON 저장 확인·배치 1회 수동 실행+SQLite 확인·6번째 세션 차단 확인·TRUST_PROXY_HOPS 플랫폼 권장값 설정 확인·서로 다른 두 클라이언트(예: PC/폰 LTE)가 각자 독립 카운트되는지 확인)
 - [ ] 확정 플랫폼에 실배포 실행(사용자 개입: 플랫폼 확정 GM1 + 계정·과금 승인) 후 deploy/checklist.md 검증 항목 전부 확인 — 공개 URL 응답·JSON 저장·배치 수동 1회+SQLite·6번째 세션 차단 (사용자 확정 2026-07-11: 실배포까지 이번 task 범위)
 
 ## 영향 범위
@@ -75,3 +75,34 @@ deploy/checklist.md (실배포 후 사용자와 함께 확인):
 ```bash
 docker build -t lmwiki-chatbot . || echo "docker 부재 — deploy/README.md 문서 검증으로 대체(사유 기록)"
 ```
+
+## 실행 결과
+
+### 1회차 (2026-07-11 18:01 KST) — needs_user
+**상태**: needs_user
+**소요 시간**: 약 20분
+**진행 모델**: Claude `sonnet`
+
+#### 요약
+체크리스트 1~4번(Dockerfile·`.dockerignore`·`deploy/README.md`·`deploy/checklist.md`)을 완료했다. D01(hosting_platform)이 아직 유보 상태라(사용자가 팀원과 상의 후 확정 예정) 5번(확정 플랫폼 실배포)은 이번 회차에서 실행하지 않았다.
+
+#### 변경 파일
+- `Dockerfile` (new, +36 lines)
+- `.dockerignore` (new, +16 lines)
+- `deploy/README.md` (new, +142 lines)
+- `deploy/checklist.md` (new, +36 lines)
+
+#### 검증 결과
+- [x] Dockerfile — uvicorn 워커 1 고정(`--workers 1`), `data/` VOLUME 마운트 지점 명시, CMD 오버라이드 방식의 배치 진입점(`python scripts/load_to_sqlite.py`) 문서화: 코드 리뷰로 확인
+- [x] deploy/README.md — Railway/Fly.io/Oracle Always Free VM/Hetzner CX23 4종 전부 기술, 각 절이 research.md의 공식 문서 출처(URL·확인일)를 인용, TRUST_PROXY_HOPS 권장값(Railway/Fly.io=1, Oracle/Hetzner=0·리버스 프록시 사용 시 1) 포함: 코드 리뷰로 확인
+- [x] 로컬 컨테이너 스모크: `docker build -t lmwiki-chatbot .` → pass — docker CLI 미설치(`docker not found`)로 fallback 문구 출력, 사유 기록됨. 대체 스모크로 `bash scripts/smoke_local.sh` 실행 → pass(uvicorn 단일 워커 기동 → 신규 세션 5회 통과+6번째 429 → 대화 3턴 → JSON 저장 확인 → `load_to_sqlite.py` 배치 실행 → SQLite 행 수 확인, 전 구간 통과). `.env`/환경변수 어디에도 `ANTHROPIC_API_KEY` 없어 실모델 호출 스모크는 스킵(사유 기록) — 사용자가 사전에 최대 1회 허용했으나 키 자체가 없어 호출 대상이 없었음
+- [x] deploy/checklist.md — 공개 URL 응답·실대화·JSON 저장·배치+SQLite·6번째 세션 차단·TRUST_PROXY_HOPS 확인·PC/폰 LTE 독립 카운트 7개 항목 전부 커맨드와 함께 작성: 코드 리뷰로 확인
+- [ ] 확정 플랫폼 실배포 — skip: D01 유보(사용자가 팀원과 상의 후 플랫폼 확정 예정), 계정/과금 승인 대상 없음
+
+전체 pytest(37 tests)도 함께 재확인 — 이번 phase는 앱 코드를 건드리지 않았으므로 회귀 없이 전부 통과.
+
+#### 추가 발견사항
+없음
+
+#### 질문 / 결정 사항
+D01(hosting_platform, `docs/planning/lmwiki-chatbot-proto/decisions.md`)이 여전히 `status: deferred`다. 사용자가 이번 회차에서 "플랫폼은 다른 사람들과 이야기해서 진행예정 — 다른 팀원에게 물어봐야 함"이라고 답해 후보 4종(Railway Hobby $5/월(권장)/Fly.io $5~10/Oracle Always Free VM $0/Hetzner CX23 €5.49) 중 확정을 보류했다. 새 결정을 만들지 않고 기존 D01 offer를 그대로 참조한다 — 팀원과 상의 후 플랫폼이 확정되면 체크리스트 5번(실배포+`deploy/checklist.md` 전체 검증)을 재개한다.

@@ -141,6 +141,10 @@ decision_surface:
     - decision_key: "intake_summary_storage"
       answer: "포함 — MAX_TURNS 도달 시 role=intake_summary 턴으로 구조화 요약 저장"
       source: "phase-add AskUserQuestion 2026-07-11 (D09)"
+    # --- phase-add 델타 (Phase 10, 2026-07-11) ---
+    - decision_key: "interview_sequencing"
+      answer: "대화형 순차 진행 — knowledge/_script.md 단계 스크립트 매 턴 주입, 부재 시 폴백, fake 모드 단계 예시 질문 반환"
+      source: "phase-add AskUserQuestion 2026-07-11 (D10)"
   deferrals:
     - decision_key: "hosting_platform"
       reason: "사용자 답변(2026-07-11): 배포 플랫폼은 이후 결정할 예정. 후보 4종(Railway Hobby/Fly.io/Oracle Free VM/Hetzner)으로 압축, Phase 8 진입 시 GM1 needs_user로 확정"

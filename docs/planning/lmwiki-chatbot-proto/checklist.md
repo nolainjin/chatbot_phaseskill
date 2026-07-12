@@ -1,6 +1,6 @@
 ---
 task: lmwiki-chatbot-proto
-phase_count: 9
+phase_count: 10
 created: 2026-07-11
 ---
 
@@ -23,7 +23,8 @@ created: 2026-07-11
 | 7 | [phase-07-security-review.md](./phase-07-security-review.md) | 4 | 4 | 100% | completed | e2047df |
 | 8 | [phase-08-deploy.md](./phase-08-deploy.md) | 5 | 4 | 80% | needs_user | - |
 | 9 | [phase-09-intake-interview.md](./phase-09-intake-interview.md) | 6 | 6 | 100% | completed | e5af60f |
-| **Total** | | **45** | **44** | **98%** | | |
+| 10 | [phase-10-scripted-interview.md](./phase-10-scripted-interview.md) | 5 | 0 | 0% | pending | - |
+| **Total** | | **50** | **44** | **88%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
@@ -32,9 +33,9 @@ created: 2026-07-11
 Phase 1 ──▶ Phase 2 ──▶ Phase 3 ─┐
                    ├──▶ Phase 4 ─┼──▶ Phase 6 ──▶ Phase 7 ──▶ Phase 8
                    └──▶ Phase 5 ─┘                    │
-                                                      └──▶ Phase 9 (접수 면담 전환)
+                                                      └──▶ Phase 9 (접수 면담 전환) ──▶ Phase 10 (단계 스크립트)
 (Phase 3/4/5는 scope 서로소 — 병렬 실행 가능)
-(Phase 9는 Phase 7 의존 — Phase 8 잔여 항목(실배포 검증)보다 먼저 실행 권장)
+(Phase 9·10은 Phase 8 잔여 항목(실배포 검증)보다 먼저 실행 권장)
 ```
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
@@ -51,6 +52,7 @@ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ─┐
 | P1 | Phase 7 | 보안 검토 + 하드닝 | checkpoint: 배포 전 게이트 |
 | P0 | Phase 8 | 배포 + 실환경 검증 (사용자 개입) | checkpoint: 실배포 검증 |
 | P0 | Phase 9 | 접수 면담 모드 전환 — 실배포 대화 형식 확정 | unit: 페르소나 주입/스왑 폴백 |
+| P1 | Phase 10 | 단계 스크립트 순차 면담 — 10턴 단계 주입 + fake 데모 | unit: 파서/폴백/프롬프트 조립 |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 권장 실행 순서
@@ -58,7 +60,7 @@ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ─┐
 1. Phase 1 → 2
 2. Phase 3, 4, 5 (병렬 가능)
 3. Phase 6 → 7 → 8 (1~4번 항목 완료, 5번 실배포는 플랫폼 확정 대기)
-4. Phase 9 (접수 면담 전환) → Phase 8 잔여 5번 항목 (Phase 8은 intervention — 플랫폼 확정·실배포에 사용자 참여)
+4. Phase 9 (접수 면담 전환) → Phase 10 (단계 스크립트) → Phase 8 잔여 5번 항목 (Phase 8은 intervention — 플랫폼 확정·실배포에 사용자 참여)
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 검증 체크리스트
