@@ -74,6 +74,7 @@ Phase 1 ──▶ Phase 2 ──▶ Phase 3 ─┐
 - cross-phase (2026-07-11 Phase 3): README.md가 phase 3 checklist 요구(크론 문서화)에 필요했으나 scope에 누락 — ripple로 처리됨. 이후 phase-init 시 문서화 요구는 scope에 README 포함 권장
 - cross-phase (2026-07-11 리셋): Phase 1·2 1회차 실행 산출물(커밋 829fa33·9d9c0c4의 코드)은 사용자 요청으로 삭제 — 아래 답변 반영해 Phase 1부터 재실행. 1회차에서 starlette(1.3.1)+httpx(0.28.1) testclient deprecation 경고 있었음(테스트는 통과) — 재실행 시 참고
 - cross-phase (2026-07-11 사용자 답변, intake open questions 전부 해소): 첫 도메인 = **상담 초기 면담 챗봇**. 지식 프론트매터 레퍼런스 = SecondBrain wiki (`type/aliases/author/date/tags[/cluster]`, 제목은 H1) — Phase 1 스펙에 스키마 호환 요건(title 폴백·meta 보존) 반영됨. 턴 = 사용자 발화 기준(Phase 2 구현대로). 상담 도메인 민감정보 가능성 → Phase 7 저장 데이터 점검 가중. 실배포용 상담 지식셋 작성은 Phase 8 전 별도 콘텐츠 작업 (Phase 6 스왑 검증은 기존 샘플 2벌로 충분)
+- cross-phase (2026-07-12 Phase 10 supersede): Phase 10(D10 선형 단계 스크립트)은 미실행 상태로 intake-slot-engine task가 supersede — 스키마 선언 기반 문진 엔진이 선형 단계 스크립트 접근을 대체하므로 D10 구현은 불필요
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 관련 문서

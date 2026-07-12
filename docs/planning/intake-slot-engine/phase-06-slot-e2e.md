@@ -98,3 +98,6 @@ NOTES:
 
 #### 질문 / 결정 사항
 없음
+
+#### Commit
+- `5620380` test(slot-engine): Phase 6 — fake e2e 4종 + knowledge-alt 스왑 회귀 테스트 추가

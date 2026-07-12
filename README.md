@@ -29,6 +29,17 @@ cp .env.example .env   # ANTHROPIC_API_KEY 등 채워넣기
 .venv/bin/python -m pytest -q
 ```
 
+## 데모 시연
+
+의사 고객 또는 내부 검증용 데모는 API 키 없이 fake 모드로 실행할 수 있다.
+
+```bash
+# Fake 모드로 구동 (API 호출 없음)
+MODEL=fake KNOWLEDGE_DIR=knowledge .venv/bin/python -m uvicorn app.main:app --reload
+```
+
+자세한 시연 대본과 각 단계별 확인사항은 [데모 시나리오](docs/demo-scenario.md)를 참고하자.
+
 ## 프론트매터 스키마
 
 지식 문서는 SecondBrain wiki 스키마와 호환된다.
