@@ -29,6 +29,23 @@ cp .env.example .env   # ANTHROPIC_API_KEY 등 채워넣기
 .venv/bin/python -m pytest -q
 ```
 
+## 브라우저 스모크 (playwright)
+
+`scripts/gui-smoke/gui-smoke.mjs`는 GUI(스테퍼·퀵리플라이 칩·intake 사이드
+패널)의 브라우저 회귀 스위트다. 사전조건은 `.venv` 구성과 playwright
+chromium 캐시(최초 1회 `npx playwright install chromium`)다.
+
+```bash
+cd scripts/gui-smoke
+npm i
+node gui-smoke.mjs
+```
+
+기대 결과는 20개 단언 전부 PASS, exit 0이다. knowledge 세트로 스테퍼/칩/패널
+정상 동작을, knowledge-alt 스왑으로 해당 요소들이 hidden 처리되는지를
+검증한다. 스크린샷은 `scripts/gui-smoke/screenshots/`에 저장된다(git 추적
+제외).
+
 ## 데모 시연
 
 의사 고객 또는 내부 검증용 데모는 API 키 없이 fake 모드로 실행할 수 있다.

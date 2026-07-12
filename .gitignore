@@ -7,3 +7,5 @@ __pycache__/
 .phase/
 .omc/
 .DS_Store
+scripts/gui-smoke/node_modules/
+scripts/gui-smoke/screenshots/
