@@ -81,17 +81,17 @@ def test_relationship_track_scenario_summarizes_track(monkeypatch, tmp_path):
 def test_crisis_track_asks_red_flag_slot_before_lower_priority_slots():
     """③ 위기 — 레드플래그 슬롯 우선 질문 순서 단언(CAP22).
 
-    "자해할 계획이 있어요" 한 발화가 track=위기를 채우는 동시에 crisis_plan_means
-    (red_flag)의 signal("계획")도 감지한다. 이 슬롯은 track이 이번 턴에야
-    채워지는 바람에 추출 시점엔 아직 비활성이라 extract_fake가 채우지
-    않으므로 미충족 상태로 남고, unfilled_by_priority가 이를 최상단에 둔다 —
-    priority 1인 chief_complaint(호소 문제)를 제치고 다음 질문이 되어야 한다.
+    "자해할 계획이 있어요" 한 발화가 track=위기와 chief_complaint를 채우는 동시에
+    crisis_plan_means(red_flag)의 signal("계획")도 감지한다. crisis_plan_means는
+    track이 이번 턴에야 채워지는 바람에 추출 시점엔 아직 비활성이라 extract_fake가
+    채우지 않으므로 미충족 상태로 남고, unfilled_by_priority가 이를 최상단에 둔다.
     """
     session_id = "e2e-crisis"
     result = chat.handle_message(session_id, "자해할 계획이 있어요", _settings())
 
     session = chat._sessions[session_id]
-    assert session.slots == {"track": "위기"}
+    assert session.slots["track"] == "위기"
+    assert session.slots["chief_complaint"] == "자해할 계획이 있어요"
     assert "crisis_plan_means" not in session.slots
     assert "다음 질문: 자해 계획·수단" in result["reply"]
 
@@ -107,15 +107,63 @@ def test_mixed_utterance_fills_two_slots_at_once():
     result = chat.handle_message(session_id, "남편과 가족 문제로 너무 힘들어요", _settings())
 
     session = chat._sessions[session_id]
-    assert session.slots == {"track": "관계", "support": "가족"}
+    assert session.slots == {
+        "track": "관계",
+        "chief_complaint": "남편과 가족 문제로 너무 힘들어요",
+        "support": "가족",
+    }
     assert "상담 트랙=관계" in result["reply"]
     assert "지지체계=가족" in result["reply"]
 
     # GUI 슬롯 패널용 additive 필드 — 채움/미충족 라벨이 스키마와 일치해야 한다.
     filled_labels = {s["label"]: s["value"] for s in result["intake"]["filled"]}
-    assert filled_labels == {"상담 트랙": "관계", "지지체계": "가족"}
-    assert result["intake"]["unfilled"][0]["label"] == "호소 문제"
+    assert filled_labels == {
+        "상담 트랙": "관계",
+        "호소 문제": "남편과 가족 문제로 너무 힘들어요",
+        "지지체계": "가족",
+    }
+    assert result["intake"]["unfilled"][0]["label"] == "관계 대상·기간"
 
+
+def test_fake_schema_reply_is_interview_like_not_doc_stub():
+    """상담 스키마 fake 모드는 문서 제목 스텁이 아니라 초기면담 질문으로 보여야 한다."""
+    session_id = "e2e-fake-interview-reply"
+    result = chat.handle_message(session_id, "우울해서 잠을 못 자요", _settings())
+
+    visible_reply = result["reply"].split(" | ", 1)[0]
+    assert not visible_reply.startswith("[fake]")
+    assert "참고 문서" not in visible_reply
+    assert "언제부터" in visible_reply
+    assert chat._sessions[session_id].slots["chief_complaint"] == "우울해서 잠을 못 자요"
+
+
+def test_later_crisis_signal_escalates_track_for_safety():
+    """초기 정서 트랙 이후에도 자해·자살 신호가 나오면 위기 트랙으로 승격한다."""
+    session_id = "e2e-crisis-escalation"
+    chat.handle_message(session_id, "우울해서 잠을 못 자요", _settings())
+    result = chat.handle_message(session_id, "자해할 계획이 있어요", _settings())
+
+    assert chat._sessions[session_id].slots["track"] == "위기"
+    assert result["intake"]["unfilled"][0]["label"] == "자해 계획·수단"
+    assert result["intake"]["unfilled"][0]["red_flag"] is True
+    assert "119" in result["reply"]
+
+
+def test_later_relationship_signal_escalates_from_emotion_without_support_false_positive():
+    """정서 폴백 뒤 구체적 관계 신호는 승격하되, 단순 지지체계 언급은 승격하지 않는다."""
+    rel_session = "e2e-relationship-escalation"
+    chat.handle_message(rel_session, "우울해서 잠을 못 자요", _settings())
+    rel_result = chat.handle_message(rel_session, "남편과 갈등 때문에 힘들어요", _settings())
+
+    assert chat._sessions[rel_session].slots["track"] == "관계"
+    assert rel_result["intake"]["unfilled"][0]["label"] == "관계 대상·기간"
+
+    support_session = "e2e-support-no-track-flip"
+    chat.handle_message(support_session, "우울해서 잠을 못 자요", _settings())
+    chat.handle_message(support_session, "친구에게 얘기해봤어요", _settings())
+
+    assert chat._sessions[support_session].slots["track"] == "정서"
+    assert chat._sessions[support_session].slots["support"] == "친구"
 
 def test_track_priority_relationship_wins_over_emotion():
     """트랙 판정 우선순위(위기 > 관계 > 정서) 회귀 방어.

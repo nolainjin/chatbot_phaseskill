@@ -5,7 +5,9 @@
   var SESSION_KEY = "lmwiki_session_id";
   var MAX_TURNS = 10;
   var GREETING =
-    "안녕하세요. 접수 면담을 시작하겠습니다. 오늘 상담을 받으러 오신 이유를 편하게 말씀해 주세요.";
+    "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
+    "자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 경우에는 안전을 위해 공유될 수 있습니다. " +
+    "오늘 상담을 받으러 오신 가장 큰 이유를 편하게 말씀해 주세요.";
   var BOT_AVATAR_SVG =
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
     '<rect x="5" y="8" width="14" height="11" rx="3"></rect>' +

@@ -32,8 +32,10 @@ class Slot:
     red_flag: bool = False
     when: str | None = None
     values: list | None = None
+    allow_override_values: list | None = None
     signals: dict | list | None = None
     ask: str | None = None
+    capture: str | None = None
 
     def is_active(self, filled: dict) -> bool:
         """when 없으면 공통 슬롯(항상 활성). 있으면 "slot_id=값" 조건을 filled로 판정."""
@@ -80,21 +82,40 @@ def _match_signal(message: str, signals) -> str | None:
     return None
 
 
+def _fake_slot_value(message: str, matched_value: str, slot: Slot) -> str:
+    """fake 모드 슬롯 값 생성. capture=full_message면 발화 전체를 보존한다."""
+    if slot.capture == "full_message":
+        return " ".join(message.split())[:_MAX_SLOT_VALUE_LEN]
+    return matched_value
+
+
+def _can_override(slot: Slot, current_value: str, new_value: str) -> bool:
+    """스키마가 허용한 값으로만 기존 슬롯 값을 갱신한다(예: 위기 승격)."""
+    return (
+        slot.allow_override_values is not None
+        and new_value in slot.allow_override_values
+        and current_value != new_value
+    )
+
+
 def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
     """fake 모드 전용 결정론적 슬롯 추출.
 
-    활성 상태이면서 아직 채워지지 않은 슬롯만 대상으로 signals 부분문자열
-    매칭을 시도한다. 한 발화에서 여러 슬롯이 동시에 매칭될 수 있다. 이미
-    채워진 슬롯은 절대 덮어쓰지 않는다(트랙 뒤집힘 방지) — 이 함수는 filled를
-    변경하지 않고 이번 발화로 새로 채워진 슬롯만 담은 dict를 반환한다.
+    활성 상태이면서 아직 채워지지 않은 슬롯을 대상으로 signals 부분문자열 매칭을
+    시도한다. 이미 채워진 슬롯은 기본적으로 덮어쓰지 않지만, 스키마가
+    allow_override_values로 허용한 값(예: 위기 승격)은 갱신한다. 이 함수는
+    filled를 변경하지 않고 이번 발화로 새로 채워진 슬롯만 담은 dict를 반환한다.
     """
     new_fills: dict[str, str] = {}
     for slot in schema.active_slots(filled):
-        if slot.id in filled or slot.signals is None:
+        if slot.signals is None:
             continue
-        value = _match_signal(message, slot.signals)
-        if value is not None:
-            new_fills[slot.id] = value
+        matched_value = _match_signal(message, slot.signals)
+        if matched_value is None:
+            continue
+        if slot.id in filled and not _can_override(slot, filled[slot.id], matched_value):
+            continue
+        new_fills[slot.id] = _fake_slot_value(message, matched_value, slot)
     return new_fills
 
 
@@ -120,9 +141,9 @@ def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[st
     그 턴의 추출을 스킵한다(원문 그대로, 빈 dict 반환. 다음 턴에 만회하므로
     파싱 실패의 영향은 그 턴 한정 — FP19 방지). 파싱에 성공해도 각 항목을
     4중 필터로 거른다: 스키마 활성 슬롯 id 화이트리스트에 없으면 폐기,
-    문자열이 아니면 폐기, 200자를 넘으면 폐기, 이미 채워진 슬롯이면 폐기
-    (덮어쓰기 금지). 통과분만 반환하고, reply에서는 슬롯 JSON 블록을 제거해
-    사용자·history·storage에는 절대 노출하지 않는다.
+    문자열이 아니면 폐기, 200자를 넘으면 폐기, 이미 채워진 슬롯이면 폐기한다.
+    단 스키마가 allow_override_values로 명시한 안전 승격 값은 허용한다. 통과분만
+    반환하고, reply에서는 슬롯 JSON 블록을 제거해 사용자·history·storage에는 절대 노출하지 않는다.
     """
     match = _SLOTS_FENCE_RE.search(reply)
     if match is None:
@@ -136,16 +157,17 @@ def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[st
     if not isinstance(parsed, dict):
         return reply, {}
 
-    active_ids = {slot.id for slot in schema.active_slots(filled)}
+    active_slots = {slot.id: slot for slot in schema.active_slots(filled)}
     accepted: dict[str, str] = {}
     for slot_id, value in parsed.items():
-        if slot_id not in active_ids:
+        slot = active_slots.get(slot_id)
+        if slot is None:
             continue
         if not isinstance(value, str):
             continue
         if len(value) > _MAX_SLOT_VALUE_LEN:
             continue
-        if slot_id in filled:
+        if slot_id in filled and not _can_override(slot, filled[slot_id], value):
             continue
         accepted[slot_id] = value
 
@@ -183,8 +205,14 @@ def _parse_slot(raw) -> Slot:
         red_flag=bool(raw.get("red_flag", False)),
         when=raw.get("when"),
         values=raw.get("values"),
+        allow_override_values=(
+            raw.get("allow_override_values")
+            if isinstance(raw.get("allow_override_values"), list)
+            else None
+        ),
         signals=raw.get("signals"),
         ask=raw.get("ask"),
+        capture=raw.get("capture") if isinstance(raw.get("capture"), str) else None,
     )
 
 

@@ -20,17 +20,18 @@ FAKE_SETTINGS = Settings(
 client = TestClient(app)
 
 
-def test_handle_message_returns_reply_citing_searched_docs():
+def test_handle_message_schema_mode_returns_intake_question():
     result = chat.handle_message("session-basic", "라포 형성 방법이 궁금해요", FAKE_SETTINGS)
     assert result["limit_reached"] is False
     assert result["turn"] == 1
-    assert "라포" in result["reply"]
+    assert "오늘 상담을 받으러 오신 가장 큰 이유" in result["reply"]
+    assert "intake" in result
 
 
-def test_handle_message_with_no_matching_docs_still_replies():
+def test_handle_message_with_no_matching_docs_still_runs_intake_flow():
     result = chat.handle_message("session-no-match", "zzz qqq 없는 단어", FAKE_SETTINGS)
     assert result["limit_reached"] is False
-    assert "찾지 못했습니다" in result["reply"]
+    assert "오늘 상담을 받으러 오신 가장 큰 이유" in result["reply"]
 
 
 def test_11th_message_is_rejected():

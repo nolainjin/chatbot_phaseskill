@@ -82,9 +82,15 @@ def _build_slot_section(
         f"미충족 슬롯(우선순위순): {unfilled_text or '없음'}",
         "레드플래그 규칙: 미충족 목록 최상단 슬롯이 레드플래그면 그 슬롯을 최우선으로 질문하라.",
         f"턴 예산: 잔여 {MAX_TURNS - turns_before}턴 — 우선순위 높은 슬롯부터 소비하라.",
+        "응답 규칙: 짧게 공감한 뒤 한 번에 질문 하나만 한다. 진단·치료 조언은 하지 않는다.",
     ]
+    next_slot = unfilled[0] if unfilled else None
+    if next_slot is not None:
+        lines.append(f"다음 질문 슬롯: {next_slot.label}")
+        if next_slot.ask:
+            lines.append(f"다음 질문 문장: {next_slot.ask}")
     if turns_before == 0:
-        lines.append(f"1턴이므로 다음 개방형 질문으로 시작하라: {schema.opening_question}")
+        lines.append(f"1턴 시작 질문: {schema.opening_question}")
     return "\n".join(lines)
 
 
@@ -102,6 +108,50 @@ def _fake_progress_suffix(
     if unfilled:
         parts.append(f"다음 질문: {unfilled[0].label}")
     return f" | {' | '.join(parts)}" if parts else ""
+
+
+def _question_for_slot(slot: intake.Slot) -> str:
+    """스키마의 ask 문장을 우선 사용하고 없으면 라벨 기반 질문으로 폴백한다."""
+    if slot.ask:
+        return slot.ask
+    return f"{slot.label}에 대해 조금 더 말씀해 주세요."
+
+
+def _build_fake_intake_reply(
+    schema: intake.Schema,
+    new_fills: dict[str, str],
+    unfilled: list[intake.Slot],
+    turns_before: int,
+) -> str:
+    """API 키 없는 데모에서도 접수면담처럼 보이는 결정론 응답을 만든다."""
+    next_slot = unfilled[0] if unfilled else None
+    intro = (
+        "안녕하세요. 이 대화는 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 "
+        "다루지만, 자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 "
+        "경우에는 안전을 위해 공유될 수 있습니다."
+    )
+
+    if next_slot is None:
+        return (
+            "필요한 접수 항목은 대부분 확인했습니다. 남은 시간에는 상담에서 꼭 "
+            "다루고 싶은 점이나 빠뜨린 내용을 말씀해 주세요."
+        )
+
+    question = _question_for_slot(next_slot)
+    if turns_before == 0 and not new_fills:
+        return f"{intro} {schema.opening_question}"
+
+    if next_slot.red_flag:
+        return (
+            "말씀해 주셔서 감사합니다. 안전 확인을 먼저 하겠습니다. "
+            f"{question} 지금 당장 위험하다고 느껴지면 119·112 또는 가까운 응급실에 "
+            "바로 연락해 주세요."
+        )
+
+    if new_fills:
+        return f"말씀해 주셔서 감사합니다. {question}"
+
+    return f"조금 더 정확히 이해하기 위해 한 가지만 여쭤볼게요. {question}"
 
 
 def _intake_state(
@@ -168,6 +218,7 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     )
 
     if schema is not None and settings.model == "fake":
+        reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
         reply += _fake_progress_suffix(schema, new_fills, unfilled)
     elif schema is not None:
         # 실모드 단일 호출 통합(D02) — 응답 텍스트에 섞여온 슬롯 JSON을 신뢰

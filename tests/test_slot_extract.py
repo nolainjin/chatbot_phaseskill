@@ -2,7 +2,7 @@
 
 실모드에서 LLM 응답에 섞인 ```slots fenced JSON을 분리해 session.slots에
 병합하는 경로와, LLM 출력이 신뢰 경계 밖이라는 전제 하에 스키마 활성 슬롯
-화이트리스트·문자열 강제·길이 상한·기채움 보호 4개 필터를 함께 검증한다.
+화이트리스트·문자열 강제·길이 상한·기채움 보호(허용된 안전 승격 예외)를 함께 검증한다.
 fake 모드(extract_fake, 결정론)와는 독립된 경로 — Phase 3 회귀는
 test_slot_flow.py가 맡는다.
 """
@@ -151,6 +151,34 @@ def test_extract_real_does_not_overwrite_already_filled_slot(tmp_path):
     _, accepted = extract_real(raw, schema, {"reason": "기존 이유"})
 
     assert accepted == {}
+
+
+def test_extract_real_allows_declared_override_value(tmp_path):
+    schema_md = """# 접수 슬롯 스키마
+
+```yaml
+intake_schema:
+  version: "1"
+  opening_question: "무슨 일인가요?"
+  slots:
+    - id: track
+      label: 상담 트랙
+      required: true
+      priority: 0
+      values: [정서, 위기]
+      allow_override_values: [위기]
+      signals:
+        위기: [자해]
+        정서: [우울]
+```
+"""
+    (tmp_path / "_intake_schema.md").write_text(schema_md, encoding="utf-8")
+    schema = load_schema(tmp_path)
+    raw = '응답\n```slots\n{"track": "위기"}\n```'
+
+    _, accepted = extract_real(raw, schema, {"track": "정서"})
+
+    assert accepted == {"track": "위기"}
 
 
 # --- handle_message 배선: 실모드 단일 호출 통합(D02) ----------------------------

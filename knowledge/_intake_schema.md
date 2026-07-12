@@ -30,61 +30,80 @@
 ```yaml
 intake_schema:
   version: "1"
-  opening_question: "오늘 상담을 받으러 오신 이유가 무엇인가요?"
+  opening_question: "오늘 상담을 받으러 오신 가장 큰 이유가 무엇인가요?"
   slots:
     - id: track
       label: 상담 트랙
       required: true
       priority: 0
       values: [위기, 관계, 정서]
+      allow_override_values: [위기, 관계]
+      ask: "오늘 상담을 받으러 오신 가장 큰 이유가 무엇인가요?"
       signals:
         위기: [자해, 죽고 싶, 자살]
-        관계: [남편, 아내, 배우자, 부부, 이혼, 아이, 자녀, 가족, 갈등, 친구, 사회성, 성격, 대인]
+        관계: [남편, 아내, 배우자, 부부, 이혼, 아이, 자녀, 갈등, 사회성, 성격, 대인, 싸워, 다툼]
         정서: [우울, 불안, 걱정, 슬프, 슬퍼, 무기력, 잠, 수면, 불면, 학교, 학업, 성적, 시험, 진로, 압박]
     - id: chief_complaint
       label: 호소 문제
       required: true
       priority: 1
-    - id: coping
-      label: 대처 시도
-      required: false
-      priority: 2
-      signals: [대처, 해봤어요, 노력]
-    - id: support
-      label: 지지체계
-      required: false
-      priority: 3
-      signals: [가족, 친구, 직장]
-    - id: expectation
-      label: 상담 기대
-      required: false
-      priority: 4
-      signals: [기대, 원하는, 바라는]
+      capture: full_message
+      ask: "지금 가장 힘든 부분을 조금 더 구체적으로 말씀해 주실 수 있을까요?"
+      signals:
+        [우울, 불안, 걱정, 슬프, 슬퍼, 무기력, 힘들, 문제, 이유, 상담, 갈등, 자해, 죽고 싶, 자살, 잠, 수면, 불면, 학교, 학업, 성적, 시험, 진로, 압박]
     - id: symptom_context
       label: 증상 시기·일상 영향
       required: false
-      priority: 5
+      priority: 2
       when: "track=정서"
-      signals: [언제부터, 얼마나 자주, 어떤 상황]
+      capture: full_message
+      ask: "이 어려움은 언제부터 시작됐고, 일상에는 어떤 영향을 주고 있나요?"
+      signals: [언제부터, 얼마나, 자주, 상황, 개월, 주일, 일주일, 집중, 일상, 업무, 학교, 잠, 수면, 불면, 식욕]
     - id: relationship_context
       label: 관계 대상·기간
       required: false
-      priority: 5
+      priority: 2
       when: "track=관계"
-      signals: [누구와, 얼마나 됐, 얼마나 만났]
-    - id: crisis_attempt_history
-      label: 자해·자살 시도 이력
-      required: false
-      priority: 5
-      when: "track=위기"
-      signals: [시도한 적, 생각한 적, 자살]
+      capture: full_message
+      ask: "갈등이 있는 관계는 누구와의 관계이고, 이런 상황은 얼마나 이어졌나요?"
+      signals: [누구와, 얼마나 됐, 얼마나 만났, 남편, 아내, 배우자, 부부, 가족, 아이, 자녀, 친구, 관계, 갈등, 년, 개월, 최근]
     - id: crisis_plan_means
       label: 자해 계획·수단
       required: false
-      priority: 6
+      priority: 2
       when: "track=위기"
       red_flag: true
-      signals: [계획, 방법, 수단]
+      capture: full_message
+      ask: "지금 당장 실행할 구체적인 계획이나 사용할 수단이 있나요?"
+      signals: [계획, 방법, 수단, 약, 칼, 뛰어내, 목매, 오늘, 지금, 구체]
+    - id: crisis_attempt_history
+      label: 자해·자살 시도 이력
+      required: false
+      priority: 3
+      when: "track=위기"
+      capture: full_message
+      ask: "이전에도 스스로를 해치거나 생을 마감하려고 시도한 적이 있었나요?"
+      signals: [시도한 적, 생각한 적, 예전에, 과거, 한 적, 먹으려고, 자해, 자살]
+    - id: coping
+      label: 대처 시도
+      required: false
+      priority: 4
+      capture: full_message
+      ask: "지금까지 이 어려움을 견디거나 해결하려고 해본 방법이 있나요?"
+      signals: [대처, 해봤, 써봤, 산책, 노력, 참아, 견뎌, 병원, 운동, 얘기해, 이야기해]
+    - id: support
+      label: 지지체계
+      required: false
+      priority: 5
+      ask: "이 이야기를 알고 있거나 곁에서 도와주는 사람이 있나요?"
+      signals: [가족, 친구, 직장, 남편, 아내, 배우자, 부모, 엄마, 아빠, 선생님, 동료]
+    - id: expectation
+      label: 상담 기대
+      required: false
+      priority: 6
+      capture: full_message
+      ask: "이번 상담에서 어떤 도움을 가장 기대하시나요?"
+      signals: [기대, 원하, 바라, 도움, 편해지고, 상담받, 상담 받아, 받아볼, 신청, 바뀌, 나아지]
 ```
 
 ## 판단 기록 (관리자 확인용)
@@ -105,6 +124,14 @@ intake_schema:
 - **2026-07-12 / 직장 신호어 제외**: "직장"은 지지체계(support) 신호어와 겹쳐
   트랙 오판 위험이 있어 정서 트랙 신호어에서 제외. 직장 스트레스 발화는
   chief_complaint 자유 텍스트로 수용.
+- **2026-07-12 / 초기면담 UX 보정**: fake 데모가 문서 제목만 뱉고 호소문제에서
+  멈추는 문제가 있어 `ask` 문장과 `capture: full_message`를 추가했다. 질문
+  순서는 초기면담 흐름에 맞춰 트랙 → 호소문제 → 트랙별 맥락/위기 안전확인 →
+  대처 → 지지체계 → 상담 기대 순서로 재정렬했다.
+- **2026-07-12 / 트랙 승격 예외**: 상담 트랙은 기본적으로 첫 판정을 유지하지만,
+  이후 발화에서 더 구체적인 관계 신호나 자해·자살 신호가 나오면
+  `allow_override_values: [위기, 관계]`로 승격한다. 초기면담에서는 모호한 정서
+  폴백보다 구체 스트레스원·안전 확인이 우선이다.
 - **참조**: 혼합 시나리오 예시 발화 교체 판단은
   `docs/planning/intake-slot-engine/phase-06-slot-e2e.md`의 `#### 추가 발견사항`
   참조.
