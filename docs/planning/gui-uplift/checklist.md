@@ -1,6 +1,6 @@
 ---
 task: gui-uplift
-phase_count: 6
+phase_count: 7
 created: 2026-07-12
 ---
 
@@ -20,7 +20,8 @@ created: 2026-07-12
 | 4 | [phase-04-quick-chips.md](./phase-04-quick-chips.md) | 6 | 6 | 100% | completed | b55d579 |
 | 5 | [phase-05-browser-smoke.md](./phase-05-browser-smoke.md) | 5 | 5 | 100% | completed | 9ab1ba8 |
 | 6 | [phase-06-intake-panel-hidden-fix.md](./phase-06-intake-panel-hidden-fix.md) | 3 | 3 | 100% | completed | b0f63e7 |
-| **Total** | | **31** | **31** | **100%** | | |
+| 7 | [phase-07-smoke-internalize.md](./phase-07-smoke-internalize.md) | 5 | 5 | 100% | completed | 0b00f40 |
+| **Total** | | **36** | **36** | **100%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
@@ -28,12 +29,15 @@ created: 2026-07-12
 ```
 Phase 1 (config 프로브) ─┬─▶ Phase 3 (스테퍼) ─▶ Phase 4 (칩) ─┬─▶ Phase 5 (브라우저 스모크)
 Phase 2 (비주얼 전면) ───┘                                     └─▶ Phase 6 (intake-panel hidden 수정) ─▶ Phase 5 재검증
+Phase 6 ─▶ Phase 7 (스모크 리포 내재화)
 ```
 
 Phase 1·2는 scope 서로소(app/main.py+tests vs static/) — 병렬 실행 가능.
 Phase 3·4는 static/ 3파일 공유 — 직렬.
 Phase 6은 Phase 5 스모크가 발견한 CSS 결함의 후속 수정 — depends_on [4]
 (Phase 5가 needs_user로 이 수정을 기다리므로 [5] 지정 시 상호 대기 교착).
+Phase 7은 Phase 5의 스모크를 리포에 내재화 — depends_on [6]
+(스모크가 검증하는 CSS 수정까지 끝난 상태 기준으로 20/20 재확인).
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 우선순위
@@ -46,6 +50,7 @@ Phase 6은 Phase 5 스모크가 발견한 CSS 결함의 후속 수정 — depend
 | P1 | Phase 4 | 퀵리플라이 칩 — 신호어 매칭 문장 | unit: 칩 행 + 수명주기 |
 | P0 | Phase 5 | 브라우저 스모크 — 스왑 회귀·참조 대조 최종 게이트 | checkpoint: playwright 스모크 |
 | P0 | Phase 6 | intake-panel hidden CSS 결함 수정 — 스왑 회귀 게이트 통과 전제 | unit: CSS 1줄 + 정적 단언 |
+| P1 | Phase 7 | playwright 스모크 리포 내재화 — 브라우저 회귀 스위트 tmp 소실 방지 | unit: scripts/gui-smoke/ + gitignore/README |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 권장 실행 순서
@@ -54,6 +59,7 @@ Phase 6은 Phase 5 스모크가 발견한 CSS 결함의 후속 수정 — depend
 2. Phase 3 -> Phase 4
 3. Phase 5 (스크린샷 사용자 확인 — intervention)
 4. Phase 6 (CSS 결함 수정) -> Phase 5 재검증
+5. Phase 7 (스모크 리포 내재화)
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## 검증 체크리스트
