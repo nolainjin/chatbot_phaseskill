@@ -292,3 +292,24 @@ def test_handle_message_real_mode_storage_file_has_clean_reply(tmp_path, monkeyp
 
     assert "```slots" not in assistant_turn["text"]
     assert "가족 갈등" not in assistant_turn["text"]
+
+
+def test_extract_real_rejects_value_outside_declared_set():
+    """닫힌 값 집합 밖의 값은 폐기한다.
+
+    실측 회귀: 모델이 track에 "work-related stress"를 넣었다. 통과시키면
+    when 분기(`track=위기`)가 어긋나 조건부 슬롯이 통째로 안 켜진다.
+    """
+    from app.intake import Schema, Slot
+
+    schema = Schema(
+        version="1",
+        opening_question="q",
+        slots=[Slot(id="track", label="상담 트랙", values=["위기", "관계", "정서"])],
+    )
+
+    _, fills = extract_real('답변\n```slots\n{"track": "work-related stress"}\n```', schema, {})
+    assert fills == {}
+
+    _, fills = extract_real('답변\n```slots\n{"track": "정서"}\n```', schema, {})
+    assert fills == {"track": "정서"}

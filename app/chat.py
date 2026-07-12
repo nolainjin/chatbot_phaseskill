@@ -65,17 +65,30 @@ def _load_persona(knowledge_dir: str) -> str:
     return _SYSTEM_PREAMBLE
 
 
+def _slot_desc(slot: intake.Slot) -> str:
+    """`id(label)` + 닫힌 값 집합. 허용값을 안 알려주면 모델이 자유 문자열을 지어내고,
+    extract_real이 그걸 폐기해 해당 슬롯이 영영 안 채워진다."""
+    desc = f"{slot.id}({slot.label})"
+    if slot.values:
+        desc += f"[허용값: {'|'.join(slot.values)}]"
+    return desc
+
+
 def _build_slot_section(
     schema: intake.Schema,
     filled: dict[str, str],
     unfilled: list[intake.Slot],
     turns_before: int,
 ) -> str:
-    """모드 공통 슬롯 섹션 — 채워진/미충족(우선순위순)/레드플래그 규칙/턴 예산."""
+    """모드 공통 슬롯 섹션 — 채워진/미충족(우선순위순)/레드플래그 규칙/턴 예산.
+
+    슬롯을 `id(label)` 형태로 노출한다. 실모드 추출 지시(_EXTRACTION_INSTRUCTION)가
+    `{"슬롯id": "값"}`을 요구하는데 라벨만 주면 모델이 id를 몰라 빈 객체를 뱉는다.
+    """
     filled_text = ", ".join(
-        f"{slot.label}={filled[slot.id]}" for slot in schema.slots if slot.id in filled
+        f"{slot.id}({slot.label})={filled[slot.id]}" for slot in schema.slots if slot.id in filled
     )
-    unfilled_text = ", ".join(slot.label for slot in unfilled)
+    unfilled_text = ", ".join(_slot_desc(slot) for slot in unfilled)
     lines = [
         "[접수 슬롯 상태]",
         f"채워진 슬롯: {filled_text or '없음'}",
@@ -86,7 +99,7 @@ def _build_slot_section(
     ]
     next_slot = unfilled[0] if unfilled else None
     if next_slot is not None:
-        lines.append(f"다음 질문 슬롯: {next_slot.label}")
+        lines.append(f"다음 질문 슬롯: {_slot_desc(next_slot)}")
         if next_slot.ask:
             lines.append(f"다음 질문 문장: {next_slot.ask}")
     if turns_before == 0:
@@ -199,7 +212,9 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     else:
         if settings.model == "fake":
             new_fills = intake.extract_fake(message, schema, session.slots)
-            session.slots.update(new_fills)
+        else:
+            new_fills = intake.extract_classification(message, schema, session.slots)
+        session.slots.update(new_fills)
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
         unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
         slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)

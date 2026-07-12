@@ -119,6 +119,21 @@ def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
     return new_fills
 
 
+def extract_classification(message: str, schema: Schema, filled: dict) -> dict[str, str]:
+    """닫힌 값 집합(values)을 선언한 분류 슬롯만 신호어로 결정론 판정한다. 실모드용.
+
+    track을 모델 재량에 맡기면 같은 발화에도 채웠다 말았다 한다(실측). track이 비면
+    when 분기 슬롯(symptom_context / crisis_*)이 통째로 안 켜지고, 위기 트랙을 놓치는
+    건 안전 실패다. 자유서술 슬롯(chief_complaint 등)은 여전히 모델이 의미 요약한다.
+    """
+    classify_ids = {slot.id for slot in schema.slots if slot.values}
+    return {
+        slot_id: value
+        for slot_id, value in extract_fake(message, schema, filled).items()
+        if slot_id in classify_ids
+    }
+
+
 def detect_red_flags(message: str, schema: Schema, filled: dict) -> set[str]:
     """이번 발화가 red_flag 슬롯의 signals에 걸리면 그 슬롯 id 집합을 반환한다.
 
@@ -166,6 +181,11 @@ def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[st
         if not isinstance(value, str):
             continue
         if len(value) > _MAX_SLOT_VALUE_LEN:
+            continue
+        # 닫힌 값 집합을 선언한 슬롯은 그 안의 값만 받는다. track이 대표적 —
+        # when 분기(`track=위기`)가 이 값과 정확히 맞물리므로, 모델이 지어낸
+        # 자유 문자열("work-related stress")을 받으면 조건부 슬롯이 통째로 안 켜진다.
+        if slot.values and value not in slot.values:
             continue
         if slot_id in filled and not _can_override(slot, filled[slot_id], value):
             continue
