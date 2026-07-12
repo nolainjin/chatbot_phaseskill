@@ -463,6 +463,10 @@ details[open] > .privacy-summary::after {
   padding: 1.4rem 1.2rem;
 }
 
+.intake-panel[hidden] {
+  display: none;
+}
+
 .panel-title {
   margin: 0;
   font-size: 0.95rem;
