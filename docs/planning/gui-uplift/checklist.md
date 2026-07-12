@@ -18,9 +18,9 @@ created: 2026-07-12
 | 2 | [phase-02-visual-restyle.md](./phase-02-visual-restyle.md) | 8 | 8 | 100% | completed | 623714e |
 | 3 | [phase-03-stepper.md](./phase-03-stepper.md) | 6 | 6 | 100% | completed | 32375d0 |
 | 4 | [phase-04-quick-chips.md](./phase-04-quick-chips.md) | 6 | 6 | 100% | completed | b55d579 |
-| 5 | [phase-05-browser-smoke.md](./phase-05-browser-smoke.md) | 5 | 4 | 80% | needs_user | - |
-| 6 | [phase-06-intake-panel-hidden-fix.md](./phase-06-intake-panel-hidden-fix.md) | 3 | 3 | 100% | completed | - |
-| **Total** | | **31** | **30** | **97%** | | |
+| 5 | [phase-05-browser-smoke.md](./phase-05-browser-smoke.md) | 5 | 5 | 100% | completed | - |
+| 6 | [phase-06-intake-panel-hidden-fix.md](./phase-06-intake-panel-hidden-fix.md) | 3 | 3 | 100% | completed | b0f63e7 |
+| **Total** | | **31** | **31** | **100%** | | |
 
 <!-- Parser-required structural heading: keep this exact heading text. -->
 ## Phase 의존성
