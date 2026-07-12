@@ -33,8 +33,33 @@
     statusEl.textContent = text || "";
   }
 
+  var typingEl = null;
+
+  function showTyping() {
+    typingEl = document.createElement("li");
+    typingEl.className = "message message-assistant typing";
+    for (var i = 0; i < 3; i++) {
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      typingEl.appendChild(dot);
+    }
+    messagesEl.appendChild(typingEl);
+    typingEl.scrollIntoView({ block: "nearest" });
+  }
+
+  function hideTyping() {
+    if (typingEl) {
+      typingEl.remove();
+      typingEl = null;
+    }
+  }
+
   function updateTurnCounter(turn) {
     turnCounterEl.textContent = turn + "/" + MAX_TURNS;
+    var progressEl = document.getElementById("turn-progress");
+    if (progressEl) {
+      progressEl.style.width = (turn / MAX_TURNS) * 100 + "%";
+    }
   }
 
   function disableInput() {
@@ -47,6 +72,7 @@
     addMessage("user", message);
     inputEl.value = "";
     sendButtonEl.disabled = true;
+    showTyping();
 
     fetch("/api/chat", {
       method: "POST",
@@ -56,6 +82,7 @@
       .then(function (response) {
         if (response.ok) return response.json();
 
+        hideTyping();
         setStatus(
           response.status === 429
             ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
@@ -67,6 +94,7 @@
       .then(function (data) {
         if (!data) return;
 
+        hideTyping();
         addMessage("assistant", data.reply);
         updateTurnCounter(data.turn);
 
@@ -80,6 +108,7 @@
         inputEl.focus();
       })
       .catch(function () {
+        hideTyping();
         setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
         sendButtonEl.disabled = false;
       });
