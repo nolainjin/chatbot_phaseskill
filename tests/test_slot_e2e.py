@@ -112,6 +112,19 @@ def test_mixed_utterance_fills_two_slots_at_once():
     assert "지지체계=가족" in result["reply"]
 
 
+def test_track_priority_relationship_wins_over_emotion():
+    """트랙 판정 우선순위(위기 > 관계 > 정서) 회귀 방어.
+
+    "남편과 갈등 때문에 잠을 못 자요"는 관계 신호(남편·갈등)와 정서 신호(잠)가
+    섞인 발화 — 스키마 선언 순서(= 판정 우선순위)에 따라 관계로 확정돼야 한다.
+    근거: knowledge/_intake_schema.md 판단 기록(2026-07-12 우선순위 역전).
+    """
+    session_id = "e2e-priority"
+    chat.handle_message(session_id, "남편과 갈등 때문에 잠을 못 자요", _settings())
+
+    assert chat._sessions[session_id].slots["track"] == "관계"
+
+
 def test_knowledge_alt_swap_keeps_stub_reply_without_progress_suffix():
     """스왑 회귀(CAP18) — knowledge-alt(스키마 없음) 구동 시 기존 스텁 형식 유지,
     진행 접미사가 붙지 않음을 단언."""
