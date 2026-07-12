@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>접수 면담 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=3" />
+  <link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
   <div class="layout">
@@ -19,11 +19,20 @@
     <div class="progress" aria-hidden="true">
       <div class="progress-fill" id="turn-progress"></div>
     </div>
-    <p class="notice">이 대화 내용은 서버에 저장됩니다.</p>
+    <details class="privacy-card">
+      <summary class="privacy-summary">
+        <span class="privacy-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"></path>
+            <path d="M9 12l2 2 4-4"></path>
+          </svg>
+        </span>
+        <span class="privacy-summary-text">응답 내용은 안전하게 보호됩니다</span>
+      </summary>
+      <p class="privacy-body">이 대화 내용은 서버에 저장됩니다.</p>
+    </details>
 
-    <ul class="messages" id="messages" aria-live="polite">
-      <li class="message message-assistant">안녕하세요. 접수 면담을 시작하겠습니다. 오늘 상담을 받으러 오신 이유를 편하게 말씀해 주세요.</li>
-    </ul>
+    <ul class="messages" id="messages" aria-live="polite"></ul>
     <p class="status" id="status" role="alert"></p>
 
     <form id="chat-form" class="chat-form">
@@ -36,8 +45,21 @@
         placeholder="메시지를 입력하세요"
         required
       />
-      <button type="submit" id="send-button">전송</button>
+      <button type="submit" id="send-button" aria-label="전송">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+          <path d="M2 21l21-9L2 3v7l15 2-15 2z"></path>
+        </svg>
+      </button>
     </form>
+    <p class="lock-notice">
+      <span class="lock-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="11" width="14" height="9" rx="2"></rect>
+          <path d="M8 11V7a4 4 0 018 0v4"></path>
+        </svg>
+      </span>
+      응답 내용은 안전하게 보호됩니다
+    </p>
   </main>
   <aside class="intake-panel" id="intake-panel" aria-label="문진 진행 현황" hidden>
     <h2 class="panel-title">문진 진행</h2>
@@ -45,6 +67,6 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

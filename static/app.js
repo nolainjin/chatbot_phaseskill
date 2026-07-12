@@ -4,6 +4,15 @@
 
   var SESSION_KEY = "lmwiki_session_id";
   var MAX_TURNS = 10;
+  var GREETING =
+    "안녕하세요. 접수 면담을 시작하겠습니다. 오늘 상담을 받으러 오신 이유를 편하게 말씀해 주세요.";
+  var BOT_AVATAR_SVG =
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="5" y="8" width="14" height="11" rx="3"></rect>' +
+    '<circle cx="9.5" cy="13.5" r="1.3" fill="currentColor" stroke="none"></circle>' +
+    '<circle cx="14.5" cy="13.5" r="1.3" fill="currentColor" stroke="none"></circle>' +
+    '<path d="M12 8V5"></path><circle cx="12" cy="4" r="1"></circle>' +
+    '<path d="M9 19v2M15 19v2"></path></svg>';
 
   var messagesEl = document.getElementById("messages");
   var statusEl = document.getElementById("status");
@@ -23,12 +32,38 @@
     return id;
   }
 
+  function formatTimestamp(date) {
+    return date.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+  }
+
   function addMessage(role, text) {
-    var li = document.createElement("li");
-    li.className = "message message-" + role;
-    li.textContent = text;
-    messagesEl.appendChild(li);
-    li.scrollIntoView({ block: "nearest" });
+    var row = document.createElement("li");
+    row.className = "message-row message-row-" + role;
+
+    if (role === "assistant") {
+      var avatar = document.createElement("span");
+      avatar.className = "avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.innerHTML = BOT_AVATAR_SVG;
+      row.appendChild(avatar);
+    }
+
+    var col = document.createElement("div");
+    col.className = "bubble-col";
+
+    var bubble = document.createElement("div");
+    bubble.className = "message message-" + role;
+    bubble.textContent = text;
+    col.appendChild(bubble);
+
+    var time = document.createElement("span");
+    time.className = "message-time";
+    time.textContent = formatTimestamp(new Date());
+    col.appendChild(time);
+
+    row.appendChild(col);
+    messagesEl.appendChild(row);
+    row.scrollIntoView({ block: "nearest" });
   }
 
   function setStatus(text) {
@@ -159,4 +194,6 @@
     if (!message) return;
     sendMessage(message);
   });
+
+  addMessage("assistant", GREETING);
 })();
