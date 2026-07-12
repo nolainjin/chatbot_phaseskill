@@ -111,6 +111,11 @@ def test_mixed_utterance_fills_two_slots_at_once():
     assert "상담 트랙=관계" in result["reply"]
     assert "지지체계=가족" in result["reply"]
 
+    # GUI 슬롯 패널용 additive 필드 — 채움/미충족 라벨이 스키마와 일치해야 한다.
+    filled_labels = {s["label"]: s["value"] for s in result["intake"]["filled"]}
+    assert filled_labels == {"상담 트랙": "관계", "지지체계": "가족"}
+    assert result["intake"]["unfilled"][0]["label"] == "호소 문제"
+
 
 def test_track_priority_relationship_wins_over_emotion():
     """트랙 판정 우선순위(위기 > 관계 > 정서) 회귀 방어.
@@ -134,4 +139,6 @@ def test_knowledge_alt_swap_keeps_stub_reply_without_progress_suffix():
 
     assert result["reply"].startswith("[fake]")
     assert "채움:" not in result["reply"]
+    # 스키마 없는 지식셋은 intake 키 자체가 없어야 GUI 패널이 뜨지 않는다.
+    assert "intake" not in result
     assert "다음 질문:" not in result["reply"]

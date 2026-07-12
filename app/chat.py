@@ -104,6 +104,27 @@ def _fake_progress_suffix(
     return f" | {' | '.join(parts)}" if parts else ""
 
 
+def _intake_state(
+    schema: intake.Schema,
+    filled: dict[str, str],
+    unfilled: list[intake.Slot],
+) -> dict:
+    """GUI 슬롯 패널용 상태. 스키마 활성 응답에만 additive로 실린다 —
+    기존 {reply, turn, limit_reached} 계약은 그대로, 스키마 없는 지식셋
+    (knowledge-alt 스왑)은 이 키 자체가 없다."""
+    return {
+        "filled": [
+            {"id": slot.id, "label": slot.label, "value": filled[slot.id]}
+            for slot in schema.slots
+            if slot.id in filled
+        ],
+        "unfilled": [
+            {"id": slot.id, "label": slot.label, "red_flag": slot.red_flag}
+            for slot in unfilled
+        ],
+    }
+
+
 def handle_message(session_id: str, message: str, settings: Settings | None = None) -> dict:
     settings = settings or Settings.from_env()
     session = _get_session(session_id)
@@ -121,6 +142,7 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     schema = intake.load_schema(settings.knowledge_dir)
     new_fills: dict[str, str] = {}
     unfilled: list[intake.Slot] = []
+    red_flag_ids: set[str] = set()
     if schema is None:
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"
@@ -182,4 +204,11 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
             except Exception:
                 pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리
 
-    return {"reply": reply, "turn": session.turns, "limit_reached": False}
+    result = {"reply": reply, "turn": session.turns, "limit_reached": False}
+    if schema is not None:
+        # 실모드는 extract_real이 unfilled 계산 이후에 슬롯을 채우므로,
+        # 패널 상태는 최종 session.slots 기준으로 다시 계산한다.
+        result["intake"] = _intake_state(
+            schema, session.slots, schema.unfilled_by_priority(session.slots, red_flag_ids)
+        )
+    return result
