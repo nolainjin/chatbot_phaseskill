@@ -5,7 +5,7 @@ import os
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
-from app import chat, ratelimit, storage
+from app import chat, intake, ratelimit, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
@@ -37,6 +37,14 @@ def post_chat(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     return chat.handle_message(session_id, message)
+
+
+@app.get("/api/config")
+def get_config():
+    """스키마 프로브: 지식셋이 intake 스키마를 가지고 있는지 확인."""
+    settings = Settings.from_env()
+    schema_exists = intake.load_schema(settings.knowledge_dir) is not None
+    return {"intake_schema": schema_exists}
 
 
 # static/은 Phase 5가 채운다 — 아직 없을 수 있으니 존재할 때만 마운트해서
