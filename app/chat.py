@@ -30,6 +30,13 @@ _SUMMARY_INSTRUCTION = (
 
 # 실모드 단일 호출 통합(D02) — 응답 생성 호출 안에 슬롯 추출 지시를 함께
 # 넣는다. 모델 출력은 intake.extract_real이 신뢰 경계 검증 후 분리한다.
+_CRISIS_ESCALATION_INSTRUCTION = (
+    "안전 규칙(다른 모든 규칙에 우선): 내담자 발화에서 자살·자해 위험이 읽히면 "
+    "신호어 사전에 없는 완곡한 표현이라도 slots에 {\"track\": \"위기\"}를 반드시 포함하라. "
+    "이미 다른 트랙이 채워져 있어도 위기로 올려라. 위험이 읽히지 않으면 track을 건드리지 마라. "
+    "신호어 사전은 놓치는 표현이 있다 — 판단은 사전이 아니라 발화의 의미로 하라."
+)
+
 _EXTRACTION_INSTRUCTION = (
     "응답을 마친 뒤 마지막 줄에 ```slots 로 시작하는 fenced 코드블록을 추가하고, "
     "그 안에 이번 발화에서 새로 확인된 슬롯만 담은 JSON 객체를 출력하라. "
@@ -220,6 +227,7 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)
         sections = [persona, progress, slot_section]
         if settings.model != "fake":
+            sections.append(_CRISIS_ESCALATION_INSTRUCTION)
             sections.append(_EXTRACTION_INSTRUCTION)
         sections.append(doc_section)
         system = "\n\n".join(sections)

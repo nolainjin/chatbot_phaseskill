@@ -313,3 +313,32 @@ def test_extract_real_rejects_value_outside_declared_set():
 
     _, fills = extract_real('답변\n```slots\n{"track": "정서"}\n```', schema, {})
     assert fills == {"track": "정서"}
+
+
+def test_crisis_signal_beats_relationship_signal_in_same_message():
+    """실측 회귀: 자살사고 내담자가 관계 트랙으로 샜다.
+
+    "사는 게 의미가 없다"(위기 사전에 없던 완곡 표현) + "아내가"(관계 사전) 조합에서
+    first-match가 관계를 집었다. 위기 사전을 넓혀 위기가 먼저 걸리게 한다.
+    """
+    from app.intake import extract_classification
+
+    schema = load_schema("knowledge")
+    msg = "회사 잘리고 나서 사는 게 의미가 없다는 생각이 들어요. 아내가 가보라고 해서 왔습니다."
+    assert extract_classification(msg, schema, {})["track"] == "위기"
+
+
+def test_model_can_escalate_track_to_crisis_over_existing_value():
+    """사전에 없는 표현이라도 모델이 위험을 읽으면 위기로 승격할 수 있어야 한다."""
+    from app.intake import Schema, Slot
+
+    schema = Schema(
+        version="1",
+        opening_question="q",
+        slots=[Slot(id="track", label="상담 트랙",
+                    values=["위기", "관계", "정서"],
+                    allow_override_values=["위기", "관계"])],
+    )
+
+    _, fills = extract_real('답변\n```slots\n{"track": "위기"}\n```', schema, {"track": "관계"})
+    assert fills == {"track": "위기"}
