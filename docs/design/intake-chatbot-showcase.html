@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>상담 초기면담 챗봇 서비스 시각화</title>
+  <style>
+    :root {
+      --bg: #ecf7f4;
+      --ink: #0e3d36;
+      --teal: #0f6b5e;
+      --muted: #5f7771;
+      --mint: #e3f2ee;
+      --line: #c7dfd9;
+      --white: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 1600px;
+      height: 1000px;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at -5% -8%, #d8eee9 0 260px, transparent 262px),
+        radial-gradient(circle at 105% 105%, #d8eee9 0 330px, transparent 332px),
+        var(--bg);
+    }
+    .page { padding: 58px 80px; }
+    .title { font-size: 56px; line-height: 1.05; margin: 0; letter-spacing: -0.04em; }
+    .subtitle { margin: 20px 0 42px; font-size: 25px; color: var(--muted); letter-spacing: -0.02em; }
+    .grid { display: grid; grid-template-columns: 980px 420px; gap: 40px; align-items: stretch; }
+    .card {
+      background: var(--white);
+      border-radius: 36px;
+      box-shadow: 10px 18px 36px rgba(16, 82, 73, 0.16);
+    }
+    .visual-card { height: 660px; padding: 44px 25px 26px; }
+    .screenshot {
+      display: block;
+      width: 930px;
+      height: auto;
+      border-radius: 28px;
+      box-shadow: 8px 14px 32px rgba(0, 54, 48, 0.20);
+      margin: 0 auto;
+    }
+    .caption-row { display: flex; align-items: center; gap: 24px; margin: 28px 30px 0; }
+    .badge {
+      padding: 12px 22px;
+      border-radius: 999px;
+      background: var(--mint);
+      color: var(--teal);
+      font-weight: 800;
+      font-size: 19px;
+      white-space: nowrap;
+    }
+    .caption { color: var(--muted); font-size: 18px; letter-spacing: -0.02em; }
+    .flow-card { height: 660px; padding: 34px 34px 28px; position: relative; overflow: hidden; }
+    .flow-title { margin: 0 0 28px; font-size: 30px; letter-spacing: -0.03em; }
+    .step { display: grid; grid-template-columns: 42px 1fr; gap: 18px; min-height: 112px; position: relative; }
+    .step:not(:last-of-type)::after {
+      content: "";
+      position: absolute;
+      left: 20px;
+      top: 48px;
+      width: 3px;
+      height: 50px;
+      background: var(--line);
+      border-radius: 4px;
+    }
+    .num {
+      width: 42px; height: 42px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: var(--teal); color: #fff;
+      font-weight: 900; font-size: 19px;
+      z-index: 1;
+    }
+    .step h3 { margin: -3px 0 8px; font-size: 22px; letter-spacing: -0.03em; }
+    .step p { margin: 0; color: var(--muted); font-size: 18px; line-height: 1.45; letter-spacing: -0.03em; }
+    .mini { position: absolute; left: 34px; bottom: 30px; display: flex; gap: 28px; align-items: center; }
+    .mini-copy { width: 170px; padding: 22px; border-radius: 24px; background: var(--mint); color: var(--teal); font-weight: 900; font-size: 24px; line-height: 1.35; }
+    .phone { width: 146px; border-radius: 24px; box-shadow: 8px 12px 24px rgba(0, 54, 48, 0.20); }
+    .footer {
+      margin-top: 35px;
+      height: 62px;
+      border-radius: 31px;
+      background: var(--teal);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 35px;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .footer span:last-child { color: #cdeee7; font-size: 18px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1 class="title">상담 초기면담 챗봇</h1>
+    <p class="subtitle">첫 상담 전, 내담자의 이야기를 안전하게 구조화하는 10턴 접수 면담 서비스</p>
+    <section class="grid">
+      <div class="card visual-card">
+        <img class="screenshot" src="../../scripts/gui-smoke/screenshots/04-after-turns-desktop.png" alt="상담 초기면담 챗봇 실제 화면" />
+        <div class="caption-row">
+          <div class="badge">실제 브라우저 스모크 캡처 기반</div>
+          <div class="caption">스테퍼 · 퀵칩 · 문진 패널 · 10턴 진행이 한 화면에서 동작</div>
+        </div>
+      </div>
+      <aside class="card flow-card">
+        <h2 class="flow-title">서비스 흐름</h2>
+        <div class="step"><div class="num">1</div><div><h3>개방형 시작</h3><p>비밀보장 예외를 안내하고 방문 이유를 묻습니다.</p></div></div>
+        <div class="step"><div class="num">2</div><div><h3>슬롯 자동 채움</h3><p>호소문제·맥락·대처·지지체계·기대를 패널에 정리합니다.</p></div></div>
+        <div class="step"><div class="num">3</div><div><h3>위기 신호 우선</h3><p>자해·자살 신호는 위기 트랙으로 승격하고 안전 확인을 먼저 합니다.</p></div></div>
+        <div class="step"><div class="num">4</div><div><h3>요약 저장</h3><p>10턴 뒤 intake_summary JSON으로 다음 상담에 넘길 재료를 남깁니다.</p></div></div>
+        <div class="mini">
+          <div class="mini-copy">모바일도<br />동일 흐름</div>
+          <img class="phone" src="../../scripts/gui-smoke/screenshots/02-initial-mobile.png" alt="모바일 화면" />
+        </div>
+      </aside>
+    </section>
+    <div class="footer">
+      <span>현재 데모 모드: MODEL=fake · API 키 없이 실제 문진 흐름 확인 가능</span>
+      <span>다음 단계: 로컬 서버로 실제 시연</span>
+    </div>
+  </main>
+</body>
+</html>
