@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>접수 면담 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
   <div class="layout">
@@ -16,6 +16,22 @@
       </div>
       <p class="turn-counter" id="turn-counter" aria-live="polite">0/10</p>
     </header>
+    <ol class="stepper" id="stepper" aria-label="문진 진행 단계" hidden>
+      <li class="stepper-step" data-step="1">
+        <span class="stepper-circle">1</span>
+        <span class="stepper-label">도움 필요 영역</span>
+      </li>
+      <li class="stepper-connector" aria-hidden="true"></li>
+      <li class="stepper-step" data-step="2">
+        <span class="stepper-circle">2</span>
+        <span class="stepper-label">상황 파악</span>
+      </li>
+      <li class="stepper-connector" aria-hidden="true"></li>
+      <li class="stepper-step" data-step="3">
+        <span class="stepper-circle">3</span>
+        <span class="stepper-label">상담 준비</span>
+      </li>
+    </ol>
     <div class="progress" aria-hidden="true">
       <div class="progress-fill" id="turn-progress"></div>
     </div>
@@ -67,6 +83,6 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

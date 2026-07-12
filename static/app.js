@@ -22,6 +22,11 @@
   var sendButtonEl = document.getElementById("send-button");
   var panelEl = document.getElementById("intake-panel");
   var slotListEl = document.getElementById("slot-list");
+  var stepperEl = document.getElementById("stepper");
+
+  // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
+  // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
+  var intakeSchemaActive = false;
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -113,6 +118,25 @@
     return li;
   }
 
+  // 파생 규칙 — DOM 무접근 순수 함수. unfilledIds: intake.unfilled의 id 배열.
+  window.lmwikiDeriveStep = function (unfilledIds) {
+    var ids = unfilledIds || [];
+    if (ids.indexOf("track") !== -1) return 1;
+    var remaining = ids.filter(function (id) {
+      return id !== "expectation";
+    });
+    return remaining.length > 0 ? 2 : 3;
+  };
+
+  function setActiveStep(step) {
+    if (!stepperEl) return;
+    stepperEl.querySelectorAll(".stepper-step").forEach(function (el, i) {
+      var stepNum = i + 1;
+      el.classList.toggle("active", stepNum === step);
+      el.classList.toggle("done", stepNum < step);
+    });
+  }
+
   // intake 필드는 스키마 활성 지식셋에서만 온다 — 없으면(스왑 지식셋) 패널 숨김 유지.
   function renderIntake(intake) {
     if (!intake) return;
@@ -124,6 +148,12 @@
     intake.unfilled.forEach(function (slot, i) {
       slotListEl.appendChild(slotItem("unfilled", slot.label, null, i === 0, slot.red_flag));
     });
+    if (intakeSchemaActive) {
+      var unfilledIds = intake.unfilled.map(function (slot) {
+        return slot.id;
+      });
+      setActiveStep(window.lmwikiDeriveStep(unfilledIds));
+    }
   }
 
   function updateTurnCounter(turn) {
@@ -194,6 +224,24 @@
     if (!message) return;
     sendMessage(message);
   });
+
+  // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
+  // fail-closed로 수렴한다. 채팅 기능에는 영향 없음.
+  fetch("/api/config")
+    .then(function (response) {
+      if (!response.ok) throw new Error("config fetch failed: " + response.status);
+      return response.json();
+    })
+    .then(function (data) {
+      if (data && data.intake_schema === true) {
+        intakeSchemaActive = true;
+        if (stepperEl) stepperEl.hidden = false;
+        setActiveStep(1);
+      }
+    })
+    .catch(function (err) {
+      console.warn("intake config probe failed; stepper stays hidden", err);
+    });
 
   addMessage("assistant", GREETING);
 })();
