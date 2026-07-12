@@ -1,7 +1,7 @@
 ---
 task: gui-uplift
 verdict: pass
-generated_at: 2026-07-12T10:35:00+00:00
+generated_at: 2026-07-12T12:34:21Z
 ---
 
 # Purpose Gate — gui-uplift
@@ -16,10 +16,7 @@ pass
 없음
 
 ## dropped
-- integration / seam-gap-scope-violation-packet: runtime packet
-  `scope-violation-false-positive`(no_revert, decided_by=orchestrator)가 task
-  문서·decision_surface에 미연결 — remediation 커밋 7d54c49
-  (docs/planning/gui-uplift/decisions.md §3)로 연결 기록이 생겨 반증(refuted=yes) 처리.
+- integration / seam-gap-gm8-manual-only — GM8(gui-smoke 스왑 회귀 게이트)이 CI·pre-commit에 미연결이라 수동 실행 전용이라는 지적. refuted=yes: 리포 전역에 CI 인프라가 없어(기존 pytest 81건도 동일 조건) 이 태스크가 만든 공백이 아니고, 사용자 요구는 납품 시점 1회 검증(.venv pytest + playwright 스크린샷 육안 대조)이었으며, phase-07의 declared scope는 "스크래치패드 소실 방지를 위한 리포 내재화"이지 CI 연동이 아니다. e2e 카탈로그 부재도 spec-review E14·phase-07 "## 영향 범위"에 이미 공시됨.
 
 ## parent_goal_matrix
 - local_task_acceptance_passed: yes
@@ -28,7 +25,7 @@ pass
 - cross_task_behavior_integrated: yes
 - product_semantic_exceptions_disclosed: yes
 - user_confirmation_required_but_missing: no
-- parent_goal_parts_satisfied: SC1 비주얼 8종 렌더, SC2 스테퍼 3단계 파생, SC3 칩 4종 첫 턴, SC4 불변 제약 유지, SC5 pytest+스크린샷
+- parent_goal_parts_satisfied: SC1, SC2, SC3, SC4, SC5
 - parent_goal_parts_unmet: 없음
 - local_success_parent_success_overclaim_risk: no
 - decomposition_erased_user_intent: no
