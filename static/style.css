@@ -356,6 +356,34 @@ details[open] > .privacy-summary::after {
   margin: 0;
 }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chips[hidden] {
+  display: none;
+}
+
+.chip {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.chip:hover {
+  background: var(--accent);
+  color: var(--bubble-user-text);
+}
+
 .chat-form {
   display: flex;
   gap: 0.55rem;

@@ -51,6 +51,13 @@
     <ul class="messages" id="messages" aria-live="polite"></ul>
     <p class="status" id="status" role="alert"></p>
 
+    <div class="chips" id="chips" hidden>
+      <button type="button" class="chip" data-send="요즘 마음이 자주 불안해요.">불안</button>
+      <button type="button" class="chip" data-send="우울한 기분이 계속돼요.">우울</button>
+      <button type="button" class="chip" data-send="밤에 잠을 잘 못 자요.">수면</button>
+      <button type="button" class="chip" data-send="대인관계 때문에 힘들어요.">관계</button>
+    </div>
+
     <form id="chat-form" class="chat-form">
       <label for="message-input" class="sr-only">메시지 입력</label>
       <input

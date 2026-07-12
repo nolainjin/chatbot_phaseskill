@@ -23,10 +23,13 @@
   var panelEl = document.getElementById("intake-panel");
   var slotListEl = document.getElementById("slot-list");
   var stepperEl = document.getElementById("stepper");
+  var chipsEl = document.getElementById("chips");
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
   var intakeSchemaActive = false;
+  // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
+  var userHasSpoken = false;
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -169,7 +172,19 @@
     sendButtonEl.disabled = true;
   }
 
+  function hideChips() {
+    if (chipsEl) chipsEl.hidden = true;
+  }
+
+  function maybeShowChips() {
+    if (chipsEl && intakeSchemaActive && !userHasSpoken) {
+      chipsEl.hidden = false;
+    }
+  }
+
   function sendMessage(message) {
+    userHasSpoken = true;
+    hideChips();
     setStatus("");
     addMessage("user", message);
     inputEl.value = "";
@@ -225,6 +240,14 @@
     sendMessage(message);
   });
 
+  if (chipsEl) {
+    chipsEl.querySelectorAll(".chip").forEach(function (button) {
+      button.addEventListener("click", function () {
+        sendMessage(button.getAttribute("data-send"));
+      });
+    });
+  }
+
   // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
   // fail-closed로 수렴한다. 채팅 기능에는 영향 없음.
   fetch("/api/config")
@@ -237,6 +260,7 @@
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
         setActiveStep(1);
+        maybeShowChips();
       }
     })
     .catch(function (err) {
