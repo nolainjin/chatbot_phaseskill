@@ -171,8 +171,8 @@ def _build_fake_intake_reply(
     if next_slot.red_flag:
         return (
             "말씀해 주셔서 감사합니다. 안전 확인을 먼저 하겠습니다. "
-            f"{question} 지금 당장 위험하다고 느껴지면 119·112 또는 가까운 응급실에 "
-            "바로 연락해 주세요."
+            f"{question} 지금 혼자 버티기 어렵거나 스스로를 해칠까 걱정된다면 "
+            "자살예방상담전화 109 또는 생명의전화 1588-9191에 바로 연락해 주세요."
         )
 
     if new_fills:

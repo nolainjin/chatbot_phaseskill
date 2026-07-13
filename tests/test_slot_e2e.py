@@ -240,7 +240,10 @@ def test_later_crisis_signal_escalates_track_for_safety():
     assert chat._sessions[session_id].slots["track"] == "위기"
     assert result["intake"]["unfilled"][0]["label"] == "자해 계획·수단"
     assert result["intake"]["unfilled"][0]["red_flag"] is True
-    assert "119" in result["reply"]
+    assert "자살예방상담전화 109" in result["reply"]
+    assert "생명의전화 1588-9191" in result["reply"]
+    assert "119" not in result["reply"]
+    assert "112" not in result["reply"]
 
 
 def test_later_relationship_signal_escalates_from_emotion_without_support_false_positive():
