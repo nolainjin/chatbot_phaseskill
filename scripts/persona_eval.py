@@ -13,9 +13,7 @@ main.py에만 걸려 있어서 평가에는 안 걸린다.
 import argparse
 import json
 import os
-import subprocess
 import sys
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -111,19 +109,14 @@ def _ask_patient(persona: str, transcript: list[dict]) -> str:
         convo = "\n".join(
             f"{'상담사' if t['role'] == 'bot' else '나'}: {t['text']}" for t in transcript
         )
-    with tempfile.TemporaryDirectory(prefix="persona-eval-") as cwd:
-        proc = subprocess.run(
-            ["claude", "-p", convo,
-             "--system-prompt", _PATIENT_SYSTEM.format(persona=persona),
-             "--exclude-dynamic-system-prompt-sections",
-             "--model", PATIENT_MODEL,
-             "--allowed-tools", ""],
-            capture_output=True, text=True, timeout=PATIENT_TIMEOUT_SEC, check=False,
-            cwd=cwd, env=llm._clean_env(), stdin=subprocess.DEVNULL,
-        )
-    if proc.returncode != 0:
-        raise RuntimeError(f"patient CLI 실패: {proc.stderr.strip()[-200:]}")
-    return proc.stdout.strip()
+    return llm.run_claude_cli(
+        ["claude", "-p", convo,
+         "--system-prompt", _PATIENT_SYSTEM.format(persona=persona),
+         "--exclude-dynamic-system-prompt-sections",
+         "--model", PATIENT_MODEL,
+         "--allowed-tools", ""],
+        timeout=PATIENT_TIMEOUT_SEC,
+    )
 
 
 def run_one(persona: dict, run_idx: int, settings: Settings) -> dict:

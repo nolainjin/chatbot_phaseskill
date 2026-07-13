@@ -84,10 +84,23 @@ def test_cli_backend_isolates_parent_claude_session(monkeypatch):
     assert "--exclude-dynamic-system-prompt-sections" in seen["argv"]
 
 
-def test_cli_backend_raises_on_failure(monkeypatch):
-    _capture(monkeypatch, returncode=1, stdout="", stderr="not logged in")
+def test_cli_backend_retries_then_raises_with_stdout(monkeypatch):
+    """일시 실패로 대화를 죽이지 않되, 끝내 실패하면 stdout까지 담아 사유를 보여준다.
 
-    with pytest.raises(RuntimeError, match="not logged in"):
+    실측 회귀: 평가 하네스 60회 중 29회가 rc≠0으로 죽었는데 stderr가 비어 있어
+    사유를 못 봤다. CLI는 실패 사유를 stdout으로 뱉기도 한다.
+    """
+    attempts = {"n": 0}
+    slept: list[float] = []
+
+    def fake_run(_argv, **_kwargs):
+        attempts["n"] += 1
+        return types.SimpleNamespace(returncode=1, stdout="usage limit reached", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(llm.time, "sleep", slept.append)
+
+    with pytest.raises(RuntimeError, match="usage limit reached"):
         llm.ask(
             system="s",
             history=[],
@@ -95,6 +108,9 @@ def test_cli_backend_raises_on_failure(monkeypatch):
             doc_titles=[],
             settings=_settings(llm.CLI_MODEL),
         )
+
+    assert attempts["n"] == llm.CLI_RETRIES
+    assert slept == [5, 10]  # 백오프 — 마지막 시도 뒤에는 안 잔다
 
 
 def test_fake_backend_still_bypasses_cli(monkeypatch):

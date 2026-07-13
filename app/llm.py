@@ -11,6 +11,7 @@
 import os
 import subprocess
 import tempfile
+import time
 
 import anthropic
 
@@ -22,6 +23,8 @@ CLI_MODEL = "claude-cli"
 # CLI 기동 오버헤드가 턴당 5~8초라 API 실호출보다 넉넉하게 잡는다.
 CLI_TIMEOUT_SEC = 120
 CLI_UNDERLYING_MODEL = "claude-haiku-4-5"
+CLI_RETRIES = 3
+CLI_RETRY_BACKOFF_SEC = 5
 
 _ROLE_LABEL = {"user": "사용자", "assistant": "상담사"}
 
@@ -44,40 +47,61 @@ def _clean_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
 
 
-def _ask_cli(system: str, history: list[dict[str, str]], user: str) -> str:
-    """`claude` CLI를 상담 모델로 쓴다. 코딩 에이전트 정체성을 네 겹으로 차단한다.
+def run_claude_cli(argv: list[str], timeout: int = CLI_TIMEOUT_SEC) -> str:
+    """`claude` CLI 호출 공통 경로. 코딩 에이전트 정체성을 네 겹으로 차단하고 재시도한다.
 
-    - ``--system-prompt``: 기본 프롬프트를 교체(append 아님). append면 코딩 지시가
-      상담 페르소나에 섞인다.
-    - ``--exclude-dynamic-system-prompt-sections``: 환경·git 상태 등 동적 섹션 제거.
+    - ``--system-prompt``(호출자): 기본 프롬프트를 교체(append 아님). append면 코딩
+      지시가 상담 페르소나에 섞인다.
+    - ``--exclude-dynamic-system-prompt-sections``(호출자): 환경·git 등 동적 섹션 제거.
     - ``cwd``: 빈 임시 디렉터리. 리포 안에서 돌리면 CLAUDE.md를 읽는다.
     - ``env``/``stdin``: 부모 세션 상속 차단(_clean_env), 부모 stdin 상속 차단.
+
+    장시간 대량 호출(평가 하네스 등)에서 간헐적으로 rc≠0이 난다 — 한 번의 일시
+    실패로 대화 전체를 죽이지 않도록 백오프 재시도한다. 실패 메시지에는 stdout도
+    담는다(CLI가 사유를 stdout으로 뱉는 경우가 있어 stderr만 보면 빈 문자열이다).
     """
-    with tempfile.TemporaryDirectory(prefix="lmwiki-cli-") as neutral_cwd:
-        proc = subprocess.run(
-            [
-                "claude",
-                "-p",
-                _cli_prompt(history, user),
-                "--system-prompt",
-                system,
-                "--exclude-dynamic-system-prompt-sections",
-                "--model",
-                CLI_UNDERLYING_MODEL,
-                "--allowed-tools",
-                "",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=CLI_TIMEOUT_SEC,
-            check=False,
-            cwd=neutral_cwd,
-            env=_clean_env(),
-            stdin=subprocess.DEVNULL,
-        )
-    if proc.returncode != 0:
-        raise RuntimeError(f"claude CLI 실패(rc={proc.returncode}): {proc.stderr.strip()[-300:]}")
-    return proc.stdout.strip()
+    last = ""
+    for attempt in range(CLI_RETRIES):
+        try:
+            with tempfile.TemporaryDirectory(prefix="claude-cli-") as neutral_cwd:
+                proc = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    cwd=neutral_cwd,
+                    env=_clean_env(),
+                    stdin=subprocess.DEVNULL,
+                )
+            if proc.returncode == 0:
+                return proc.stdout.strip()
+            last = (
+                f"rc={proc.returncode} "
+                f"stdout={proc.stdout.strip()[-200:]!r} stderr={proc.stderr.strip()[-200:]!r}"
+            )
+        except subprocess.TimeoutExpired:
+            last = f"timeout({timeout}s)"
+        if attempt < CLI_RETRIES - 1:
+            time.sleep(CLI_RETRY_BACKOFF_SEC * (2**attempt))
+    raise RuntimeError(f"claude CLI 실패({CLI_RETRIES}회 시도): {last}")
+
+
+def _ask_cli(system: str, history: list[dict[str, str]], user: str) -> str:
+    return run_claude_cli(
+        [
+            "claude",
+            "-p",
+            _cli_prompt(history, user),
+            "--system-prompt",
+            system,
+            "--exclude-dynamic-system-prompt-sections",
+            "--model",
+            CLI_UNDERLYING_MODEL,
+            "--allowed-tools",
+            "",
+        ]
+    )
 
 
 def ask(
