@@ -287,7 +287,7 @@ def test_handle_message_real_mode_storage_file_has_clean_reply(tmp_path, monkeyp
     chat.handle_message("real-cap05", "가족 문제로 왔어요", _settings(tmp_path))
 
     day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / "real-cap05.json").read_text(encoding="utf-8"))
+    turns = json.loads((day_dir / "real-cap05.json").read_text(encoding="utf-8"))["turns"]
     assistant_turn = next(t for t in turns if t["role"] == "assistant")
 
     assert "```slots" not in assistant_turn["text"]

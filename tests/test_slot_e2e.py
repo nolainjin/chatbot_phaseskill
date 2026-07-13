@@ -41,7 +41,7 @@ def _run_to_summary(session_id: str, first_message: str, settings: Settings | No
         chat.handle_message(session_id, _FILLER, settings)
 
     day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))
+    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     summary_text = next(t["text"] for t in turns if t["role"] == "intake_summary")
     return json.loads(summary_text)
 

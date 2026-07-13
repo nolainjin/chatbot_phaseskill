@@ -3,6 +3,7 @@
   "use strict";
 
   var SESSION_KEY = "lmwiki_session_id";
+  var PARTICIPANT_KEY = "lmwiki_participant_id";
   var MAX_TURNS = 10;
   var GREETING =
     "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
@@ -38,6 +39,15 @@
     if (!id) {
       id = crypto.randomUUID();
       sessionStorage.setItem(SESSION_KEY, id);
+    }
+    return id;
+  }
+
+  function getParticipantId() {
+    var id = localStorage.getItem(PARTICIPANT_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(PARTICIPANT_KEY, id);
     }
     return id;
   }
@@ -222,7 +232,11 @@
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: getSessionId(), message: message }),
+      body: JSON.stringify({
+        session_id: getSessionId(),
+        participant_id: getParticipantId(),
+        message: message,
+      }),
     })
       .then(function (response) {
         if (response.ok) return response.json();

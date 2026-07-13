@@ -105,11 +105,17 @@ H1도 없으면 파일명이 제목이 된다. `type`/`aliases`/`author`/`date`/
 ## 대화 저장 & SQLite 배치 적재
 
 대화 턴은 `data/conversations/YYYY-MM-DD/{session_id}.json`에 실시간
-저장된다(`app/storage.py`). 하루 1회 `scripts/load_to_sqlite.py`가 전일자
-JSON을 `data/chatlog.db`에 UPSERT로 적재한다. SQLite는 `conversations(date,
-session_id)`와 `turns(date, session_id, seq)` 복합 키를 써서 같은 브라우저
-세션 ID가 날짜를 넘겨 재사용돼도 날짜별 기록이 서로 덮어쓰이지 않는다.
-`--date YYYY-MM-DD`로 특정 날짜를 지정할 수 있다.
+저장된다(`app/storage.py`). 브라우저는 탭/세션 단위 `session_id`와, 같은
+로컬 브라우저 사용자를 익명으로 연결하는 무작위 `participant_id`를 함께 보낸다.
+이 값은 이름·전화번호가 아니라 UUID 형태의 개인번호라 데이터 반출 시 직접 식별
+위험을 낮추면서도 같은 사람의 여러 세션을 나중에 묶을 수 있다.
+
+하루 1회 `scripts/load_to_sqlite.py`가 전일자 JSON을 `data/chatlog.db`에
+UPSERT로 적재한다. SQLite는 `participants(participant_id)`,
+`conversations(date, session_id, participant_id)`, `turns(date, session_id, seq)`
+구조를 쓴다. 같은 브라우저 세션 ID가 날짜를 넘겨 재사용돼도 날짜별 기록은 서로
+덮어쓰이지 않고, 여러 세션은 `participant_id`로 연결된다. `--date YYYY-MM-DD`로
+특정 날짜를 지정할 수 있다.
 
 실제 배포 환경에서는 크론에 등록한다 (등록 자체는 배포 phase에서 진행):
 

@@ -87,7 +87,7 @@ def test_intake_summary_recorded_once_at_max_turns(monkeypatch, tmp_path):
         chat.handle_message(session_id, f"질문 {i}", _settings())
 
     day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))
+    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     roles = [t["role"] for t in turns]
 
     assert roles.count("user") == chat.MAX_TURNS
@@ -130,7 +130,7 @@ def test_summary_failure_does_not_break_conversation_storage(monkeypatch, tmp_pa
     assert result["turn"] == chat.MAX_TURNS
 
     day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))
+    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     roles = [t["role"] for t in turns]
 
     assert roles.count("user") == chat.MAX_TURNS

@@ -14,15 +14,24 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
+from app import storage
+
 DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
 DEFAULT_DB_PATH = Path("data/chatlog.db")
 
 _SCHEMA = """
 PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS participants (
+    participant_id TEXT PRIMARY KEY
+);
 CREATE TABLE IF NOT EXISTS conversations (
     date TEXT NOT NULL,
     session_id TEXT NOT NULL,
-    PRIMARY KEY (date, session_id)
+    participant_id TEXT NOT NULL,
+    PRIMARY KEY (date, session_id),
+    FOREIGN KEY (participant_id)
+        REFERENCES participants(participant_id)
+        ON DELETE RESTRICT
 );
 CREATE TABLE IF NOT EXISTS turns (
     date TEXT NOT NULL,
@@ -46,8 +55,9 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """현재 스키마를 보장하고, 초기 session_id-only PK 스키마는 보존 마이그레이션한다."""
+    """현재 스키마를 보장하고, 초기 session_id-only/participant-less 스키마를 보존 마이그레이션한다."""
     turn_columns = _table_columns(conn, "turns")
+    conversation_columns = _table_columns(conn, "conversations")
     if turn_columns and "date" not in turn_columns:
         conn.executescript(
             """
@@ -58,8 +68,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(_SCHEMA)
         conn.execute(
             """
-            INSERT OR IGNORE INTO conversations (date, session_id)
-            SELECT date, session_id
+            INSERT OR IGNORE INTO participants (participant_id)
+            SELECT session_id
+            FROM conversations_legacy
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO conversations (date, session_id, participant_id)
+            SELECT date, session_id, session_id
             FROM conversations_legacy
             """
         )
@@ -81,7 +98,50 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         return
 
+    if conversation_columns and "participant_id" not in conversation_columns:
+        conn.executescript(
+            """
+            ALTER TABLE conversations RENAME TO conversations_legacy;
+            ALTER TABLE turns RENAME TO turns_legacy;
+            """
+        )
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO participants (participant_id)
+            SELECT session_id
+            FROM conversations_legacy
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO conversations (date, session_id, participant_id)
+            SELECT date, session_id, session_id
+            FROM conversations_legacy
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO turns (date, session_id, seq, role, text)
+            SELECT date, session_id, seq, role, text
+            FROM turns_legacy
+            """
+        )
+        conn.executescript(
+            """
+            DROP TABLE turns_legacy;
+            DROP TABLE conversations_legacy;
+            """
+        )
+        return
+
     conn.executescript(_SCHEMA)
+
+
+def _read_conversation_file(json_file: Path) -> tuple[str, str, list[dict]]:
+    raw = json.loads(json_file.read_text(encoding="utf-8"))
+    payload = storage.normalize_conversation_payload(raw, json_file.stem)
+    return payload["session_id"], payload["participant_id"], payload["turns"]
 
 
 def load_day(
@@ -102,12 +162,15 @@ def load_day(
         _ensure_schema(conn)
         loaded = 0
         for json_file in sorted(day_dir.glob("*.json")):
-            session_id = json_file.stem
-            turns = json.loads(json_file.read_text(encoding="utf-8"))
+            session_id, participant_id, turns = _read_conversation_file(json_file)
             conn.execute(
-                "INSERT INTO conversations (date, session_id) VALUES (?, ?) "
-                "ON CONFLICT(date, session_id) DO UPDATE SET date=excluded.date",
-                (day.isoformat(), session_id),
+                "INSERT OR IGNORE INTO participants (participant_id) VALUES (?)",
+                (participant_id,),
+            )
+            conn.execute(
+                "INSERT INTO conversations (date, session_id, participant_id) VALUES (?, ?, ?) "
+                "ON CONFLICT(date, session_id) DO UPDATE SET participant_id=excluded.participant_id",
+                (day.isoformat(), session_id, participant_id),
             )
             for turn in turns:
                 conn.execute(

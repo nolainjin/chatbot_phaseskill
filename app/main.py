@@ -19,6 +19,7 @@ _rate_limiter = ratelimit.RateLimiter()
 def post_chat(request: Request, payload: dict = Body(...)):
     session_id = payload.get("session_id")
     message = payload.get("message")
+    participant_id = payload.get("participant_id")
 
     # session_id는 파일명이 되므로 API 경계에서 화이트리스트를 강제한다 —
     # 통과 못 하면 400. 아래 storage 층 검증까지 내려가 500으로 새는 걸 막는다.
@@ -28,6 +29,10 @@ def post_chat(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="message는 비어있지 않은 문자열이어야 합니다.")
     if len(message) > MAX_MESSAGE_LEN:
         raise HTTPException(status_code=400, detail=f"message는 {MAX_MESSAGE_LEN}자를 넘을 수 없습니다.")
+    if participant_id is not None and (
+        not isinstance(participant_id, str) or not storage.valid_participant_id(participant_id)
+    ):
+        raise HTTPException(status_code=400, detail="participant_id 형식이 올바르지 않습니다.")
 
     settings = Settings.from_env()
     ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
@@ -36,7 +41,7 @@ def post_chat(request: Request, payload: dict = Body(...)):
     except ratelimit.RateLimitExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
-    return chat.handle_message(session_id, message)
+    return chat.handle_message(session_id, message, participant_id=participant_id)
 
 
 @app.get("/api/config")

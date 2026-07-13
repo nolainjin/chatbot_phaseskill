@@ -50,7 +50,12 @@ def test_api_chat_endpoint_happy_path(monkeypatch):
     monkeypatch.setenv("MODEL", "fake")
     monkeypatch.setenv("KNOWLEDGE_DIR", KNOWLEDGE_DIR)
     response = client.post(
-        "/api/chat", json={"session_id": "api-basic", "message": "라포 형성 방법이 궁금해요"}
+        "/api/chat",
+        json={
+            "session_id": "api-basic",
+            "participant_id": "person-api-basic",
+            "message": "라포 형성 방법이 궁금해요",
+        },
     )
     assert response.status_code == 200
     body = response.json()
@@ -82,6 +87,15 @@ def test_api_chat_rejects_message_over_2000_chars(monkeypatch):
 def test_api_chat_rejects_missing_session_id(monkeypatch):
     monkeypatch.setenv("MODEL", "fake")
     response = client.post("/api/chat", json={"message": "hello"})
+    assert response.status_code == 400
+
+
+def test_api_chat_rejects_bad_participant_id(monkeypatch):
+    monkeypatch.setenv("MODEL", "fake")
+    response = client.post(
+        "/api/chat",
+        json={"session_id": "api-bad-person", "participant_id": "../bad", "message": "hello"},
+    )
     assert response.status_code == 400
 
 

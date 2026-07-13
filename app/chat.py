@@ -52,6 +52,7 @@ class ChatSession:
     history: list[dict[str, str]] = field(default_factory=list)
     slots: dict[str, str] = field(default_factory=dict)
     last_question_slot_id: str | None = None
+    participant_id: str | None = None
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -232,9 +233,17 @@ def _intake_state(
     }
 
 
-def handle_message(session_id: str, message: str, settings: Settings | None = None) -> dict:
+def handle_message(
+    session_id: str,
+    message: str,
+    settings: Settings | None = None,
+    participant_id: str | None = None,
+) -> dict:
     settings = settings or Settings.from_env()
     session = _get_session(session_id)
+    if participant_id and session.participant_id is None:
+        session.participant_id = participant_id
+    effective_participant_id = session.participant_id or session_id
 
     if session.turns >= MAX_TURNS:
         return {"reply": LIMIT_MESSAGE, "turn": session.turns, "limit_reached": True}
@@ -296,8 +305,8 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         session.slots.update(real_fills)
         new_fills.update(real_fills)
 
-    storage.append_turn(session_id, "user", message)
-    storage.append_turn(session_id, "assistant", reply)
+    storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
+    storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
 
     session.history.append({"role": "user", "content": message})
     session.history.append({"role": "assistant", "content": reply})
@@ -309,7 +318,10 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
             # 결정론 생성이라 fake 모드에서도 동일하게 돈다(CAP08).
             summary_json = intake.build_summary_json(schema, session.slots)
             storage.append_turn(
-                session_id, "intake_summary", json.dumps(summary_json, ensure_ascii=False)
+                session_id,
+                "intake_summary",
+                json.dumps(summary_json, ensure_ascii=False),
+                participant_id=effective_participant_id,
             )
         else:
             try:
@@ -320,7 +332,9 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
                     doc_titles=[],
                     settings=settings,
                 )
-                storage.append_turn(session_id, "intake_summary", summary)
+                storage.append_turn(
+                    session_id, "intake_summary", summary, participant_id=effective_participant_id
+                )
             except Exception:
                 pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리
 
