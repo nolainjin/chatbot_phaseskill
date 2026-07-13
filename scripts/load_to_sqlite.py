@@ -1,7 +1,8 @@
 """전일자(또는 --date) JSON 대화 로그를 SQLite(data/chatlog.db)에 적재한다.
 
-세션+턴순번(PK)로 UPSERT하므로 같은 날짜를 여러 번 돌려도 중복되지 않는다
-(멱등). 표준 sqlite3 모듈만 쓴다 — 서버 DB는 두지 않는다.
+날짜+세션+턴순번(PK)로 UPSERT하므로 같은 날짜를 여러 번 돌려도 중복되지 않고,
+같은 session_id가 날짜를 넘겨 재사용돼도 서로 덮어쓰지 않는다(멱등).
+표준 sqlite3 모듈만 쓴다 — 서버 DB는 두지 않는다.
 
 크론 등록 예시 (실제 등록은 배포 phase에서):
     0 3 * * * cd /path/to/repo && .venv/bin/python scripts/load_to_sqlite.py
@@ -17,18 +18,70 @@ DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
 DEFAULT_DB_PATH = Path("data/chatlog.db")
 
 _SCHEMA = """
+PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS conversations (
-    session_id TEXT PRIMARY KEY,
-    date TEXT NOT NULL
+    date TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    PRIMARY KEY (date, session_id)
 );
 CREATE TABLE IF NOT EXISTS turns (
+    date TEXT NOT NULL,
     session_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
-    PRIMARY KEY (session_id, seq)
+    PRIMARY KEY (date, session_id, seq),
+    FOREIGN KEY (date, session_id)
+        REFERENCES conversations(date, session_id)
+        ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_turns_date_session_seq
+    ON turns(date, session_id, seq);
 """
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return [row[1] for row in rows]
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """현재 스키마를 보장하고, 초기 session_id-only PK 스키마는 보존 마이그레이션한다."""
+    turn_columns = _table_columns(conn, "turns")
+    if turn_columns and "date" not in turn_columns:
+        conn.executescript(
+            """
+            ALTER TABLE conversations RENAME TO conversations_legacy;
+            ALTER TABLE turns RENAME TO turns_legacy;
+            """
+        )
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO conversations (date, session_id)
+            SELECT date, session_id
+            FROM conversations_legacy
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO turns (date, session_id, seq, role, text)
+            SELECT conversations_legacy.date, turns_legacy.session_id,
+                   turns_legacy.seq, turns_legacy.role, turns_legacy.text
+            FROM turns_legacy
+            JOIN conversations_legacy
+              ON conversations_legacy.session_id = turns_legacy.session_id
+            """
+        )
+        conn.executescript(
+            """
+            DROP TABLE turns_legacy;
+            DROP TABLE conversations_legacy;
+            """
+        )
+        return
+
+    conn.executescript(_SCHEMA)
 
 
 def load_day(
@@ -46,22 +99,22 @@ def load_day(
 
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(_SCHEMA)
+        _ensure_schema(conn)
         loaded = 0
         for json_file in sorted(day_dir.glob("*.json")):
             session_id = json_file.stem
             turns = json.loads(json_file.read_text(encoding="utf-8"))
             conn.execute(
-                "INSERT INTO conversations (session_id, date) VALUES (?, ?) "
-                "ON CONFLICT(session_id) DO UPDATE SET date=excluded.date",
-                (session_id, day.isoformat()),
+                "INSERT INTO conversations (date, session_id) VALUES (?, ?) "
+                "ON CONFLICT(date, session_id) DO UPDATE SET date=excluded.date",
+                (day.isoformat(), session_id),
             )
             for turn in turns:
                 conn.execute(
-                    "INSERT INTO turns (session_id, seq, role, text) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(session_id, seq) DO UPDATE SET "
+                    "INSERT INTO turns (date, session_id, seq, role, text) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(date, session_id, seq) DO UPDATE SET "
                     "role=excluded.role, text=excluded.text",
-                    (session_id, turn["seq"], turn["role"], turn["text"]),
+                    (day.isoformat(), session_id, turn["seq"], turn["role"], turn["text"]),
                 )
                 loaded += 1
         conn.commit()

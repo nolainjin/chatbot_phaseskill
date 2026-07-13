@@ -10,8 +10,9 @@
 
 ## 현재 상태
 
-이 리포는 phase 단위로 만들어지는 중이다. Phase 1(지식베이스 로더 +
-프로젝트 뼈대)까지 완료된 상태. 진행 상황은
+상담 초기면담 데모는 로컬에서 실제 구동 가능하다. 핵심 파이프라인은
+지식 폴더 로딩 → 채팅 API → JSON 저장 → SQLite 배치 → rate limit → 정적 UI까지
+구현되어 있고, 진행 이력은
 [docs/planning/lmwiki-chatbot-proto/checklist.md](docs/planning/lmwiki-chatbot-proto/checklist.md)
 참고.
 
@@ -105,8 +106,10 @@ H1도 없으면 파일명이 제목이 된다. `type`/`aliases`/`author`/`date`/
 
 대화 턴은 `data/conversations/YYYY-MM-DD/{session_id}.json`에 실시간
 저장된다(`app/storage.py`). 하루 1회 `scripts/load_to_sqlite.py`가 전일자
-JSON을 `data/chatlog.db`에 UPSERT로 적재한다 — 세션+턴순번 PK라 재실행해도
-중복되지 않는다(멱등). `--date YYYY-MM-DD`로 특정 날짜를 지정할 수 있다.
+JSON을 `data/chatlog.db`에 UPSERT로 적재한다. SQLite는 `conversations(date,
+session_id)`와 `turns(date, session_id, seq)` 복합 키를 써서 같은 브라우저
+세션 ID가 날짜를 넘겨 재사용돼도 날짜별 기록이 서로 덮어쓰이지 않는다.
+`--date YYYY-MM-DD`로 특정 날짜를 지정할 수 있다.
 
 실제 배포 환경에서는 크론에 등록한다 (등록 자체는 배포 phase에서 진행):
 

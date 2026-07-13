@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -44,8 +44,8 @@ def test_load_to_sqlite_round_trip(tmp_path):
 
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
-        "SELECT role, text FROM turns WHERE session_id = ? ORDER BY seq",
-        ("session-b",),
+        "SELECT role, text FROM turns WHERE date = ? AND session_id = ? ORDER BY seq",
+        (today.isoformat(), "session-b"),
     ).fetchall()
     conn.close()
     assert rows == [("user", "질문"), ("assistant", "답변")]
@@ -63,10 +63,88 @@ def test_load_to_sqlite_is_idempotent(tmp_path):
 
     conn = sqlite3.connect(db_path)
     total = conn.execute(
-        "SELECT COUNT(*) FROM turns WHERE session_id = ?", ("session-c",)
+        "SELECT COUNT(*) FROM turns WHERE date = ? AND session_id = ?",
+        (today.isoformat(), "session-c"),
     ).fetchone()[0]
     conn.close()
     assert total == 1
+
+
+def test_load_to_sqlite_keeps_same_session_id_on_different_dates(tmp_path):
+    conv_dir = tmp_path / "conversations"
+    db_path = tmp_path / "chatlog.db"
+    first_day = date(2026, 7, 12)
+    second_day = first_day + timedelta(days=1)
+
+    for day, text in ((first_day, "첫날 질문"), (second_day, "다음날 질문")):
+        day_dir = conv_dir / day.isoformat()
+        day_dir.mkdir(parents=True)
+        (day_dir / "same-session.json").write_text(
+            json.dumps([{"seq": 0, "role": "user", "text": text}], ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    assert load_to_sqlite.load_day(first_day, conversations_dir=conv_dir, db_path=db_path) == 1
+    assert load_to_sqlite.load_day(second_day, conversations_dir=conv_dir, db_path=db_path) == 1
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT date, session_id, seq, text FROM turns ORDER BY date, seq"
+    ).fetchall()
+    conn.close()
+
+    assert rows == [
+        ("2026-07-12", "same-session", 0, "첫날 질문"),
+        ("2026-07-13", "same-session", 0, "다음날 질문"),
+    ]
+
+
+def test_load_to_sqlite_migrates_legacy_session_id_primary_key(tmp_path):
+    db_path = tmp_path / "chatlog.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE conversations (
+            session_id TEXT PRIMARY KEY,
+            date TEXT NOT NULL
+        );
+        CREATE TABLE turns (
+            session_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            text TEXT NOT NULL,
+            PRIMARY KEY (session_id, seq)
+        );
+        INSERT INTO conversations (session_id, date) VALUES ('legacy-session', '2026-07-11');
+        INSERT INTO turns (session_id, seq, role, text)
+        VALUES ('legacy-session', 0, 'user', '레거시 질문');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    conv_dir = tmp_path / "conversations"
+    day_dir = conv_dir / "2026-07-12"
+    day_dir.mkdir(parents=True)
+    (day_dir / "new-session.json").write_text(
+        json.dumps([{"seq": 0, "role": "assistant", "text": "신규 답변"}], ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    assert load_to_sqlite.load_day(date(2026, 7, 12), conversations_dir=conv_dir, db_path=db_path) == 1
+
+    conn = sqlite3.connect(db_path)
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(turns)").fetchall()]
+    rows = conn.execute(
+        "SELECT date, session_id, seq, role, text FROM turns ORDER BY date, session_id"
+    ).fetchall()
+    conn.close()
+
+    assert "date" in columns
+    assert rows == [
+        ("2026-07-11", "legacy-session", 0, "user", "레거시 질문"),
+        ("2026-07-12", "new-session", 0, "assistant", "신규 답변"),
+    ]
 
 
 def test_load_to_sqlite_missing_day_returns_zero(tmp_path):
