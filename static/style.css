@@ -1,43 +1,44 @@
 :root {
-  color-scheme: light dark;
-  --page-bg: #f2f9f7;
-  --card-bg: #ffffff;
-  --header-bg: #125e56;
+  color-scheme: light;
+  --page-bg: #f7f3ed;
+  --card-bg: #fffdfa;
+  --header-bg: #7b9189;
   --header-text: #ffffff;
-  --header-text-muted: rgba(255, 255, 255, 0.78);
-  --text: #1f2d2b;
-  --muted: #6b7d79;
-  --bubble-assistant: #e4f2ee;
-  --accent: #125e56;
-  --accent-hover: #0d4a44;
-  --accent-soft: rgba(18, 94, 86, 0.12);
+  --header-text-muted: rgba(255, 255, 255, 0.86);
+  --text: #2f3532;
+  --muted: #6f7d77;
+  --bubble-assistant: #edf3ef;
+  --accent: #5f7f76;
+  --accent-hover: #4f6f66;
+  --accent-soft: rgba(95, 127, 118, 0.14);
   --bubble-user-text: #ffffff;
-  --input-bg: #ffffff;
-  --input-border: #d7e6e2;
-  --track: #dcece7;
-  --error: #b3452f;
-  --shadow: 0 12px 40px rgba(15, 61, 55, 0.14);
+  --input-bg: #fffdfa;
+  --input-border: #ded8cf;
+  --track: #e5ded5;
+  --error: #ad654f;
+  --shadow: 0 14px 34px rgba(85, 74, 61, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --page-bg: #0d1615;
-    --card-bg: #16211f;
-    --header-bg: #0c211e;
-    --header-text: #eaf6f3;
-    --header-text-muted: rgba(234, 246, 243, 0.72);
-    --text: #e7f3f0;
-    --muted: #8fa39e;
-    --bubble-assistant: #1d2e2b;
-    --accent: #3fa697;
-    --accent-hover: #58bcac;
-    --accent-soft: rgba(63, 166, 151, 0.18);
-    --bubble-user-text: #052b26;
-    --input-bg: #1b2826;
-    --input-border: #35443f;
-    --track: #253531;
-    --error: #e07856;
-    --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    color-scheme: light;
+    --page-bg: #f1ede6;
+    --card-bg: #fffaf3;
+    --header-bg: #6f8981;
+    --header-text: #ffffff;
+    --header-text-muted: rgba(255, 255, 255, 0.86);
+    --text: #303733;
+    --muted: #718079;
+    --bubble-assistant: #e9f1ec;
+    --accent: #5a7a71;
+    --accent-hover: #4c6a62;
+    --accent-soft: rgba(90, 122, 113, 0.16);
+    --bubble-user-text: #ffffff;
+    --input-bg: #fffaf3;
+    --input-border: #ded6ca;
+    --track: #e4ddd4;
+    --error: #ad654f;
+    --shadow: 0 14px 34px rgba(85, 74, 61, 0.14);
   }
 }
 
@@ -482,12 +483,14 @@ details[open] > .privacy-summary::after {
 }
 
 .intake-panel {
-  width: 240px;
+  width: 270px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  min-width: 0;
   background: var(--card-bg);
+  border: 1px solid rgba(95, 127, 118, 0.12);
   border-radius: 1.4rem;
   box-shadow: var(--shadow);
   padding: 1.4rem 1.2rem;
@@ -514,19 +517,24 @@ details[open] > .privacy-summary::after {
 
 .slot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.7rem;
+  align-items: flex-start;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
   border: 1.5px solid transparent;
   border-radius: 0.75rem;
   font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 .slot-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 1 8rem;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .slot-filled {
@@ -554,19 +562,27 @@ details[open] > .privacy-summary::after {
 }
 
 .slot-value {
+  flex: 1 1 100%;
+  min-width: 0;
   font-weight: 600;
   color: var(--accent);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .slot-badge {
+  flex: 0 1 auto;
+  max-width: 100%;
   font-size: 0.68rem;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 999px;
   padding: 0.14rem 0.5rem;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .slot-redflag.slot-next {
