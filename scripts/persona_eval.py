@@ -127,13 +127,23 @@ def run_one(persona: dict, run_idx: int, settings: Settings) -> dict:
     result = {}
 
     try:
+        # 실측 버그: unfilled가 비면 즉시 끊었더니, 봇이 막 안전 질문("자살 생각
+        # 해보셨나요?")을 던진 바로 그 턴에서 환자가 답하기도 전에 대화가 끝나버려
+        # 위기 탐지를 놓쳤다(crisis-attempt-history, crisis-hidden). 실제 앱(main.py/
+        # app.js)은 unfilled를 이유로 대화를 끊지 않는다 — 하네스만의 결함이었다.
+        # 슬롯이 다 찬 턴에도 환자가 한 번은 답할 기회를 준다.
+        grace_used = False
         for _ in range(MAX_TURNS):
             patient_msg = _ask_patient(persona["persona"], transcript)
             transcript.append({"role": "patient", "text": patient_msg})
             result = chat.handle_message(session_id, patient_msg, settings)
             transcript.append({"role": "bot", "text": result["reply"]})
-            if result.get("limit_reached") or not result.get("intake", {}).get("unfilled"):
+            if result.get("limit_reached"):
                 break
+            if not result.get("intake", {}).get("unfilled"):
+                if grace_used:
+                    break
+                grace_used = True
     except Exception as exc:  # 한 대화의 실패가 400회 전체를 죽이지 않게 격리
         error = f"{type(exc).__name__}: {exc}"
 
