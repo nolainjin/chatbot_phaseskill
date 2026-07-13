@@ -327,6 +327,16 @@ def test_crisis_signal_beats_relationship_signal_in_same_message():
     msg = "회사 잘리고 나서 사는 게 의미가 없다는 생각이 들어요. 아내가 가보라고 해서 왔습니다."
     assert extract_classification(msg, schema, {})["track"] == "위기"
 
+def test_spousal_bereavement_tracks_emotional_not_relationship():
+    """'배우자와 사별'은 관계 갈등이 아니라 애도·정서 호소다."""
+    from app.intake import extract_classification
+
+    schema = load_schema("knowledge")
+    msg = "작년에 배우자와 사별했고 아직도 너무 슬퍼요."
+
+    assert extract_classification(msg, schema, {})["track"] == "정서"
+
+
 
 def test_model_can_escalate_track_to_crisis_over_existing_value():
     """사전에 없는 표현이라도 모델이 위험을 읽으면 위기로 승격할 수 있어야 한다."""
@@ -348,9 +358,9 @@ def test_relationship_mention_does_not_override_established_emotional_track():
     """실측 회귀: 정서로 확정된 track이 나중에 배우자 언급 한 번에 관계로 덮어써졌다.
 
     emo-insomnia 페르소나 — "잠"으로 정서 확정 후, 지지체계를 묻는 질문에 답하며
-    "아내"를 언급했더니 track이 관계로 바뀌었다. allow_override_values에서 관계를
-    빼서, 위기 승격(안전)만 기채움을 덮어쓰고 관계는 다른 슬롯처럼 최초 판정을
-    유지하게 한다.
+    "아내"를 언급했더니 track이 관계로 바뀌었다. 관계 승격 자체는 유지하되
+    override_signals.관계에 구체 갈등 신호를 요구해서, 단순 정체성 명사 언급은
+    기존 정서 트랙을 덮지 못하게 한다.
     """
     from app.intake import extract_classification
 
@@ -370,3 +380,51 @@ def test_crisis_signal_still_overrides_established_relationship_track():
     schema = load_schema("knowledge")
     fills = extract_classification("이제 사는 게 의미가 없어요.", schema, {"track": "관계"})
     assert fills["track"] == "위기"
+
+def test_reject_signals_block_past_attempt_as_current_plan():
+    """과거 시도 이력 표현은 현재 계획·수단 슬롯을 채우면 안 된다."""
+    from app.intake import extract_fake
+
+    schema = load_schema("knowledge")
+    filled = {"track": "위기", "chief_complaint": "죽고 싶다는 생각이 들어요"}
+    msg = "예전에 약을 많이 먹으려고 한 적이 있는데 용기가 안 났어요."
+
+    fills = extract_fake(msg, schema, filled)
+
+    assert "crisis_plan_means" not in fills
+    assert fills["crisis_attempt_history"] == msg
+
+
+def test_reject_signals_allow_explicit_current_plan_answer():
+    """과거 이력과 현재 수단이 함께 나오면 현재 계획·수단은 보존한다."""
+    from app.intake import extract_fake
+
+    schema = load_schema("knowledge")
+    filled = {"track": "위기", "chief_complaint": "죽고 싶다는 생각이 들어요"}
+    msg = "예전에 자해한 적도 있고, 지금은 약을 모아둔 게 있어요."
+
+    fills = extract_fake(msg, schema, filled)
+
+    assert fills["crisis_plan_means"] == msg
+    assert fills["crisis_attempt_history"] == msg
+
+
+def test_extract_real_applies_reject_signals_with_source_message():
+    """실모드 LLM이 잘못 채운 슬롯도 원 발화 guard로 폐기한다."""
+    from app.intake import extract_real
+
+    schema = load_schema("knowledge")
+    raw = (
+        "과거 이력을 확인했습니다.\n"
+        "```slots\n"
+        '{"crisis_plan_means": "예전에 약을 먹으려고 한 적", '
+        '"crisis_attempt_history": "예전에 약을 먹으려고 한 적"}\n'
+        "```"
+    )
+    filled = {"track": "위기", "chief_complaint": "죽고 싶다는 생각이 들어요"}
+    msg = "예전에 약을 많이 먹으려고 한 적이 있는데 용기가 안 났어요."
+
+    _, fills = extract_real(raw, schema, filled, msg)
+
+    assert "crisis_plan_means" not in fills
+    assert fills["crisis_attempt_history"] == "예전에 약을 먹으려고 한 적"

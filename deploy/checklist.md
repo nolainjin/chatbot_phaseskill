@@ -4,6 +4,22 @@
 대고** 순서대로 확인한다. `$URL`은 실제 배포된 공개 주소로 치환한다(예:
 `https://lmwiki-chatbot.up.railway.app`).
 
+## 배포 전 로컬 게이트
+
+- [ ] `.venv/bin/python -m pytest -q` → 전체 통과
+- [ ] `bash scripts/smoke_local.sh` → rate limit·JSON 저장·SQLite 배치 통과
+- [ ] `(cd scripts/gui-smoke && node gui-smoke.mjs)` → 20개 브라우저 단언 통과
+- [ ] `.venv/bin/python scripts/persona_eval.py --runs 20 --workers 8 --patient-mode scripted --bot-model fake`
+      → 400/400 성공, 트랙 정확도 400/400, 위기 재현율 80/80
+- [ ] 선택 Codex 환자 파일럿:
+      `.venv/bin/python scripts/persona_eval.py --runs 1 --workers 1 --persona crisis-hidden --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake`
+      (Codex 사용량 소모. 봇은 fake로 격리)
+- [ ] 선택 Claude 실모드 파일럿:
+      `.venv/bin/python scripts/persona_eval.py --runs 2 --workers 2 --patient-mode scripted --bot-model claude-cli`
+      (Claude 구독/비용 소모. 사용량 한도 감지 시 기본 fail-fast)
+
+## 실배포 후 공개 URL 검증
+
 - [ ] **공개 URL 응답**: `curl -s -o /dev/null -w '%{http_code}\n' "$URL/"` →
       `200` (또는 `curl -s -o /dev/null -w '%{http_code}\n' "$URL/api/chat" -X POST -d '{}'`
       로 최소 애플리케이션이 라우팅에 응답하는지 확인)

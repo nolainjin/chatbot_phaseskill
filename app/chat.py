@@ -51,6 +51,7 @@ class ChatSession:
     turns: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
     slots: dict[str, str] = field(default_factory=dict)
+    last_question_slot_id: str | None = None
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -97,20 +98,25 @@ def _build_slot_section(
     )
     unfilled_text = ", ".join(_slot_desc(slot) for slot in unfilled)
     lines = [
-        "[접수 슬롯 상태]",
+        "[접수 슬롯 상태 — 내부 운영용, 사용자에게 노출 금지]",
         f"채워진 슬롯: {filled_text or '없음'}",
         f"미충족 슬롯(우선순위순): {unfilled_text or '없음'}",
         "레드플래그 규칙: 미충족 목록 최상단 슬롯이 레드플래그면 그 슬롯을 최우선으로 질문하라.",
         f"턴 예산: 잔여 {MAX_TURNS - turns_before}턴 — 우선순위 높은 슬롯부터 소비하라.",
-        "응답 규칙: 짧게 공감한 뒤 한 번에 질문 하나만 한다. 진단·치료 조언은 하지 않는다.",
+        "응답 규칙: 사용자의 방금 표현에서 감정·상황·강도를 읽어 구체적으로 1문장 반영하고, 한 번에 질문 하나만 한다.",
+        "다음 질문은 슬롯 의도를 지키되 문장을 그대로 복붙하지 말고 사용자 표현에 맞춰 자연스럽게 바꾼다.",
+        "금지: 내부 슬롯명·JSON·코드·로직 설명·문서 제목을 사용자에게 보이지 마라. 진단·치료 조언도 하지 마라.",
     ]
     next_slot = unfilled[0] if unfilled else None
     if next_slot is not None:
         lines.append(f"다음 질문 슬롯: {_slot_desc(next_slot)}")
         if next_slot.ask:
-            lines.append(f"다음 질문 문장: {next_slot.ask}")
+            lines.append(f"다음 질문 의도: {next_slot.ask}")
     if turns_before == 0:
-        lines.append(f"1턴 시작 질문: {schema.opening_question}")
+        lines.append(
+            f"첫 안내문(인사·비밀보장·첫 개방형 질문: {schema.opening_question})은 이미 화면에 표시됐다. "
+            "반복하지 말고 현재 사용자 발화를 짧게 반영한 뒤 다음 질문만 한다."
+        )
     return "\n".join(lines)
 
 
@@ -173,6 +179,37 @@ def _build_fake_intake_reply(
 
     return f"조금 더 정확히 이해하기 위해 한 가지만 여쭤볼게요. {question}"
 
+def _slot_by_id(schema: intake.Schema, slot_id: str | None) -> intake.Slot | None:
+    if slot_id is None:
+        return None
+    return next((slot for slot in schema.slots if slot.id == slot_id), None)
+
+
+def _answer_to_previous_question(
+    message: str,
+    schema: intake.Schema,
+    filled: dict[str, str],
+    slot_id: str | None,
+) -> dict[str, str]:
+    """If keyword matching missed a direct answer, accept it for the slot just asked.
+
+    Fake mode is deterministic and keyword-based. Real users answer questions with
+    short phrases like "쉬었어요" or "두세 달 된 것 같아요" that may not contain
+    the schema's signal words. When the previous assistant turn asked a concrete
+    free-text slot, this fallback records the user's reply instead of looping the
+    same question forever.
+    """
+    slot = _slot_by_id(schema, slot_id)
+    if slot is None or slot.id in filled or not slot.is_active(filled):
+        return {}
+    if slot.capture != "full_message":
+        return {}
+    value = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+    if not value:
+        return {}
+    return {slot.id: value}
+
+
 
 def _intake_state(
     schema: intake.Schema,
@@ -217,10 +254,18 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"
     else:
-        if settings.model == "fake":
-            new_fills = intake.extract_fake(message, schema, session.slots)
-        else:
-            new_fills = intake.extract_classification(message, schema, session.slots)
+        # 질문 순서·반복 방지는 모델이 아니라 슬롯 엔진이 책임진다. 실모드도
+        # 신호어/직전질문 fallback으로 먼저 상태를 갱신하고, 모델은 상담사 문장
+        # 생성에 집중시킨다. 추가 의미 추출은 아래 extract_real에서 보강한다.
+        new_fills = intake.extract_fake(message, schema, session.slots)
+
+        filled_after_signals = {**session.slots, **new_fills}
+        if not new_fills:
+            new_fills.update(
+                _answer_to_previous_question(
+                    message, schema, filled_after_signals, session.last_question_slot_id
+                )
+            )
         session.slots.update(new_fills)
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
         unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
@@ -247,8 +292,9 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
         # 실모드 단일 호출 통합(D02) — 응답 텍스트에 섞여온 슬롯 JSON을 신뢰
         # 경계 검증(intake.extract_real) 후 분리한다. reply는 이제 슬롯 JSON이
         # 제거된 clean 버전이라 history·storage에도 그대로 안전하게 쓴다.
-        reply, real_fills = intake.extract_real(reply, schema, session.slots)
+        reply, real_fills = intake.extract_real(reply, schema, session.slots, message)
         session.slots.update(real_fills)
+        new_fills.update(real_fills)
 
     storage.append_turn(session_id, "user", message)
     storage.append_turn(session_id, "assistant", reply)
@@ -281,8 +327,8 @@ def handle_message(session_id: str, message: str, settings: Settings | None = No
     result = {"reply": reply, "turn": session.turns, "limit_reached": False}
     if schema is not None:
         # 실모드는 extract_real이 unfilled 계산 이후에 슬롯을 채우므로,
-        # 패널 상태는 최종 session.slots 기준으로 다시 계산한다.
-        result["intake"] = _intake_state(
-            schema, session.slots, schema.unfilled_by_priority(session.slots, red_flag_ids)
-        )
+        # 패널 상태와 다음 fallback 기준은 최종 session.slots 기준으로 다시 계산한다.
+        final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
+        result["intake"] = _intake_state(schema, session.slots, final_unfilled)
     return result

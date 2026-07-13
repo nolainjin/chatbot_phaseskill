@@ -11,6 +11,7 @@
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 import time
 
 import anthropic
@@ -25,6 +26,12 @@ CLI_TIMEOUT_SEC = 120
 CLI_UNDERLYING_MODEL = "claude-haiku-4-5"
 CLI_RETRIES = 3
 CLI_RETRY_BACKOFF_SEC = 5
+
+CODEX_CLI_MODEL = "codex-cli"
+CODEX_DEFAULT_MODEL = "gpt-5.4"
+CODEX_TIMEOUT_SEC = 180
+CODEX_RETRIES = 2
+CODEX_RETRY_BACKOFF_SEC = 5
 
 _ROLE_LABEL = {"user": "사용자", "assistant": "상담사"}
 
@@ -104,6 +111,76 @@ def _ask_cli(system: str, history: list[dict[str, str]], user: str) -> str:
     )
 
 
+def _codex_model(model_setting: str) -> str:
+    """MODEL=codex-cli[:model] + CODEX_MODEL override를 지원한다."""
+    prefix = f"{CODEX_CLI_MODEL}:"
+    if model_setting.startswith(prefix):
+        value = model_setting[len(prefix) :].strip()
+        if value:
+            return value
+    return os.getenv("CODEX_MODEL", CODEX_DEFAULT_MODEL)
+
+
+def _codex_prompt(system: str, history: list[dict[str, str]], user: str) -> str:
+    """Codex exec는 system 인자가 없으므로 상담 시스템 지시와 대화 이력을 한 프롬프트로 편다."""
+    return (
+        "[시스템 지시]\n"
+        f"{system}\n\n"
+        "[대화]\n"
+        f"{_cli_prompt(history, user)}\n\n"
+        "위 시스템 지시를 우선하여 상담사 최종 응답만 출력하라."
+    )
+
+
+def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> str:
+    """Codex CLI 호출 공통 경로. 중립 cwd + read-only sandbox로 리포 오염을 차단한다."""
+    last = ""
+    for attempt in range(CODEX_RETRIES):
+        try:
+            with tempfile.TemporaryDirectory(prefix="codex-cli-") as neutral_cwd:
+                output_path = Path(neutral_cwd) / "response.txt"
+                proc = subprocess.run(
+                    [
+                        "codex",
+                        "exec",
+                        "--ephemeral",
+                        "--skip-git-repo-check",
+                        "--ignore-rules",
+                        "--sandbox",
+                        "read-only",
+                        "-C",
+                        neutral_cwd,
+                        "-m",
+                        model,
+                        "-o",
+                        str(output_path),
+                        prompt,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    cwd=neutral_cwd,
+                    stdin=subprocess.DEVNULL,
+                )
+                if proc.returncode == 0:
+                    text = output_path.read_text(encoding="utf-8") if output_path.is_file() else proc.stdout
+                    cleaned = text.strip()
+                    if cleaned:
+                        return cleaned
+                    last = f"empty stdout={proc.stdout.strip()[-200:]!r}"
+                else:
+                    last = (
+                        f"rc={proc.returncode} "
+                        f"stdout={proc.stdout.strip()[-200:]!r} stderr={proc.stderr.strip()[-200:]!r}"
+                    )
+        except subprocess.TimeoutExpired:
+            last = f"timeout({timeout}s)"
+        if attempt < CODEX_RETRIES - 1:
+            time.sleep(CODEX_RETRY_BACKOFF_SEC * (2**attempt))
+    raise RuntimeError(f"codex CLI 실패({CODEX_RETRIES}회 시도): {last}")
+
+
 def ask(
     system: str,
     history: list[dict[str, str]],
@@ -119,6 +196,11 @@ def ask(
     if settings.model == CLI_MODEL:
         return _ask_cli(system, history, user)
 
+    if settings.model == CODEX_CLI_MODEL or settings.model.startswith(f"{CODEX_CLI_MODEL}:"):
+        return run_codex_cli(
+            _codex_prompt(system, history, user),
+            _codex_model(settings.model),
+        )
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=settings.model,

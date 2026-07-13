@@ -95,13 +95,29 @@ def test_crisis_track_asks_red_flag_slot_before_lower_priority_slots():
     assert "crisis_plan_means" not in session.slots
     assert "다음 질문: 자해 계획·수단" in result["reply"]
 
+def test_past_attempt_answer_keeps_current_plan_unfilled():
+    """과거 시도 이력 답변은 현재 계획·수단 확인을 대체하지 않는다."""
+    session_id = "e2e-crisis-history-vs-current-plan"
+    chat.handle_message(session_id, "요즘 죽고 싶다는 생각이 들어요", _settings())
+    result = chat.handle_message(
+        session_id,
+        "예전에 약을 많이 먹으려고 한 적이 있는데 용기가 안 났어요.",
+        _settings(),
+    )
+
+    session = chat._sessions[session_id]
+    assert "crisis_plan_means" not in session.slots
+    assert "crisis_attempt_history" in session.slots
+    assert result["intake"]["unfilled"][0]["id"] == "crisis_plan_means"
+    assert result["intake"]["unfilled"][0]["red_flag"] is True
+    assert "지금 당장" in result["reply"]
 
 def test_mixed_utterance_fills_two_slots_at_once():
-    """④ 혼합 — 한 발화에서 트랙+지지체계 2슬롯 동시 충족 단언(CAP23).
+    """④ 혼합 — 한 발화에서 트랙+호소문제 2슬롯 동시 충족 단언(CAP23).
 
-    "남편과 가족 문제로 너무 힘들어요"는 "남편"으로 track=관계, "가족"으로
-    support=지지체계를 동시에 매칭한다 — 슬롯 하나만 채우고 통과시키는
-    fake-satisfy를 개수·값 단언으로 차단한다.
+    "남편과 가족 문제로 너무 힘들어요"는 "남편"으로 track=관계,
+    전체 발화로 chief_complaint를 동시에 채운다 — 슬롯 하나만 채우고
+    통과시키는 fake-satisfy를 개수·값 단언으로 차단한다.
     """
     session_id = "e2e-mixed"
     result = chat.handle_message(session_id, "남편과 가족 문제로 너무 힘들어요", _settings())
@@ -110,17 +126,15 @@ def test_mixed_utterance_fills_two_slots_at_once():
     assert session.slots == {
         "track": "관계",
         "chief_complaint": "남편과 가족 문제로 너무 힘들어요",
-        "support": "가족",
     }
     assert "상담 트랙=관계" in result["reply"]
-    assert "지지체계=가족" in result["reply"]
+    assert "호소 문제=남편과 가족 문제로 너무 힘들어요" in result["reply"]
 
     # GUI 슬롯 패널용 additive 필드 — 채움/미충족 라벨이 스키마와 일치해야 한다.
     filled_labels = {s["label"]: s["value"] for s in result["intake"]["filled"]}
     assert filled_labels == {
         "상담 트랙": "관계",
         "호소 문제": "남편과 가족 문제로 너무 힘들어요",
-        "지지체계": "가족",
     }
     assert result["intake"]["unfilled"][0]["label"] == "관계 대상·기간"
 
@@ -135,6 +149,86 @@ def test_fake_schema_reply_is_interview_like_not_doc_stub():
     assert "참고 문서" not in visible_reply
     assert "언제부터" in visible_reply
     assert chat._sessions[session_id].slots["chief_complaint"] == "우울해서 잠을 못 자요"
+
+def test_vague_followup_asks_track_choice_instead_of_repeating_opening_question():
+    """호소 문제만 잡히고 트랙이 비면 첫 질문을 반복하지 않고 선택지를 제시한다."""
+    session_id = "e2e-vague-track-choice"
+    first = chat.handle_message(session_id, "안녕하세요", _settings())
+    second = chat.handle_message(session_id, "그냥 너무 힘들어요", _settings())
+
+    opening = "오늘 상담을 받으러 오신 가장 큰 이유"
+    assert opening in first["reply"]
+    assert opening not in second["reply"]
+    assert "정서" in second["reply"]
+    assert "관계" in second["reply"]
+    assert "안전 위기" in second["reply"]
+    assert chat._sessions[session_id].slots["chief_complaint"] == "그냥 너무 힘들어요"
+
+
+def test_manual_log_sequence_advances_without_repeating_symptom_or_coping_questions():
+    """수동 로그 회귀: 자연어 답변이 사전에 없어도 같은 질문을 반복하지 않는다."""
+    session_id = "e2e-manual-log-repeat"
+    first = chat.handle_message(session_id, "우울한 기분이 계속돼요.", _settings())
+    second = chat.handle_message(
+        session_id,
+        "긴장이 계속되는것부터가 시작인데, 회사에 가기 싫어요..",
+        _settings(),
+    )
+    third = chat.handle_message(session_id, "그냥 집에서 쉬었어요", _settings())
+
+    assert "증상 시기·일상 영향" in first["reply"]
+    assert "대처 시도" in second["reply"]
+    assert "지지체계" in third["reply"]
+    slots = chat._sessions[session_id].slots
+    assert slots["symptom_context"] == "긴장이 계속되는것부터가 시작인데, 회사에 가기 싫어요.."
+    assert slots["coping"] == "그냥 집에서 쉬었어요"
+
+
+def test_twenty_natural_answers_fill_the_slot_that_was_just_asked():
+    """20개 자연어 답변 회귀: 사용자가 답했는데 같은 질문을 반복하는 일을 막는다."""
+    cases = [
+        ("symptom_context", "긴장이 계속되는것부터가 시작인데, 회사에 가기 싫어요..", "대처 시도"),
+        ("symptom_context", "굳이 따지면 두 세달 된거 같아요. 그냥 밖에 나가기 무서워져요", "대처 시도"),
+        ("symptom_context", "갑자기 시작됐고 일상이 무너졌어요", "대처 시도"),
+        ("symptom_context", "회사에서 너무 피곤하고 잠도 못 자요", "대처 시도"),
+        ("symptom_context", "계속 집중이 안 돼요", "대처 시도"),
+        ("coping", "그냥 집에서 쉬었어요", "지지체계"),
+        ("coping", "쉬었다구요", "지지체계"),
+        ("coping", "산책을 해봤어요", "지지체계"),
+        ("coping", "참고 버텼어요", "지지체계"),
+        ("coping", "병원에 가보려 했어요", "지지체계"),
+        ("support", "없어요", "상담 기대"),
+        ("support", "혼자예요", "상담 기대"),
+        ("support", "친구에게 말했어요", "상담 기대"),
+        ("support", "가족은 몰라요", "상담 기대"),
+        ("support", "동료 한 명이 알아요", "상담 기대"),
+        ("expectation", "편해지고 싶어요", "필요한 접수 항목"),
+        ("expectation", "도움을 받고 싶어요", "필요한 접수 항목"),
+        ("expectation", "나아지고 싶어요", "필요한 접수 항목"),
+        ("expectation", "상담 받아보고 싶어요", "필요한 접수 항목"),
+        ("expectation", "잘 모르겠지만 바뀌고 싶어요", "필요한 접수 항목"),
+    ]
+
+    def prime(session_id: str, target_slot: str):
+        chat.handle_message(session_id, "우울한 기분이 계속돼요.", _settings())
+        if target_slot == "symptom_context":
+            return
+        chat.handle_message(session_id, "두 달 정도 됐고 일상에 영향이 있어요", _settings())
+        if target_slot == "coping":
+            return
+        chat.handle_message(session_id, "그냥 쉬었어요", _settings())
+        if target_slot == "support":
+            return
+        chat.handle_message(session_id, "친구에게 말했어요", _settings())
+
+    for idx, (slot_id, answer, next_text) in enumerate(cases):
+        session_id = f"e2e-natural-answer-{idx}"
+        prime(session_id, slot_id)
+        result = chat.handle_message(session_id, answer, _settings())
+
+        assert slot_id in chat._sessions[session_id].slots
+        assert next_text in result["reply"]
+
 
 
 def test_later_crisis_signal_escalates_track_for_safety():
@@ -163,7 +257,7 @@ def test_later_relationship_signal_escalates_from_emotion_without_support_false_
     chat.handle_message(support_session, "친구에게 얘기해봤어요", _settings())
 
     assert chat._sessions[support_session].slots["track"] == "정서"
-    assert chat._sessions[support_session].slots["support"] == "친구"
+    assert chat._sessions[support_session].slots["support"] == "친구에게 얘기해봤어요"
 
 def test_track_priority_relationship_wins_over_emotion():
     """트랙 판정 우선순위(위기 > 관계 > 정서) 회귀 방어.

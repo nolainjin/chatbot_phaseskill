@@ -74,6 +74,7 @@
     row.appendChild(col);
     messagesEl.appendChild(row);
     row.scrollIntoView({ block: "nearest" });
+    return { row: row, bubble: bubble, time: time };
   }
 
   function setStatus(text) {
@@ -99,6 +100,31 @@
       typingEl.remove();
       typingEl = null;
     }
+  }
+
+
+  function typeAssistantMessage(text) {
+    var rendered = addMessage("assistant", "");
+    var bubble = rendered.bubble;
+    var reducedMotion =
+      window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var step = reducedMotion ? text.length : 3;
+    var delay = reducedMotion ? 0 : 14;
+    var index = 0;
+
+    return new Promise(function (resolve) {
+      function tick() {
+        index = Math.min(index + step, text.length);
+        bubble.textContent = text.slice(0, index);
+        rendered.row.scrollIntoView({ block: "nearest" });
+        if (index < text.length) {
+          window.setTimeout(tick, delay);
+        } else {
+          resolve();
+        }
+      }
+      tick();
+    });
   }
 
   function slotItem(state, label, value, isNext, redFlag) {
@@ -187,7 +213,7 @@
   function sendMessage(message) {
     userHasSpoken = true;
     hideChips();
-    setStatus("");
+    setStatus("방금 입력을 읽고 있어요…");
     addMessage("user", message);
     inputEl.value = "";
     sendButtonEl.disabled = true;
@@ -215,18 +241,22 @@
 
         hideTyping();
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
-        addMessage("assistant", data.reply.replace(/ \| (채움|다음 질문): .*$/, ""));
-        updateTurnCounter(data.turn);
-        renderIntake(data.intake);
+        var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
+        setStatus("상담사가 답변을 작성하고 있어요…");
+        typeAssistantMessage(replyText).then(function () {
+          setStatus("");
+          updateTurnCounter(data.turn);
+          renderIntake(data.intake);
 
-        if (data.limit_reached) {
-          setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
-          disableInput();
-          return;
-        }
+          if (data.limit_reached) {
+            setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
+            disableInput();
+            return;
+          }
 
-        sendButtonEl.disabled = false;
-        inputEl.focus();
+          sendButtonEl.disabled = false;
+          inputEl.focus();
+        });
       })
       .catch(function () {
         hideTyping();

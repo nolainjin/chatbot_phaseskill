@@ -34,6 +34,8 @@ class Slot:
     values: list | None = None
     allow_override_values: list | None = None
     override_signals: dict | None = None
+    reject_signals: list | None = None
+    reject_unless_signals: list | None = None
     signals: dict | list | None = None
     ask: str | None = None
     capture: str | None = None
@@ -90,6 +92,25 @@ def _fake_slot_value(message: str, matched_value: str, slot: Slot) -> str:
     return matched_value
 
 
+def _is_rejected_by_signal_guard(message: str | None, slot: Slot) -> bool:
+    """slot-level negative signal guard.
+
+    Some slots are semantically narrower than their keyword hints. Example:
+    a current crisis-plan slot may use "약" as a signal, but "예전에 약을
+    먹으려고 한 적" is past attempt history, not current means. The schema
+    owns these domain distinctions through reject_signals/reject_unless_signals.
+    """
+    if message is None or not slot.reject_signals:
+        return False
+    if not any(word in message for word in slot.reject_signals):
+        return False
+    if slot.reject_unless_signals and any(
+        word in message for word in slot.reject_unless_signals
+    ):
+        return False
+    return True
+
+
 def _can_override(
     slot: Slot, current_value: str, new_value: str, message: str | None = None
 ) -> bool:
@@ -128,6 +149,8 @@ def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
         matched_value = _match_signal(message, slot.signals)
         if matched_value is None:
             continue
+        if _is_rejected_by_signal_guard(message, slot):
+            continue
         if slot.id in filled and not _can_override(slot, filled[slot.id], matched_value, message):
             continue
         new_fills[slot.id] = _fake_slot_value(message, matched_value, slot)
@@ -164,7 +187,12 @@ def detect_red_flags(message: str, schema: Schema, filled: dict) -> set[str]:
     return hits
 
 
-def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[str, str]]:
+def extract_real(
+    reply: str,
+    schema: Schema,
+    filled: dict,
+    message: str | None = None,
+) -> tuple[str, dict[str, str]]:
     """실모드 LLM 응답에서 ```slots fenced JSON 블록을 분리해 신뢰 경계로 거른다.
 
     LLM 출력은 신뢰 경계 밖이다 — fenced 블록 분리 실패나 JSON 파싱 실패는
@@ -201,6 +229,8 @@ def extract_real(reply: str, schema: Schema, filled: dict) -> tuple[str, dict[st
         # when 분기(`track=위기`)가 이 값과 정확히 맞물리므로, 모델이 지어낸
         # 자유 문자열("work-related stress")을 받으면 조건부 슬롯이 통째로 안 켜진다.
         if slot.values and value not in slot.values:
+            continue
+        if _is_rejected_by_signal_guard(message, slot):
             continue
         if slot_id in filled and not _can_override(slot, filled[slot_id], value):
             continue
@@ -247,6 +277,14 @@ def _parse_slot(raw) -> Slot:
         ),
         override_signals=(
             raw.get("override_signals") if isinstance(raw.get("override_signals"), dict) else None
+        ),
+        reject_signals=(
+            raw.get("reject_signals") if isinstance(raw.get("reject_signals"), list) else None
+        ),
+        reject_unless_signals=(
+            raw.get("reject_unless_signals")
+            if isinstance(raw.get("reject_unless_signals"), list)
+            else None
         ),
         signals=raw.get("signals"),
         ask=raw.get("ask"),

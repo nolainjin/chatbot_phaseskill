@@ -46,6 +46,22 @@ node gui-smoke.mjs
 검증한다. 스크린샷은 `scripts/gui-smoke/screenshots/`에 저장된다(git 추적
 제외).
 
+## 페르소나 평가
+
+구독 한도 없이 400회 규모의 안전·트랙 회귀를 먼저 확인하려면 scripted 환자 +
+fake 봇으로 돌린다. 실모델 감각 확인은 그 뒤 소규모로만 진행한다.
+
+```bash
+# 로컬 deterministic 400회 — API/Claude CLI 호출 없음
+.venv/bin/python scripts/persona_eval.py --runs 20 --workers 8 --patient-mode scripted --bot-model fake
+
+# Codex 환자 시뮬레이터 파일럿 — Codex 사용량 소모, 봇은 fake로 격리
+.venv/bin/python scripts/persona_eval.py --runs 1 --workers 1 --persona crisis-hidden --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake
+
+# 실모드 축소 파일럿 — Claude 구독/비용 소모, 사용량 한도 감지 시 기본 fail-fast
+.venv/bin/python scripts/persona_eval.py --runs 2 --workers 2 --patient-mode scripted --bot-model claude-cli
+```
+
 ## 데모 시연
 
 의사 고객 또는 내부 검증용 데모는 API 키 없이 fake 모드로 실행할 수 있다.
@@ -54,6 +70,15 @@ node gui-smoke.mjs
 # Fake 모드로 구동 (API 호출 없음)
 MODEL=fake KNOWLEDGE_DIR=knowledge .venv/bin/python -m uvicorn app.main:app --reload
 ```
+
+```bash
+# 실제 모델 응답 데모 — 첫 안내문은 UI의 정형 문구, 이후 상담사 답변은 Codex GPT가 생성
+MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge .venv/bin/python -m uvicorn app.main:app --reload
+```
+
+이 모드는 접수 상태/안전 라우팅은 결정론 슬롯 엔진이 맡고, 사용자에게 보이는
+상담사 문장은 Codex GPT가 매 턴 생성한다. 브라우저는 모델 응답을 받은 뒤
+말풍선을 점진적으로 렌더링해 "완성 문장 덩어리"가 아니라 작성 중인 대화처럼 보인다.
 
 자세한 시연 대본과 각 단계별 확인사항은 [데모 시나리오](docs/demo-scenario.md)를 참고하자.
 

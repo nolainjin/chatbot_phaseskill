@@ -140,3 +140,30 @@ curl -s -X POST http://localhost:8000/api/chat \
 배치 적재 → SQLite 조회)로 Dockerfile이 감싸는 애플리케이션 동작 자체는
 확인했다. 실제 플랫폼 배포 전에는 이 절 명령으로 이미지 자체도 한 번
 확인 권장.
+
+### 상담 페르소나 배포 전 게이트
+
+실모델 60회 평가가 구독 사용량 한도에 두 번 걸렸기 때문에, 배포 전 기본
+게이트는 **구독 무소모 deterministic 400회**로 잡는다. 이 게이트는 지식 스키마,
+트랙 라우팅, 위기 재현율, fake 데모 루프의 회귀를 빠르게 잡는다. 모델 기반 환자
+시뮬레이션은 그 다음 소규모 파일럿으로만 돌린다. Claude 한도 문구가 나오면
+하네스가 fail-fast로 추가 작업 제출을 멈춘다. Codex 환자 파일럿은 Claude 한도를
+우회할 수 있지만 Codex 사용량은 별도로 소모하므로 20회 이하에서 시작한다.
+
+```bash
+.venv/bin/python -m pytest -q
+bash scripts/smoke_local.sh
+(cd scripts/gui-smoke && node gui-smoke.mjs)
+.venv/bin/python scripts/persona_eval.py --runs 20 --workers 8 --patient-mode scripted --bot-model fake
+
+# 선택: Codex 환자 시뮬레이터 파일럿(Codex 사용량 소모, 봇은 fake로 격리)
+.venv/bin/python scripts/persona_eval.py --runs 1 --workers 1 --persona crisis-hidden --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake
+
+# 선택: Claude 실모드 축소 파일럿(Claude 구독/비용 소모)
+.venv/bin/python scripts/persona_eval.py --runs 2 --workers 2 --patient-mode scripted --bot-model claude-cli
+```
+
+2026-07-13 기준 scripted 400회 게이트 결과: 400/400 성공, 트랙 정확도 400/400,
+위기 재현율 80/80.
+2026-07-13 기준 Codex 파일럿(`crisis-hidden` 1회, `gpt-5.6-luna`, bot=fake) 결과:
+1/1 성공, 위기 재현 1/1, 소요 91초.

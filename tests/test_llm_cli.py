@@ -1,8 +1,10 @@
 """claude-cli 백엔드 — argv 조립과 실패 처리.
 
+
 실제 CLI는 부르지 않는다(턴당 수 초 + 구독 토큰 소모). subprocess.run을 가로채
 넘어가는 인자만 검증한다. 실호출 확인은 scripts/smoke_cli.sh가 맡는다.
 """
+from pathlib import Path
 
 import subprocess
 import types
@@ -127,3 +129,62 @@ def test_fake_backend_still_bypasses_cli(monkeypatch):
         settings=_settings("fake"),
     )
     assert reply == "[fake] 참고 문서: 문서A"
+
+
+def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        output_path = Path(argv[argv.index("-o") + 1])
+        output_path.write_text("자연스럽게 받되 한 가지만 확인할게요.\n```slots\n{}\n```", encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="codex log", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    reply = llm.ask(
+        system="너는 접수면담 챗봇이다.",
+        history=[{"role": "user", "content": "안녕"}, {"role": "assistant", "content": "네"}],
+        user="요즘 잠을 못 자요",
+        doc_titles=[],
+        settings=_settings(llm.CODEX_CLI_MODEL),
+    )
+
+    argv = seen["argv"]
+    assert reply.startswith("자연스럽게 받되")
+    assert argv[:2] == ["codex", "exec"]
+    assert "--ignore-rules" in argv
+    assert "--skip-git-repo-check" in argv
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert argv[argv.index("-m") + 1] == "gpt-5.4"
+    assert seen["kwargs"]["stdin"] is subprocess.DEVNULL
+    assert seen["kwargs"]["cwd"]
+    prompt = argv[-1]
+    assert "[시스템 지시]" in prompt
+    assert "너는 접수면담 챗봇이다." in prompt
+    assert "사용자: 안녕" in prompt
+    assert "상담사: 네" in prompt
+    assert prompt.endswith("위 시스템 지시를 우선하여 상담사 최종 응답만 출력하라.")
+
+
+def test_codex_backend_accepts_inline_model_name(monkeypatch):
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        output_path = Path(argv[argv.index("-o") + 1])
+        output_path.write_text("응답", encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    llm.ask(
+        system="s",
+        history=[],
+        user="u",
+        doc_titles=[],
+        settings=_settings("codex-cli:gpt-test"),
+    )
+
+    assert seen["argv"][seen["argv"].index("-m") + 1] == "gpt-test"

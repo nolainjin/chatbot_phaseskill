@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>접수 면담 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 <body>
   <div class="layout">
@@ -51,11 +51,23 @@
     <ul class="messages" id="messages" aria-live="polite"></ul>
     <p class="status" id="status" role="alert"></p>
 
-    <div class="chips" id="chips" hidden>
-      <button type="button" class="chip" data-send="요즘 마음이 자주 불안해요.">불안</button>
-      <button type="button" class="chip" data-send="우울한 기분이 계속돼요.">우울</button>
-      <button type="button" class="chip" data-send="밤에 잠을 잘 못 자요.">수면</button>
-      <button type="button" class="chip" data-send="대인관계 때문에 힘들어요.">관계</button>
+    <div class="chips" id="chips" hidden aria-label="빠른 선택">
+      <button type="button" class="chip" data-send="요즘 마음이 자주 불안하고 걱정이 많아요.">
+        <span class="chip-title">불안·걱정</span>
+        <span class="chip-desc">초조하고 생각이 많아요</span>
+      </button>
+      <button type="button" class="chip" data-send="우울한 기분과 무기력함이 계속돼요.">
+        <span class="chip-title">우울·무기력</span>
+        <span class="chip-desc">기운이 없고 가라앉아요</span>
+      </button>
+      <button type="button" class="chip" data-send="밤에 잠을 잘 못 자고 피곤해요.">
+        <span class="chip-title">수면 문제</span>
+        <span class="chip-desc">잠들기 어렵거나 자주 깨요</span>
+      </button>
+      <button type="button" class="chip" data-send="가족이나 대인관계 때문에 힘들어요.">
+        <span class="chip-title">관계 갈등</span>
+        <span class="chip-desc">가족·부부·대인관계</span>
+      </button>
     </div>
 
     <form id="chat-form" class="chat-form">
@@ -90,6 +102,6 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

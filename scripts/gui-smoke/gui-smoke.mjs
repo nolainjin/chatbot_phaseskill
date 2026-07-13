@@ -121,6 +121,7 @@ async function scenarioKnowledge(browser) {
     () => document.querySelectorAll(".message-row-assistant").length >= 2,
     { timeout: 15000 }
   );
+  await page.waitForSelector("#send-button:not([disabled])", { timeout: 15000 });
 
   const userBubbleHasTimestamp = await page
     .locator(".message-row-user")
@@ -153,6 +154,7 @@ async function scenarioKnowledge(browser) {
       beforeAssistant,
       { timeout: 15000 }
     );
+    await page.waitForSelector("#send-button:not([disabled])", { timeout: 15000 });
   }
 
   const avatarCount = await page.locator(".message-row-assistant .avatar").count();

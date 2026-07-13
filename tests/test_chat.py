@@ -83,3 +83,33 @@ def test_api_chat_rejects_missing_session_id(monkeypatch):
     monkeypatch.setenv("MODEL", "fake")
     response = client.post("/api/chat", json={"message": "hello"})
     assert response.status_code == 400
+
+
+def test_real_model_reply_uses_deterministic_slot_state(monkeypatch):
+    """실응답 모드에서도 질문 반복 방지는 모델 출력이 아니라 슬롯 엔진이 맡는다."""
+    settings = Settings(
+        anthropic_api_key="",
+        knowledge_dir=KNOWLEDGE_DIR,
+        model="codex-cli",
+        trust_proxy_hops=0,
+        daily_request_cap=500,
+    )
+
+    def fake_ask(**_kwargs):
+        return "말씀하신 상태가 꽤 오래 이어져서 버거우셨겠어요. 한 가지만 더 확인할게요.\n```slots\n{}\n```"
+
+    monkeypatch.setattr(chat.llm, "ask", fake_ask)
+
+    session_id = "real-deterministic-slots"
+    first = chat.handle_message(session_id, "우울한 기분이 계속돼요.", settings)
+    assert first["reply"].startswith("말씀하신 상태")
+    assert first["intake"]["unfilled"][0]["id"] == "symptom_context"
+
+    second = chat.handle_message(
+        session_id, "긴장이 계속되는것부터가 시작인데, 회사에 가기 싫어요..", settings
+    )
+    assert second["intake"]["unfilled"][0]["id"] == "coping"
+
+    slots = chat._sessions[session_id].slots
+    assert slots["chief_complaint"] == "우울한 기분이 계속돼요."
+    assert slots["symptom_context"] == "긴장이 계속되는것부터가 시작인데, 회사에 가기 싫어요.."
