@@ -33,6 +33,7 @@ class Slot:
     when: str | None = None
     values: list | None = None
     allow_override_values: list | None = None
+    override_signals: dict | None = None
     signals: dict | list | None = None
     ask: str | None = None
     capture: str | None = None
@@ -89,13 +90,27 @@ def _fake_slot_value(message: str, matched_value: str, slot: Slot) -> str:
     return matched_value
 
 
-def _can_override(slot: Slot, current_value: str, new_value: str) -> bool:
-    """스키마가 허용한 값으로만 기존 슬롯 값을 갱신한다(예: 위기 승격)."""
-    return (
-        slot.allow_override_values is not None
-        and new_value in slot.allow_override_values
-        and current_value != new_value
-    )
+def _can_override(
+    slot: Slot, current_value: str, new_value: str, message: str | None = None
+) -> bool:
+    """스키마가 허용한 값으로만 기존 슬롯 값을 갱신한다(예: 위기 승격).
+
+    override_signals가 선언된 값은 그 좁은 신호 부분문자열이 실제 메시지에 있어야
+    갱신을 허용한다. 관계 승격을 남편/아내 같은 정체성 명사 언급만으로 허용하면,
+    이미 확정된 트랙이 스쳐 지나가는 배우자 언급 한 번에 덮어써진다(실측:
+    emo-insomnia 페르소나 — "잠"으로 정서 확정 후 "아내한테는 피곤하다고만 말했다"는
+    지나가는 언급에 관계로 덮어써짐). message가 없는 경로(extract_real — LLM 자체
+    판단 출력이라 원문 메시지에 접근하지 못함)에서는 override_signals가 선언된
+    값을 안전하게 거부한다.
+    """
+    if slot.allow_override_values is None or new_value not in slot.allow_override_values:
+        return False
+    if current_value == new_value:
+        return False
+    restricted = slot.override_signals and slot.override_signals.get(new_value)
+    if restricted:
+        return message is not None and any(word in message for word in restricted)
+    return True
 
 
 def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
@@ -113,7 +128,7 @@ def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
         matched_value = _match_signal(message, slot.signals)
         if matched_value is None:
             continue
-        if slot.id in filled and not _can_override(slot, filled[slot.id], matched_value):
+        if slot.id in filled and not _can_override(slot, filled[slot.id], matched_value, message):
             continue
         new_fills[slot.id] = _fake_slot_value(message, matched_value, slot)
     return new_fills
@@ -229,6 +244,9 @@ def _parse_slot(raw) -> Slot:
             raw.get("allow_override_values")
             if isinstance(raw.get("allow_override_values"), list)
             else None
+        ),
+        override_signals=(
+            raw.get("override_signals") if isinstance(raw.get("override_signals"), dict) else None
         ),
         signals=raw.get("signals"),
         ask=raw.get("ask"),

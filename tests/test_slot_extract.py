@@ -342,3 +342,31 @@ def test_model_can_escalate_track_to_crisis_over_existing_value():
 
     _, fills = extract_real('답변\n```slots\n{"track": "위기"}\n```', schema, {"track": "관계"})
     assert fills == {"track": "위기"}
+
+
+def test_relationship_mention_does_not_override_established_emotional_track():
+    """실측 회귀: 정서로 확정된 track이 나중에 배우자 언급 한 번에 관계로 덮어써졌다.
+
+    emo-insomnia 페르소나 — "잠"으로 정서 확정 후, 지지체계를 묻는 질문에 답하며
+    "아내"를 언급했더니 track이 관계로 바뀌었다. allow_override_values에서 관계를
+    빼서, 위기 승격(안전)만 기채움을 덮어쓰고 관계는 다른 슬롯처럼 최초 판정을
+    유지하게 한다.
+    """
+    from app.intake import extract_classification
+
+    schema = load_schema("knowledge")
+    first = "두 달 전부터 잠을 제대로 못 자고 있어요. 낮에는 계속 피곤하고요."
+    assert extract_classification(first, schema, {})["track"] == "정서"
+
+    later = "아내한테는 그냥 요즘 좀 피곤하다 정도로만 얘기했어요."
+    fills = extract_classification(later, schema, {"track": "정서"})
+    assert "track" not in fills  # 관계 신호가 있어도 정서를 덮어쓰지 않는다
+
+
+def test_crisis_signal_still_overrides_established_relationship_track():
+    """위기 승격은 여전히 살아 있어야 한다 — 관계 제거가 안전 경로까지 막으면 안 된다."""
+    from app.intake import extract_classification
+
+    schema = load_schema("knowledge")
+    fills = extract_classification("이제 사는 게 의미가 없어요.", schema, {"track": "관계"})
+    assert fills["track"] == "위기"
