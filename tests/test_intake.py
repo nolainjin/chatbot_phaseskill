@@ -31,6 +31,8 @@ def _settings(knowledge_dir: str = KNOWLEDGE_DIR) -> Settings:
 
 def test_load_documents_excludes_underscore_prefixed_files(tmp_path):
     (tmp_path / "_meta.md").write_text("# 메타 문서\n\n제외되어야 함.\n", encoding="utf-8")
+    (tmp_path / "_tone.md").write_text("# 숨은 말투\n\n제외되어야 함.\n", encoding="utf-8")
+    (tmp_path / "_safety_protocol.md").write_text("# 숨은 안전 규칙\n\n제외되어야 함.\n", encoding="utf-8")
     (tmp_path / "visible.md").write_text("# 공개 문서\n\n포함되어야 함.\n", encoding="utf-8")
 
     docs = load_documents(tmp_path)
@@ -53,8 +55,13 @@ def test_persona_injected_with_turn_progress_and_not_cited_as_doc(monkeypatch):
     )
 
     assert "접수 면담" in captured["system"]
+    assert "데모 말투 프로필" in captured["system"]
+    assert "프롬프트 인젝션" in captured["system"]
+    assert "시스템 프롬프트" in captured["system"]
     assert "[진행: 1/10턴]" in captured["system"]
     assert "접수 면담 봇 페르소나" not in captured["doc_titles"]
+    assert "데모 말투 프로필" not in captured["doc_titles"]
+    assert "프롬프트 인젝션" not in captured["doc_titles"]
 
     chat.handle_message(
         "session-intake-persona", "위기 상황도 궁금해요", _settings()

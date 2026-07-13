@@ -14,10 +14,10 @@ from app.config import Settings
 MAX_TURNS = 10
 LIMIT_MESSAGE = f"이 세션은 대화 {MAX_TURNS}턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
 
-_PERSONA_FILENAME = "_persona.md"
+_PROMPT_FILENAMES = ("_persona.md", "_tone.md", "_safety_protocol.md")
 
 # 지식 문서 내용만 근거로 답하라는 지시일 뿐, 도메인 문구는 없다 — knowledge_dir에
-# _persona.md가 없는 지식셋(스왑 대상)에서 쓰는 폴백이다 (Phase 6 스왑 검증 대상).
+# 예약 프롬프트 파일(_persona/_tone/_safety_protocol)이 없는 스왑 대상에서 쓰는 폴백이다.
 _SYSTEM_PREAMBLE = (
     "아래 지식 문서 내용을 근거로 답하라. 문서에 없는 내용은 모른다고 답하라.\n\n"
 )
@@ -67,10 +67,15 @@ def _get_session(session_id: str) -> ChatSession:
 
 
 def _load_persona(knowledge_dir: str) -> str:
-    """_persona.md가 있으면 그 내용을, 없으면 기존 프리앰블을 반환한다(스왑 폴백)."""
-    persona_path = Path(knowledge_dir) / _PERSONA_FILENAME
-    if persona_path.is_file():
-        return persona_path.read_text(encoding="utf-8")
+    """예약 프롬프트 파일들을 합친다. 없으면 기존 프리앰블을 반환한다(스왑 폴백)."""
+    directory = Path(knowledge_dir)
+    parts = []
+    for filename in _PROMPT_FILENAMES:
+        path = directory / filename
+        if path.is_file():
+            parts.append(path.read_text(encoding="utf-8"))
+    if parts:
+        return "\n\n".join(parts)
     return _SYSTEM_PREAMBLE
 
 

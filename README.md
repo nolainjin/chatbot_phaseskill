@@ -83,6 +83,14 @@ MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge .venv/bin/python -m 
 
 자세한 시연 대본과 각 단계별 확인사항은 [데모 시나리오](docs/demo-scenario.md)를 참고하자.
 
+## 말투·안전 프로필
+
+`knowledge/`의 `_persona.md`, `_tone.md`, `_safety_protocol.md`는 검색 문서가 아니라
+시스템 프롬프트에만 들어가는 예약 파일이다. `_tone.md`는 SecondBrain 원문을
+복사하지 않고 시연용 말투 특성만 추출한 요약 규칙이며, `_safety_protocol.md`는
+프롬프트 인젝션·엉뚱한 발화 대응 규칙이다. 공개적으로 검색 가능한 대응 목록은
+`knowledge/엉뚱한-발화와-프롬프트-인젝션-대응.md`에 둔다.
+
 ## 프론트매터 스키마
 
 지식 문서는 SecondBrain wiki 스키마와 호환된다.
