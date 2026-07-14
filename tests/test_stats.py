@@ -69,6 +69,35 @@ def test_read_stats_returns_dashboard_shape(tmp_path):
     assert result["individual_flags"][0]["flags"][0]["label"] == "지지체계 미확인"
 
 
+def test_addiction_handoff_is_flagged_without_false_missing_support():
+    record = stats._individual_flag_record(
+        "2026-07-14",
+        "addiction-session",
+        "addiction-person",
+        {
+            "track": "중독",
+            "slots": {
+                "track": "중독",
+                "chief_complaint": "도박 빚이 생겼어요",
+                "addiction_type": "도박",
+                "addiction_severity": "고위험",
+                "addiction_referral": "전문기관 정보 제공",
+            },
+            "unfilled": {},
+            "red_flags": [],
+        },
+        user_turns=1,
+    )
+
+    assert record is not None
+    assert record["severity"] == "medium"
+    assert [flag["label"] for flag in record["flags"]] == ["중독 전문기관 우선"]
+    assert record["missing"] == []
+    assert record["addiction_type"] == "도박"
+    assert record["addiction_severity"] == "고위험"
+    assert record["addiction_referral"] == "전문기관 정보 제공"
+
+
 def test_api_stats_returns_json(monkeypatch):
     monkeypatch.setattr(
         stats,

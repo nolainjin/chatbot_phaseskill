@@ -18,6 +18,9 @@ _SLOT_LABELS = {
     "relationship_context": "관계 대상·기간",
     "crisis_plan_means": "자해 계획·수단",
     "crisis_attempt_history": "과거 시도 이력",
+    "addiction_type": "중독 문제 유형",
+    "addiction_severity": "중독 안내 긴급도",
+    "addiction_referral": "전문기관 연결",
     "coping": "대처 시도",
     "support": "지지체계",
     "expectation": "상담 기대",
@@ -160,27 +163,41 @@ def _individual_flag_record(
         if "crisis_attempt_history" in unfilled or "crisis_attempt_history" not in slots:
             add("medium", "과거 시도 이력 미확인", "과거 자해·자살 시도 이력이 비어 있습니다.")
 
+    addiction_handoff = track == "중독"
+    referral = str(slots.get("addiction_referral") or "")
+    if addiction_handoff:
+        addiction_severity = str(slots.get("addiction_severity") or "평가 필요")
+        if not referral:
+            add("high", "중독 전문기관 연결 미확인", "전문기관 정보 제공 여부를 다시 확인해야 합니다.")
+        elif addiction_severity == "응급":
+            add("high", "중독 응급 안내", "119 또는 응급실 우선 안내가 기록됐습니다.")
+        elif addiction_severity == "고위험":
+            add("medium", "중독 전문기관 우선", "중독 전문기관의 빠른 평가가 필요한 경로입니다.")
+        else:
+            add("low", "중독 전문기관 안내", "일반 상담 대신 중독 전문기관 정보가 제공됐습니다.")
+
     if track == "미확인":
-        add("medium", "트랙 미확인", "정서·관계·위기 중 어느 경로인지 아직 분기되지 않았습니다.")
+        add("medium", "트랙 미확인", "정서·관계·중독·위기 중 어느 경로인지 아직 분기되지 않았습니다.")
 
     if "chief_complaint" in unfilled or "chief_complaint" not in slots:
         add("medium", "호소 문제 미확인", "상담 신청 이유가 요약에 충분히 잡히지 않았습니다.")
 
     support = str(slots.get("support") or "")
-    if "support" in unfilled or not support:
-        add("medium", "지지체계 미확인", "도와주는 사람이 있는지 아직 확인되지 않았습니다.")
-    elif _has_any(support, ("없", "혼자", "거의 없", "모르", "감당")):
-        add("medium", "지지체계 취약", support)
+    if not addiction_handoff:
+        if "support" in unfilled or not support:
+            add("medium", "지지체계 미확인", "도와주는 사람이 있는지 아직 확인되지 않았습니다.")
+        elif _has_any(support, ("없", "혼자", "거의 없", "모르", "감당")):
+            add("medium", "지지체계 취약", support)
 
     coping = str(slots.get("coping") or "")
-    if coping and _has_any(coping, ("참고", "버티", "한계", "오래가지는")):
+    if not addiction_handoff and coping and _has_any(coping, ("참고", "버티", "한계", "오래가지는")):
         add("low", "대처 전략 취약", coping)
 
     expectation = str(slots.get("expectation") or "")
     if expectation and _has_any(expectation, ("안전", "넘기는", "위험")):
         add("medium", "안전계획 기대", expectation)
 
-    if user_turns < 3:
+    if user_turns < 3 and not (addiction_handoff and referral):
         add("low", "조기 이탈 가능", f"사용자 입력이 {user_turns}턴뿐입니다.")
 
     if not flags:
@@ -196,6 +213,9 @@ def _individual_flag_record(
         "severity": severity,
         "flags": flags,
         "chief_complaint": slots.get("chief_complaint", ""),
+        "addiction_type": slots.get("addiction_type", ""),
+        "addiction_severity": slots.get("addiction_severity", ""),
+        "addiction_referral": referral,
         "support": support,
         "expectation": expectation,
         "missing": missing_labels,

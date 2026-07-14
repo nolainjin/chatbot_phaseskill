@@ -115,12 +115,20 @@ function appendIndividualFlag(record) {
 
   const details = document.createElement('dl');
   details.className = 'individual-details';
-  [
+  const detailRows = [
     ['호소', record.chief_complaint || '미확인'],
     ['지지', record.support || '미확인'],
     ['기대', record.expectation || '미확인'],
     ['미확인', record.missing && record.missing.length ? record.missing.join(', ') : '없음'],
-  ].forEach(([label, value]) => {
+  ];
+  if (record.track === '중독') {
+    detailRows.splice(1, 0,
+      ['중독 유형', record.addiction_type || '미확인'],
+      ['안내 긴급도', record.addiction_severity || '미확인'],
+      ['전문기관 연결', record.addiction_referral || '미확인'],
+    );
+  }
+  detailRows.forEach(([label, value]) => {
     const dt = document.createElement('dt');
     dt.textContent = label;
     const dd = document.createElement('dd');
@@ -142,6 +150,7 @@ function matchesFilter(record, filter) {
   const labels = (record.flags || []).map((flag) => flag.label).join(' ');
   if (filter === 'all') return true;
   if (filter === 'crisis') return isCrisisRecord(record);
+  if (filter === 'addiction') return record.track === '중독' || labels.includes('중독');
   if (filter === 'high') return record.severity === 'high';
   if (filter === 'medium') return record.severity === 'medium';
   if (filter === 'support') return labels.includes('지지체계') || labels.includes('지지');
@@ -184,7 +193,10 @@ function csvCell(value) {
 
 function exportVisibleCsv() {
   if (!visibleRecords.length) return;
-  const header = ['개인번호', '세션', '트랙', '심각도', '특이사항', '호소', '지지', '기대', '미확인'];
+  const header = [
+    '개인번호', '세션', '트랙', '심각도', '특이사항', '호소',
+    '중독 유형', '중독 안내 긴급도', '전문기관 연결', '지지', '기대', '미확인',
+  ];
   const rows = visibleRecords.map((record) => [
     record.participant_id,
     record.session_id,
@@ -192,6 +204,9 @@ function exportVisibleCsv() {
     severityLabel(record.severity),
     (record.flags || []).map((flag) => flag.label).join(' | '),
     record.chief_complaint,
+    record.addiction_type,
+    record.addiction_severity,
+    record.addiction_referral,
     record.support,
     record.expectation,
     (record.missing || []).join(' | '),

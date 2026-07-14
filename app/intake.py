@@ -31,6 +31,7 @@ class Slot:
     priority: int = 0
     red_flag: bool = False
     when: str | None = None
+    unless: str | None = None
     values: list | None = None
     allow_override_values: list | None = None
     override_signals: dict | None = None
@@ -41,11 +42,16 @@ class Slot:
     capture: str | None = None
 
     def is_active(self, filled: dict) -> bool:
-        """when 없으면 공통 슬롯(항상 활성). 있으면 "slot_id=값" 조건을 filled로 판정."""
-        if self.when is None:
-            return True
-        cond_id, _, cond_value = self.when.partition("=")
-        return filled.get(cond_id) == cond_value
+        """``when`` 조건은 일치할 때, ``unless`` 조건은 불일치할 때 활성화한다."""
+        if self.when is not None:
+            cond_id, _, cond_value = self.when.partition("=")
+            if filled.get(cond_id) != cond_value:
+                return False
+        if self.unless is not None:
+            cond_id, _, cond_value = self.unless.partition("=")
+            if filled.get(cond_id) == cond_value:
+                return False
+        return True
 
 
 @dataclass
@@ -269,6 +275,7 @@ def _parse_slot(raw) -> Slot:
         priority=int(raw.get("priority", 0)),
         red_flag=bool(raw.get("red_flag", False)),
         when=raw.get("when"),
+        unless=raw.get("unless"),
         values=raw.get("values"),
         allow_override_values=(
             raw.get("allow_override_values")

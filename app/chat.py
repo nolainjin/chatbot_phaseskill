@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app import intake, knowledge, llm, safety, storage
+from app import addiction, intake, knowledge, llm, safety, storage
 from app.config import Settings
 
 MAX_TURNS = 10
@@ -277,6 +277,66 @@ def _intake_state(
     }
 
 
+_ADDICTION_SEVERITY_RANK = {"평가 필요": 0, "고위험": 1, "응급": 2}
+
+
+def _handle_addiction_route(
+    session: ChatSession,
+    message: str,
+    assessment: addiction.AddictionAssessment,
+    schema: intake.Schema,
+    participant_id: str,
+) -> dict:
+    """일반 상담 대신 결정론적 전문기관 안내를 저장하고 반환한다."""
+    followup = session.slots.get("track") == "중독"
+    previous_severity = session.slots.get("addiction_severity")
+    severity = assessment.severity
+    if previous_severity and _ADDICTION_SEVERITY_RANK.get(previous_severity, -1) > (
+        _ADDICTION_SEVERITY_RANK.get(severity, -1)
+    ):
+        severity = previous_severity
+
+    normalized_message = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+    session.slots.update(
+        {
+            "track": "중독",
+            "addiction_type": assessment.kind,
+            "addiction_severity": severity,
+            "addiction_referral": "전문기관 정보 제공",
+        }
+    )
+    session.slots.setdefault("chief_complaint", normalized_message)
+
+    routed_assessment = addiction.AddictionAssessment(
+        kind=session.slots["addiction_type"],
+        severity=session.slots["addiction_severity"],
+    )
+    reply = addiction.build_reply(routed_assessment, followup=followup)
+    storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
+    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
+    session.history.append({"role": "user", "content": message})
+    session.history.append({"role": "assistant", "content": reply})
+    session.turns += 1
+    session.last_question_slot_id = None
+
+    if session.turns >= MAX_TURNS:
+        summary_json = intake.build_summary_json(schema, session.slots)
+        storage.append_turn(
+            session.session_id,
+            "intake_summary",
+            json.dumps(summary_json, ensure_ascii=False),
+            participant_id=participant_id,
+        )
+
+    unfilled = schema.unfilled_by_priority(session.slots, ())
+    return {
+        "reply": reply,
+        "turn": session.turns,
+        "limit_reached": False,
+        "intake": _intake_state(schema, session.slots, unfilled),
+    }
+
+
 def handle_message(
     session_id: str,
     message: str,
@@ -317,6 +377,18 @@ def handle_message(
                 red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
                 reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
+            elif assessment := addiction.assess(
+                message,
+                active=session.slots.get("track") == "중독",
+                previous_kind=session.slots.get("addiction_type"),
+            ):
+                return _handle_addiction_route(
+                    session,
+                    message,
+                    assessment,
+                    schema,
+                    effective_participant_id,
+                )
             else:
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
                 reply = _build_guardrail_reply(schema, unfilled)
@@ -333,6 +405,24 @@ def handle_message(
             session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
             result["intake"] = _intake_state(schema, session.slots, final_unfilled)
         return result
+    if schema is not None:
+        classification = intake.extract_classification(message, schema, session.slots)
+        crisis_detected = (
+            classification.get("track") == "위기" or session.slots.get("track") == "위기"
+        )
+        assessment = addiction.assess(
+            message,
+            active=session.slots.get("track") == "중독",
+            previous_kind=session.slots.get("addiction_type"),
+        )
+        if assessment is not None and not crisis_detected:
+            return _handle_addiction_route(
+                session,
+                message,
+                assessment,
+                schema,
+                effective_participant_id,
+            )
     if schema is None:
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"

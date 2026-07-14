@@ -96,7 +96,7 @@ async function scenarioKnowledge(browser) {
 
   assert(stepperVisible, "초기: 스테퍼 visible");
   assert(chipsVisible, "초기: 칩 영역 visible");
-  assert(chipCount === 4, `초기: 칩 4종 (실측 ${chipCount})`);
+  assert(chipCount === 5, `초기: 칩 5종 (실측 ${chipCount})`);
   assert(step1Active, "초기: 스테퍼 ① active");
   assert(privacyVisible, "초기: 개인정보 카드 visible");
   assert(lockNoticeVisible, "초기: 자물쇠 문구 visible");
