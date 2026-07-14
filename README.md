@@ -130,3 +130,23 @@ UPSERT로 적재한다. SQLite는 `participants(participant_id)`,
 ```bash
 0 3 * * * cd /path/to/repo && .venv/bin/python scripts/load_to_sqlite.py
 ```
+
+## 100명 데모 데이터 + 통계 대시보드
+
+합성 내담자 100명 프로파일과 대화 로그를 한 번에 만들고 SQLite에 적재한다.
+실제 인물·실제 상담 기록은 포함하지 않는다.
+
+```bash
+.venv/bin/python scripts/generate_demo_population.py --count 100 --reset
+```
+
+생성물:
+- `docs/demo-100-profiles.md` — 100명 synthetic 프로파일과 scripted turns
+- `data/conversations/YYYY-MM-DD/demo-session-###.json` — 챗봇 응답 로그
+- `data/chatlog.db` — `participants`/`conversations`/`turns` 적재 결과
+- `/stats.html` — `demo-person-` 필터가 적용된 내담자 통계 대시보드
+
+발표용 슬라이드 원고와 Keynote에서 열 수 있는 PPTX는 다음 파일에 있다.
+
+- `docs/slides/chatbot_phaseskill_keynote.md`
+- `docs/slides/chatbot_phaseskill_keynote.pptx`

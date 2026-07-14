@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>내담자 통계 대시보드</title>
+  <link rel="stylesheet" href="style.css?v=9" />
+</head>
+<body class="stats-body">
+  <main class="stats-shell">
+    <header class="stats-hero">
+      <div>
+        <p class="eyebrow">SQLite 적재 현황</p>
+        <h1>내담자 통계 대시보드</h1>
+        <p>100명 데모 데이터와 실제 접수 로그가 같은 구조로 적재되는지 확인합니다.</p>
+      </div>
+      <a class="header-link stats-back" href="index.html">챗봇으로 돌아가기</a>
+    </header>
+
+    <section class="metric-grid" id="metric-grid" aria-label="핵심 지표"></section>
+
+    <section class="stats-grid">
+      <article class="stats-card">
+        <h2>상담 트랙 분포</h2>
+        <div id="track-bars" class="bar-list"></div>
+      </article>
+      <article class="stats-card">
+        <h2>슬롯 채움률</h2>
+        <div id="slot-bars" class="bar-list"></div>
+      </article>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stats-card">
+        <h2>일자별 적재</h2>
+        <div id="daily-bars" class="bar-list compact"></div>
+      </article>
+      <article class="stats-card">
+        <h2>최근 세션</h2>
+        <div class="table-wrap">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>세션</th>
+                <th>개인번호</th>
+                <th>트랙</th>
+                <th>위기</th>
+              </tr>
+            </thead>
+            <tbody id="recent-sessions"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <p id="stats-status" class="status" role="alert"></p>
+  </main>
+  <script src="stats.js?v=1"></script>
+</body>
+</html>

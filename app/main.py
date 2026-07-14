@@ -2,10 +2,10 @@
 
 import os
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
-from app import chat, intake, ratelimit, storage
+from app import chat, intake, ratelimit, stats, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
@@ -50,6 +50,18 @@ def get_config():
     settings = Settings.from_env()
     schema_exists = intake.load_schema(settings.knowledge_dir) is not None
     return {"intake_schema": schema_exists}
+
+
+@app.get("/api/stats")
+def get_stats(
+    participant_prefix: str | None = Query(default=None, max_length=64),
+    session_prefix: str | None = Query(default=None, max_length=64),
+):
+    """SQLite 적재 결과를 내담자 통계 대시보드용 JSON으로 반환한다."""
+    return stats.read_stats(
+        participant_prefix=participant_prefix,
+        session_prefix=session_prefix,
+    )
 
 
 # static/은 Phase 5가 채운다 — 아직 없을 수 있으니 존재할 때만 마운트해서
