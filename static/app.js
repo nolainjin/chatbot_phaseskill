@@ -5,6 +5,42 @@
   var SESSION_KEY = "lmwiki_session_id";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
   var MAX_TURNS = 10;
+  var MAX_MESSAGE_LEN = 2000;
+  var CONTEXTUAL_REPLIES = {
+    track: [
+      ["정서", "정서적인 어려움에 가까워요."],
+      ["관계", "가족이나 대인관계의 어려움에 가까워요."],
+      ["안전 위기", "자해나 자살 생각처럼 안전이 걱정돼요."]
+    ],
+    symptom_context: [
+      ["최근부터", "최근 한 달 사이 시작됐어요."],
+      ["일상 영향", "잠이나 일에 영향을 많이 주고 있어요."]
+    ],
+    relationship_context: [
+      ["가족", "가족과의 관계이고 최근 더 심해졌어요."],
+      ["대인관계", "친구나 직장 동료와의 관계예요."]
+    ],
+    crisis_plan_means: [
+      ["현재 계획 없음", "지금 당장 실행할 구체적인 계획이나 수단은 없어요."],
+      ["계획·수단 있음", "지금 실행할 계획이나 사용할 수단이 있어요."]
+    ],
+    crisis_attempt_history: [
+      ["시도 이력 없음", "이전에 시도한 적은 없어요."],
+      ["시도 이력 있음", "예전에 스스로를 해치려고 시도한 적이 있어요."]
+    ],
+    coping: [
+      ["쉬어봤어요", "집에서 쉬면서 버텨봤어요."],
+      ["주변에 말했어요", "친구나 가족에게 이야기해봤어요."]
+    ],
+    support: [
+      ["도와주는 사람 있음", "친구 한 명이 알고 있고 도와주고 있어요."],
+      ["혼자 감당 중", "지금은 대부분 혼자 감당하고 있어요."]
+    ],
+    expectation: [
+      ["마음이 편해지고 싶어요", "상담을 통해 마음이 조금 편해지고 싶어요."],
+      ["상황을 정리하고 싶어요", "상황을 정리하고 다음 방법을 찾고 싶어요."]
+    ]
+  };
   var GREETING =
     "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
     "자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 경우에는 안전을 위해 공유될 수 있습니다. " +
@@ -27,12 +63,16 @@
   var slotListEl = document.getElementById("slot-list");
   var stepperEl = document.getElementById("stepper");
   var chipsEl = document.getElementById("chips");
+  var contextualRepliesEl = document.getElementById("contextual-replies");
+  var resetSessionEl = document.getElementById("reset-session");
+  var characterCountEl = document.getElementById("character-count");
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
   var intakeSchemaActive = false;
   // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
   var userHasSpoken = false;
+  var requestPending = false;
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -95,12 +135,23 @@
 
   function showTyping() {
     typingEl = document.createElement("li");
-    typingEl.className = "message message-assistant typing";
+    typingEl.className = "message-row message-row-assistant typing-row";
+
+    var avatar = document.createElement("span");
+    avatar.className = "avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.innerHTML = BOT_AVATAR_SVG;
+
+    var bubble = document.createElement("div");
+    bubble.className = "message message-assistant typing";
+    bubble.setAttribute("aria-label", "상담사가 답변을 준비하고 있습니다");
     for (var i = 0; i < 3; i++) {
       var dot = document.createElement("span");
       dot.className = "dot";
-      typingEl.appendChild(dot);
+      bubble.appendChild(dot);
     }
+    typingEl.appendChild(avatar);
+    typingEl.appendChild(bubble);
     messagesEl.appendChild(typingEl);
     typingEl.scrollIntoView({ block: "nearest" });
   }
@@ -220,13 +271,83 @@
     }
   }
 
+  function autoResizeInput() {
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+  }
+
+  function updateInputState() {
+    var length = inputEl.value.length;
+    if (characterCountEl) {
+      characterCountEl.textContent = length + "/" + MAX_MESSAGE_LEN;
+      characterCountEl.classList.toggle("near-limit", length > MAX_MESSAGE_LEN * 0.85);
+    }
+    sendButtonEl.disabled = requestPending || inputEl.disabled || !inputEl.value.trim();
+    autoResizeInput();
+  }
+
+  function hideContextualReplies() {
+    if (!contextualRepliesEl) return;
+    contextualRepliesEl.hidden = true;
+    contextualRepliesEl.textContent = "";
+  }
+
+  function renderContextualReplies(intake) {
+    hideContextualReplies();
+    if (!contextualRepliesEl || !intake || !intake.unfilled || !intake.unfilled.length) return;
+
+    var nextSlot = intake.unfilled[0];
+    var suggestions = CONTEXTUAL_REPLIES[nextSlot.id];
+    if (!suggestions || !suggestions.length) return;
+
+    suggestions.forEach(function (suggestion) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "reply-suggestion" + (nextSlot.red_flag ? " reply-suggestion-alert" : "");
+      button.textContent = suggestion[0];
+      button.setAttribute("data-send", suggestion[1]);
+      button.addEventListener("click", function () {
+        sendMessage(suggestion[1]);
+      });
+      contextualRepliesEl.appendChild(button);
+    });
+    contextualRepliesEl.hidden = false;
+  }
+
+  function resetSession() {
+    if (requestPending) return;
+    sessionStorage.removeItem(SESSION_KEY);
+    getSessionId();
+    userHasSpoken = false;
+    inputEl.disabled = false;
+    inputEl.value = "";
+    messagesEl.textContent = "";
+    slotListEl.textContent = "";
+    panelEl.hidden = true;
+    hideContextualReplies();
+    setStatus("");
+    updateTurnCounter(0);
+    setActiveStep(1);
+    addMessage("assistant", GREETING);
+    maybeShowChips();
+    updateInputState();
+    inputEl.focus();
+  }
+
   function sendMessage(message) {
+    if (requestPending) return;
+    message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
+    if (!message) return;
+
+    requestPending = true;
     userHasSpoken = true;
     hideChips();
+    hideContextualReplies();
     setStatus("방금 입력을 읽고 있어요…");
     addMessage("user", message);
     inputEl.value = "";
-    sendButtonEl.disabled = true;
+    if (resetSessionEl) resetSessionEl.disabled = true;
+    updateInputState();
     showTyping();
 
     fetch("/api/chat", {
@@ -247,7 +368,9 @@
             ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
             : "오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
         );
-        sendButtonEl.disabled = false;
+        requestPending = false;
+        if (resetSessionEl) resetSessionEl.disabled = false;
+        updateInputState();
         return null;
       })
       .then(function (data) {
@@ -261,21 +384,27 @@
           setStatus("");
           updateTurnCounter(data.turn);
           renderIntake(data.intake);
+          renderContextualReplies(data.intake);
+          requestPending = false;
+          if (resetSessionEl) resetSessionEl.disabled = false;
 
           if (data.limit_reached) {
             setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
+            hideContextualReplies();
             disableInput();
             return;
           }
 
-          sendButtonEl.disabled = false;
+          updateInputState();
           inputEl.focus();
         });
       })
       .catch(function () {
         hideTyping();
         setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-        sendButtonEl.disabled = false;
+        requestPending = false;
+        if (resetSessionEl) resetSessionEl.disabled = false;
+        updateInputState();
       });
   }
 
@@ -285,6 +414,18 @@
     if (!message) return;
     sendMessage(message);
   });
+
+  inputEl.addEventListener("input", updateInputState);
+  inputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      formEl.requestSubmit();
+    }
+  });
+
+  if (resetSessionEl) {
+    resetSessionEl.addEventListener("click", resetSession);
+  }
 
   if (chipsEl) {
     chipsEl.querySelectorAll(".chip").forEach(function (button) {
@@ -314,4 +455,5 @@
     });
 
   addMessage("assistant", GREETING);
+  updateInputState();
 })();

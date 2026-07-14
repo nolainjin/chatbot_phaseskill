@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>내담자 통계 대시보드</title>
-  <link rel="stylesheet" href="style.css?v=11" />
+  <link rel="stylesheet" href="style.css?v=13" />
 </head>
 <body class="stats-body">
   <main class="stats-shell">
@@ -71,6 +71,22 @@
           </div>
           <span id="individual-count" class="pill">0건</span>
         </div>
+        <div class="dashboard-tools">
+          <label class="search-control">
+            <span class="sr-only">개인번호·세션·호소 검색</span>
+            <input id="triage-search" type="search" placeholder="개인번호·세션·호소 검색" />
+          </label>
+          <label class="sort-control">
+            <span>정렬</span>
+            <select id="triage-sort">
+              <option value="priority">우선순위</option>
+              <option value="participant">개인번호</option>
+              <option value="track">상담 트랙</option>
+            </select>
+          </label>
+          <button type="button" class="tool-button" id="toggle-details">전체 펼치기</button>
+          <button type="button" class="tool-button" id="export-csv">CSV 내보내기</button>
+        </div>
         <div class="filter-row" role="toolbar" aria-label="개별 특이 사항 필터">
           <button type="button" class="filter-chip active" data-filter="all">전체</button>
           <button type="button" class="filter-chip" data-filter="crisis">위기</button>
@@ -86,6 +102,6 @@
 
     <p id="stats-status" class="status" role="alert"></p>
   </main>
-  <script src="stats.js?v=3"></script>
+  <script src="stats.js?v=4"></script>
 </body>
 </html>

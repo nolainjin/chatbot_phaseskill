@@ -80,6 +80,8 @@ MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge .venv/bin/python -m 
 이 모드는 접수 상태/안전 라우팅은 결정론 슬롯 엔진이 맡고, 사용자에게 보이는
 상담사 문장은 Codex GPT가 매 턴 생성한다. 브라우저는 모델 응답을 받은 뒤
 말풍선을 점진적으로 렌더링해 "완성 문장 덩어리"가 아니라 작성 중인 대화처럼 보인다.
+챗 UI는 질문 단계에 맞춘 빠른 답변, 자동 높이 입력창, Enter 전송/Shift+Enter 줄바꿈,
+글자 수 표시, 중복 전송 차단, 새 대화 시작을 제공한다.
 
 자세한 시연 대본과 각 단계별 확인사항은 [데모 시나리오](docs/demo-scenario.md)를 참고하자.
 
@@ -144,7 +146,7 @@ UPSERT로 적재한다. SQLite는 `participants(participant_id)`,
 - `docs/demo-100-profiles.md` — 100명 synthetic 프로파일과 scripted turns
 - `data/conversations/YYYY-MM-DD/demo-session-###.json` — 챗봇 응답 로그
 - `data/chatlog.db` — `participants`/`conversations`/`turns` 적재 결과
-- `/stats.html` — `demo-person-` 필터가 적용된 내담자 통계 대시보드. 탭은 **전체 현황 / 관리 대상 / 위기 우선**으로 나뉘고, 개별 특이 사항은 전체·위기·긴급·주의·지지체계·미확인·조기이탈 필터로 다시 좁힐 수 있다.
+- `/stats.html` — `demo-person-` 필터가 적용된 내담자 통계 대시보드. 탭은 **전체 현황 / 관리 대상 / 위기 우선**으로 나뉜다. 개별 특이 사항은 카테고리 필터, 개인번호·세션·호소 검색, 우선순위/개인번호/트랙 정렬, 상세 접기·펼치기, 현재 결과 CSV 내보내기를 제공한다.
 
 발표용 슬라이드 원고와 Keynote에서 열 수 있는 PPTX는 다음 파일에 있다.
 

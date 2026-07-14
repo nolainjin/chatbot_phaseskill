@@ -111,6 +111,7 @@ async function scenarioKnowledge(browser) {
   // 칩(수면) 클릭
   const beforeUserBubbles = await page.locator(".message-row-user").count();
   await page.locator('.chip:has-text("수면")').click();
+  await page.waitForSelector(".typing", { state: "attached", timeout: 5000 }).catch(() => {});
   await page.waitForSelector(".typing", { state: "detached", timeout: 15000 }).catch(() => {});
   await page.waitForFunction(
     (n) => document.querySelectorAll(".message-row-user").length > n,
@@ -121,7 +122,8 @@ async function scenarioKnowledge(browser) {
     () => document.querySelectorAll(".message-row-assistant").length >= 2,
     { timeout: 15000 }
   );
-  await page.waitForSelector("#send-button:not([disabled])", { timeout: 15000 });
+  await page.waitForSelector("#reset-session:not([disabled])", { timeout: 15000 });
+  await page.waitForSelector("#intake-panel:not([hidden])", { timeout: 15000 });
 
   const userBubbleHasTimestamp = await page
     .locator(".message-row-user")
@@ -134,12 +136,18 @@ async function scenarioKnowledge(browser) {
     .evaluate((el) => el.classList.contains("active"));
   const panelVisible = await page.isVisible("#intake-panel");
   const slotCount = await page.locator("#slot-list .slot").count();
+  const contextualReplyCount = await page.locator("#contextual-replies .reply-suggestion").count();
+  const resetVisible = await page.isVisible("#reset-session");
+  const characterCountVisible = await page.isVisible("#character-count");
 
   assert(userBubbleHasTimestamp, "칩 클릭 후: 유저 말풍선 타임스탬프 렌더");
   assert(chipsHiddenAfterClick, "칩 클릭 후: 칩 행 제거(hidden)");
   assert(step2Active, "칩 클릭 후: 스테퍼 ② active (라이브 ①→② 전환)");
   assert(panelVisible, "칩 클릭 후: 사이드 패널 visible");
   assert(slotCount > 0, `칩 클릭 후: 슬롯 목록 렌더 (실측 ${slotCount})`);
+  assert(contextualReplyCount > 0, `칩 클릭 후: 문맥형 빠른 답변 렌더 (실측 ${contextualReplyCount})`);
+  assert(resetVisible, "칩 클릭 후: 새 대화 컨트롤 visible");
+  assert(characterCountVisible, "칩 클릭 후: 글자 수 표시 visible");
 
   await page.screenshot({ path: path.join(SHOT_DIR, "03-after-chip-desktop.png") });
 
@@ -154,7 +162,7 @@ async function scenarioKnowledge(browser) {
       beforeAssistant,
       { timeout: 15000 }
     );
-    await page.waitForSelector("#send-button:not([disabled])", { timeout: 15000 });
+    await page.waitForSelector("#reset-session:not([disabled])", { timeout: 15000 });
   }
 
   const avatarCount = await page.locator(".message-row-assistant .avatar").count();

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>접수 면담 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=13" />
 </head>
 <body>
   <div class="layout">
@@ -15,7 +15,10 @@
         <p class="subtitle">첫 상담 전, 이야기를 정리하는 시간입니다</p>
         <a class="header-link" href="stats.html">내담자 통계 보기</a>
       </div>
-      <p class="turn-counter" id="turn-counter" aria-live="polite">0/10</p>
+      <div class="header-actions">
+        <button type="button" class="header-control" id="reset-session">새 대화</button>
+        <p class="turn-counter" id="turn-counter" aria-live="polite">0/10</p>
+      </div>
     </header>
     <ol class="stepper" id="stepper" aria-label="문진 진행 단계" hidden>
       <li class="stepper-step" data-step="1">
@@ -71,22 +74,31 @@
       </button>
     </div>
 
-    <form id="chat-form" class="chat-form">
-      <label for="message-input" class="sr-only">메시지 입력</label>
-      <input
-        id="message-input"
-        name="message"
-        type="text"
-        autocomplete="off"
-        placeholder="메시지를 입력하세요"
-        required
-      />
-      <button type="submit" id="send-button" aria-label="전송">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-          <path d="M2 21l21-9L2 3v7l15 2-15 2z"></path>
-        </svg>
-      </button>
-    </form>
+    <div class="contextual-replies" id="contextual-replies" hidden aria-label="현재 질문 빠른 답변"></div>
+
+    <div class="composer">
+      <form id="chat-form" class="chat-form">
+        <label for="message-input" class="sr-only">메시지 입력</label>
+        <textarea
+          id="message-input"
+          name="message"
+          rows="1"
+          maxlength="2000"
+          autocomplete="off"
+          placeholder="메시지를 입력하세요"
+          required
+        ></textarea>
+        <button type="submit" id="send-button" aria-label="전송" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M2 21l21-9L2 3v7l15 2-15 2z"></path>
+          </svg>
+        </button>
+      </form>
+      <div class="composer-meta">
+        <span>Enter 전송 · Shift+Enter 줄바꿈</span>
+        <span id="character-count">0/2000</span>
+      </div>
+    </div>
     <p class="lock-notice">
       <span class="lock-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -103,6 +115,6 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

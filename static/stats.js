@@ -11,10 +11,18 @@ const triagePanel = document.querySelector('#triage-panel');
 const filterButtons = [...document.querySelectorAll('[data-filter]')];
 const triageTitle = document.querySelector('#triage-title');
 const triageDescription = document.querySelector('#triage-description');
+const triageSearch = document.querySelector('#triage-search');
+const triageSort = document.querySelector('#triage-sort');
+const toggleDetailsButton = document.querySelector('#toggle-details');
+const exportCsvButton = document.querySelector('#export-csv');
 
 let currentData = null;
 let activeTab = 'overview';
 let activeFilter = 'all';
+let searchQuery = '';
+let sortMode = 'priority';
+let detailsExpanded = false;
+let visibleRecords = [];
 const statusEl = document.querySelector('#stats-status');
 
 function number(value) {
@@ -85,6 +93,14 @@ function appendIndividualFlag(record) {
   severity.textContent = severityLabel(record.severity);
   head.append(title, severity);
 
+  const disclosure = document.createElement('details');
+  disclosure.className = 'individual-disclosure';
+  disclosure.open = detailsExpanded;
+
+  const summary = document.createElement('summary');
+  summary.textContent = `특이사항 ${(record.flags || []).length}개 · 세부 정보 보기`;
+  disclosure.appendChild(summary);
+
   const flags = document.createElement('ul');
   flags.className = 'flag-list';
   (record.flags || []).forEach((flag) => {
@@ -112,7 +128,8 @@ function appendIndividualFlag(record) {
     details.append(dt, dd);
   });
 
-  card.append(head, flags, details);
+  disclosure.append(flags, details);
+  card.append(head, disclosure);
   individualFlags.appendChild(card);
 }
 
@@ -131,6 +148,64 @@ function matchesFilter(record, filter) {
   if (filter === 'missing') return labels.includes('미확인') || (record.missing || []).length > 0;
   if (filter === 'early') return labels.includes('이탈');
   return true;
+}
+
+function recordSearchText(record) {
+  return [
+    record.participant_id,
+    record.session_id,
+    record.track,
+    record.chief_complaint,
+    record.support,
+    record.expectation,
+    ...(record.missing || []),
+    ...(record.flags || []).flatMap((flag) => [flag.label, flag.detail]),
+  ].join(' ').toLocaleLowerCase('ko-KR');
+}
+
+function sortRecords(records) {
+  const severity = { high: 0, medium: 1, low: 2 };
+  return [...records].sort((a, b) => {
+    if (sortMode === 'participant') {
+      return a.participant_id.localeCompare(b.participant_id, 'ko-KR');
+    }
+    if (sortMode === 'track') {
+      return a.track.localeCompare(b.track, 'ko-KR') ||
+        a.participant_id.localeCompare(b.participant_id, 'ko-KR');
+    }
+    return (severity[a.severity] ?? 9) - (severity[b.severity] ?? 9) ||
+      a.participant_id.localeCompare(b.participant_id, 'ko-KR');
+  });
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replaceAll('"', '""')}"`;
+}
+
+function exportVisibleCsv() {
+  if (!visibleRecords.length) return;
+  const header = ['개인번호', '세션', '트랙', '심각도', '특이사항', '호소', '지지', '기대', '미확인'];
+  const rows = visibleRecords.map((record) => [
+    record.participant_id,
+    record.session_id,
+    record.track,
+    severityLabel(record.severity),
+    (record.flags || []).map((flag) => flag.label).join(' | '),
+    record.chief_complaint,
+    record.support,
+    record.expectation,
+    (record.missing || []).join(' | '),
+  ]);
+  const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `intake-triage-${activeTab}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function setFilter(filter) {
@@ -154,6 +229,12 @@ function setTab(tab) {
   const overview = tab === 'overview';
   overviewPanel.hidden = !overview;
   triagePanel.hidden = overview;
+
+  window.history.replaceState(null, '', `#${tab}`);
+  const visiblePanel = overview ? overviewPanel : triagePanel;
+  visiblePanel.classList.remove('panel-enter');
+  void visiblePanel.offsetWidth;
+  visiblePanel.classList.add('panel-enter');
 
   if (tab === 'crisis') {
     triageTitle.textContent = '위기 우선 확인';
@@ -183,6 +264,12 @@ function renderIndividualFlags() {
     flagged = flagged.filter(isCrisisRecord);
   }
   flagged = flagged.filter((record) => matchesFilter(record, activeFilter));
+  if (searchQuery) {
+    flagged = flagged.filter((record) => recordSearchText(record).includes(searchQuery));
+  }
+  flagged = sortRecords(flagged);
+  visibleRecords = flagged;
+  if (exportCsvButton) exportCsvButton.disabled = !flagged.length;
 
   individualCount.textContent = `${number(flagged.length)}건`;
   if (!flagged.length) {
@@ -270,7 +357,38 @@ filterButtons.forEach((button) => {
   button.addEventListener('click', () => setFilter(button.dataset.filter));
 });
 
+if (triageSearch) {
+  triageSearch.addEventListener('input', () => {
+    searchQuery = triageSearch.value.trim().toLocaleLowerCase('ko-KR');
+    renderIndividualFlags();
+  });
+}
+
+if (triageSort) {
+  triageSort.addEventListener('change', () => {
+    sortMode = triageSort.value;
+    renderIndividualFlags();
+  });
+}
+
+if (toggleDetailsButton) {
+  toggleDetailsButton.addEventListener('click', () => {
+    detailsExpanded = !detailsExpanded;
+    toggleDetailsButton.textContent = detailsExpanded ? '전체 접기' : '전체 펼치기';
+    renderIndividualFlags();
+  });
+}
+
+if (exportCsvButton) {
+  exportCsvButton.addEventListener('click', exportVisibleCsv);
+}
+
 tabButtons.forEach((button) => {
   button.setAttribute('aria-selected', button.classList.contains('active') ? 'true' : 'false');
 });
+
+const initialTab = ['overview', 'management', 'crisis'].includes(location.hash.slice(1))
+  ? location.hash.slice(1)
+  : 'overview';
+setTab(initialTab);
 loadStats();
