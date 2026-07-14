@@ -88,10 +88,18 @@ MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge .venv/bin/python -m 
 ## 말투·안전 프로필
 
 `knowledge/`의 `_persona.md`, `_tone.md`, `_safety_protocol.md`는 검색 문서가 아니라
-시스템 프롬프트에만 들어가는 예약 파일이다. `_tone.md`는 SecondBrain 원문을
-복사하지 않고 시연용 말투 특성만 추출한 요약 규칙이며, `_safety_protocol.md`는
+시스템 프롬프트에만 들어가는 예약 파일이다. `_tone.md` v2는 로컬 SecondBrain의
+여러 시기·주제 원문에서 말투의 작동 규칙만 다시 합성한 프로필이다. 원문 문장,
+개인 대화, 파일 경로, 사건·인물 정보는 레포에 포함하지 않는다. `_safety_protocol.md`는
 프롬프트 인젝션·엉뚱한 발화 대응 규칙이다. 공개적으로 검색 가능한 대응 목록은
 `knowledge/엉뚱한-발화와-프롬프트-인젝션-대응.md`에 둔다.
+
+실모델 말투 회귀는 SecondBrain을 읽지 않는 synthetic prompt 5개로 확인한다. 응답과
+임시 대화 로그는 레포에 저장하지 않는다.
+
+```bash
+.venv/bin/python scripts/voice_eval.py --model codex-cli:gpt-5.4
+```
 
 ## 프론트매터 스키마
 
