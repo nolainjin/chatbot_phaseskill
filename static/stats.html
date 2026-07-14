@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>내담자 통계 대시보드</title>
-  <link rel="stylesheet" href="style.css?v=10" />
+  <link rel="stylesheet" href="style.css?v=11" />
 </head>
 <body class="stats-body">
   <main class="stats-shell">
@@ -17,6 +17,13 @@
       <a class="header-link stats-back" href="index.html">챗봇으로 돌아가기</a>
     </header>
 
+    <nav class="dashboard-tabs" aria-label="대시보드 보기">
+      <button type="button" class="tab-button active" data-tab="overview">전체 현황</button>
+      <button type="button" class="tab-button" data-tab="management">관리 대상</button>
+      <button type="button" class="tab-button" data-tab="crisis">위기 우선</button>
+    </nav>
+
+    <section class="tab-panel" id="overview-panel" data-panel="overview">
     <section class="metric-grid" id="metric-grid" aria-label="핵심 지표"></section>
 
     <section class="stats-grid">
@@ -53,20 +60,32 @@
         </div>
       </article>
     </section>
+    </section>
 
-    <section class="stats-card individual-card">
-      <div class="section-heading">
-        <div>
-          <h2>개별 특이 사항</h2>
-          <p>위기·미확인·지지체계 취약처럼 사람 검토가 필요한 세션만 모았습니다.</p>
+    <section class="tab-panel" id="triage-panel" data-panel="triage" hidden>
+      <article class="stats-card individual-card">
+        <div class="section-heading">
+          <div>
+            <h2 id="triage-title">개별 특이 사항</h2>
+            <p id="triage-description">위기·미확인·지지체계 취약처럼 사람 검토가 필요한 세션만 모았습니다.</p>
+          </div>
+          <span id="individual-count" class="pill">0건</span>
         </div>
-        <span id="individual-count" class="pill">0건</span>
-      </div>
-      <div id="individual-flags" class="individual-list"></div>
+        <div class="filter-row" role="toolbar" aria-label="개별 특이 사항 필터">
+          <button type="button" class="filter-chip active" data-filter="all">전체</button>
+          <button type="button" class="filter-chip" data-filter="crisis">위기</button>
+          <button type="button" class="filter-chip" data-filter="high">긴급</button>
+          <button type="button" class="filter-chip" data-filter="medium">주의</button>
+          <button type="button" class="filter-chip" data-filter="support">지지체계</button>
+          <button type="button" class="filter-chip" data-filter="missing">미확인</button>
+          <button type="button" class="filter-chip" data-filter="early">조기이탈</button>
+        </div>
+        <div id="individual-flags" class="individual-list"></div>
+      </article>
     </section>
 
     <p id="stats-status" class="status" role="alert"></p>
   </main>
-  <script src="stats.js?v=2"></script>
+  <script src="stats.js?v=3"></script>
 </body>
 </html>

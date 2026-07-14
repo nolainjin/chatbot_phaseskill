@@ -717,6 +717,69 @@ details[open] > .privacy-summary::after {
   white-space: nowrap;
 }
 
+.dashboard-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  padding: 0.35rem;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  background: rgba(255, 253, 250, 0.72);
+  box-shadow: var(--shadow);
+}
+
+.tab-button,
+.filter-chip {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.tab-button {
+  padding: 0.62rem 1rem;
+  color: var(--muted);
+  background: transparent;
+}
+
+.tab-button.active,
+.tab-button:hover {
+  color: var(--bubble-user-text);
+  background: var(--accent);
+}
+
+.tab-button:active,
+.filter-chip:active {
+  transform: translateY(1px);
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.filter-chip {
+  padding: 0.42rem 0.75rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.filter-chip.active,
+.filter-chip:hover {
+  color: var(--bubble-user-text);
+  background: var(--accent);
+}
+
 .metric-grid,
 .stats-grid {
   display: grid;
@@ -725,7 +788,7 @@ details[open] > .privacy-summary::after {
 }
 
 .metric-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
 }
 
 .stats-grid {

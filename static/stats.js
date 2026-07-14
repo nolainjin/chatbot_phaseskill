@@ -5,6 +5,16 @@ const dailyBars = document.querySelector('#daily-bars');
 const recentSessions = document.querySelector('#recent-sessions');
 const individualFlags = document.querySelector('#individual-flags');
 const individualCount = document.querySelector('#individual-count');
+const tabButtons = [...document.querySelectorAll('[data-tab]')];
+const overviewPanel = document.querySelector('#overview-panel');
+const triagePanel = document.querySelector('#triage-panel');
+const filterButtons = [...document.querySelectorAll('[data-filter]')];
+const triageTitle = document.querySelector('#triage-title');
+const triageDescription = document.querySelector('#triage-description');
+
+let currentData = null;
+let activeTab = 'overview';
+let activeFilter = 'all';
 const statusEl = document.querySelector('#stats-status');
 
 function number(value) {
@@ -106,6 +116,85 @@ function appendIndividualFlag(record) {
   individualFlags.appendChild(card);
 }
 
+function isCrisisRecord(record) {
+  const labels = (record.flags || []).map((flag) => flag.label).join(' ');
+  return record.track === '위기' || record.severity === 'high' || labels.includes('위기');
+}
+
+function matchesFilter(record, filter) {
+  const labels = (record.flags || []).map((flag) => flag.label).join(' ');
+  if (filter === 'all') return true;
+  if (filter === 'crisis') return isCrisisRecord(record);
+  if (filter === 'high') return record.severity === 'high';
+  if (filter === 'medium') return record.severity === 'medium';
+  if (filter === 'support') return labels.includes('지지체계') || labels.includes('지지');
+  if (filter === 'missing') return labels.includes('미확인') || (record.missing || []).length > 0;
+  if (filter === 'early') return labels.includes('이탈');
+  return true;
+}
+
+function setFilter(filter) {
+  activeFilter = filter;
+  filterButtons.forEach((button) => {
+    const active = button.dataset.filter === filter;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  renderIndividualFlags();
+}
+
+function setTab(tab) {
+  activeTab = tab;
+  tabButtons.forEach((button) => {
+    const active = button.dataset.tab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+
+  const overview = tab === 'overview';
+  overviewPanel.hidden = !overview;
+  triagePanel.hidden = overview;
+
+  if (tab === 'crisis') {
+    triageTitle.textContent = '위기 우선 확인';
+    triageDescription.textContent = '위기 트랙·긴급 red flag 세션을 우선 모아 보여줍니다.';
+    if (activeFilter !== 'crisis' && activeFilter !== 'high') {
+      setFilter('crisis');
+      return;
+    }
+  } else if (tab === 'management') {
+    triageTitle.textContent = '관리 대상';
+    triageDescription.textContent = '지지체계 취약, 미확인, 조기 이탈 등 후속 관리가 필요한 세션입니다.';
+    if (activeFilter === 'crisis') {
+      setFilter('all');
+      return;
+    }
+  }
+
+  renderIndividualFlags();
+}
+
+function renderIndividualFlags() {
+  if (!currentData) return;
+  clear(individualFlags);
+
+  let flagged = currentData.individual_flags || [];
+  if (activeTab === 'crisis') {
+    flagged = flagged.filter(isCrisisRecord);
+  }
+  flagged = flagged.filter((record) => matchesFilter(record, activeFilter));
+
+  individualCount.textContent = `${number(flagged.length)}건`;
+  if (!flagged.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-note';
+    empty.textContent = '현재 필터에서는 특이 사항이 감지된 세션이 없습니다.';
+    individualFlags.appendChild(empty);
+  } else {
+    flagged.forEach(appendIndividualFlag);
+  }
+}
+
 function renderStats(data) {
   clear(metricGrid);
   clear(trackBars);
@@ -113,6 +202,7 @@ function renderStats(data) {
   clear(dailyBars);
   clear(recentSessions);
   clear(individualFlags);
+  currentData = data;
 
   const totals = data.totals || {};
   appendMetric('개인번호', number(totals.participants), 'participants 테이블');
@@ -153,16 +243,7 @@ function renderStats(data) {
     recentSessions.appendChild(row);
   });
 
-  const flagged = data.individual_flags || [];
-  individualCount.textContent = `${number(flagged.length)}건`;
-  if (!flagged.length) {
-    const empty = document.createElement('p');
-    empty.className = 'empty-note';
-    empty.textContent = '현재 필터에서는 특이 사항이 감지된 세션이 없습니다.';
-    individualFlags.appendChild(empty);
-  } else {
-    flagged.forEach(appendIndividualFlag);
-  }
+  renderIndividualFlags();
 }
 
 async function loadStats() {
@@ -180,4 +261,16 @@ async function loadStats() {
   }
 }
 
+tabButtons.forEach((button) => {
+  button.addEventListener('click', () => setTab(button.dataset.tab));
+});
+
+filterButtons.forEach((button) => {
+  button.setAttribute('aria-pressed', button.classList.contains('active') ? 'true' : 'false');
+  button.addEventListener('click', () => setFilter(button.dataset.filter));
+});
+
+tabButtons.forEach((button) => {
+  button.setAttribute('aria-selected', button.classList.contains('active') ? 'true' : 'false');
+});
 loadStats();
