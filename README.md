@@ -144,7 +144,7 @@ UPSERT로 적재한다. SQLite는 `participants(participant_id)`,
 - `docs/demo-100-profiles.md` — 100명 synthetic 프로파일과 scripted turns
 - `data/conversations/YYYY-MM-DD/demo-session-###.json` — 챗봇 응답 로그
 - `data/chatlog.db` — `participants`/`conversations`/`turns` 적재 결과
-- `/stats.html` — `demo-person-` 필터가 적용된 내담자 통계 대시보드
+- `/stats.html` — `demo-person-` 필터가 적용된 내담자 통계 대시보드. 하단의 **개별 특이 사항** 섹션은 위기 우선 확인, 지지체계 취약, 트랙/호소 미확인처럼 사람 검토가 필요한 세션만 따로 모은다.
 
 발표용 슬라이드 원고와 Keynote에서 열 수 있는 PPTX는 다음 파일에 있다.
 

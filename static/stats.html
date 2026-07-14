@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>내담자 통계 대시보드</title>
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=10" />
 </head>
 <body class="stats-body">
   <main class="stats-shell">
@@ -54,8 +54,19 @@
       </article>
     </section>
 
+    <section class="stats-card individual-card">
+      <div class="section-heading">
+        <div>
+          <h2>개별 특이 사항</h2>
+          <p>위기·미확인·지지체계 취약처럼 사람 검토가 필요한 세션만 모았습니다.</p>
+        </div>
+        <span id="individual-count" class="pill">0건</span>
+      </div>
+      <div id="individual-flags" class="individual-list"></div>
+    </section>
+
     <p id="stats-status" class="status" role="alert"></p>
   </main>
-  <script src="stats.js?v=1"></script>
+  <script src="stats.js?v=2"></script>
 </body>
 </html>

@@ -64,6 +64,9 @@ def test_read_stats_returns_dashboard_shape(tmp_path):
     assert result["track_counts"] == [{"track": "정서", "count": 1}]
     assert result["slot_completion"][0]["completed"] >= 1
     assert result["recent_sessions"][0]["participant_id"] == "demo-person-001"
+    assert result["totals"]["notable_sessions"] == 1
+    assert result["individual_flags"][0]["participant_id"] == "demo-person-001"
+    assert result["individual_flags"][0]["flags"][0]["label"] == "지지체계 미확인"
 
 
 def test_api_stats_returns_json(monkeypatch):

@@ -38,11 +38,13 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
             "summaries": 0,
             "red_flag_sessions": 0,
             "avg_user_turns_per_conversation": 0,
+            "notable_sessions": 0,
         },
         "track_counts": [],
         "slot_completion": [],
         "daily_counts": [],
         "recent_sessions": [],
+        "individual_flags": [],
     }
 
 
@@ -119,6 +121,86 @@ def _load_summaries(
             parsed["session_id"] = session_id
             summaries.append(parsed)
     return summaries
+
+
+def _has_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def _individual_flag_record(
+    day: str,
+    session_id: str,
+    participant_id: str,
+    summary: dict[str, Any],
+    user_turns: int,
+) -> dict[str, Any] | None:
+    """세션별로 사람이 다시 봐야 할 특이 사항을 도출한다.
+
+    진단이 아니라 운영 대시보드용 triage 신호다. 모델 판단을 새로 만들지 않고
+    이미 적재된 summary JSON만 사용한다.
+    """
+    slots = summary.get("slots") if isinstance(summary.get("slots"), dict) else {}
+    unfilled = summary.get("unfilled") if isinstance(summary.get("unfilled"), dict) else {}
+    red_flags = summary.get("red_flags") if isinstance(summary.get("red_flags"), list) else []
+    track = str(summary.get("track") or "미확인")
+
+    flags: list[dict[str, str]] = []
+    severity_rank = 0
+
+    def add(severity: str, label: str, detail: str) -> None:
+        nonlocal severity_rank
+        rank = {"high": 3, "medium": 2, "low": 1}.get(severity, 1)
+        severity_rank = max(severity_rank, rank)
+        flags.append({"severity": severity, "label": label, "detail": detail})
+
+    if red_flags or track == "위기":
+        add("high", "위기 우선 확인", "위기 트랙 또는 red flag 슬롯이 감지됐습니다.")
+        if "crisis_plan_means" in unfilled or "crisis_plan_means" not in slots:
+            add("high", "현재 계획·수단 미확인", "구체적 계획·수단 여부를 사람 상담자가 다시 확인해야 합니다.")
+        if "crisis_attempt_history" in unfilled or "crisis_attempt_history" not in slots:
+            add("medium", "과거 시도 이력 미확인", "과거 자해·자살 시도 이력이 비어 있습니다.")
+
+    if track == "미확인":
+        add("medium", "트랙 미확인", "정서·관계·위기 중 어느 경로인지 아직 분기되지 않았습니다.")
+
+    if "chief_complaint" in unfilled or "chief_complaint" not in slots:
+        add("medium", "호소 문제 미확인", "상담 신청 이유가 요약에 충분히 잡히지 않았습니다.")
+
+    support = str(slots.get("support") or "")
+    if "support" in unfilled or not support:
+        add("medium", "지지체계 미확인", "도와주는 사람이 있는지 아직 확인되지 않았습니다.")
+    elif _has_any(support, ("없", "혼자", "거의 없", "모르", "감당")):
+        add("medium", "지지체계 취약", support)
+
+    coping = str(slots.get("coping") or "")
+    if coping and _has_any(coping, ("참고", "버티", "한계", "오래가지는")):
+        add("low", "대처 전략 취약", coping)
+
+    expectation = str(slots.get("expectation") or "")
+    if expectation and _has_any(expectation, ("안전", "넘기는", "위험")):
+        add("medium", "안전계획 기대", expectation)
+
+    if user_turns < 3:
+        add("low", "조기 이탈 가능", f"사용자 입력이 {user_turns}턴뿐입니다.")
+
+    if not flags:
+        return None
+
+    severity = {3: "high", 2: "medium", 1: "low"}[severity_rank]
+    missing_labels = [_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled.keys()]
+    return {
+        "date": day,
+        "session_id": session_id,
+        "participant_id": participant_id,
+        "track": track,
+        "severity": severity,
+        "flags": flags,
+        "chief_complaint": slots.get("chief_complaint", ""),
+        "support": support,
+        "expectation": expectation,
+        "missing": missing_labels,
+        "user_turns": user_turns,
+    }
 
 
 def read_stats(
@@ -263,18 +345,21 @@ def read_stats(
             user_turn_count_by_session[(day, session_id)] = int(count)
 
         summary_by_session = {(s["date"], s["session_id"]): s for s in summaries}
-        recent_sessions = []
-        for day, session_id, participant_id in conn.execute(
+        session_rows = conn.execute(
             f"""
             SELECT c.date, c.session_id, c.participant_id
             FROM conversations c
             {conv_where}
             ORDER BY c.date DESC, c.session_id DESC
-            LIMIT 20
             """,
             conv_params,
-        ).fetchall():
+        ).fetchall()
+
+        recent_sessions = []
+        individual_flags = []
+        for day, session_id, participant_id in session_rows:
             summary = summary_by_session.get((day, session_id), {})
+            user_turn_count = user_turn_count_by_session[(day, session_id)]
             recent_sessions.append(
                 {
                     "date": day,
@@ -282,9 +367,29 @@ def read_stats(
                     "participant_id": participant_id,
                     "track": summary.get("track", "미확인"),
                     "red_flags": summary.get("red_flags", []),
-                    "user_turns": user_turn_count_by_session[(day, session_id)],
+                    "user_turns": user_turn_count,
                 }
             )
+            if summary:
+                record = _individual_flag_record(
+                    day,
+                    session_id,
+                    participant_id,
+                    summary,
+                    user_turn_count,
+                )
+                if record:
+                    individual_flags.append(record)
+
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        individual_flags.sort(
+            key=lambda item: (
+                severity_order.get(item["severity"], 9),
+                item["date"],
+                item["session_id"],
+            )
+        )
+        recent_sessions = recent_sessions[:20]
 
         return {
             "database": str(db_path),
@@ -299,6 +404,7 @@ def read_stats(
                 "summaries": summary_total,
                 "red_flag_sessions": red_flag_sessions,
                 "avg_user_turns_per_conversation": avg_user_turns,
+                "notable_sessions": len(individual_flags),
             },
             "track_counts": [
                 {"track": track, "count": count} for track, count in track_counter.most_common()
@@ -306,6 +412,7 @@ def read_stats(
             "slot_completion": slot_completion,
             "daily_counts": daily_counts,
             "recent_sessions": recent_sessions,
+            "individual_flags": individual_flags[:100],
         }
     finally:
         conn.close()
