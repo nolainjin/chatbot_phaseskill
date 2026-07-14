@@ -102,7 +102,7 @@ phase_context:
 ## 검증
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+cd /path/to/chatbot_phaseskill
 .venv/bin/python -m pytest -q
 # edge: 개인정보 고지 문구 유실 차단 — 카드 승격 중 법적 고지가 사라지는 실패 경로 단언
 grep -q "서버에 저장됩니다" static/index.html && echo "notice ok"

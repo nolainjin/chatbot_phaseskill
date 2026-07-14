@@ -39,7 +39,7 @@ phase_context:
 
 이 챗봇의 핵심 제약은 "지식 데이터만 교체하면 다른 분야 챗봇으로 전환"이다 (origin §3, CAP05/CAP06). 그래서 첫 phase는 챗봇 로직이 아니라 지식 콘텐츠를 읽는 레이어를 만든다. 지식은 마크다운 파일 + YAML 프론트매터이고, 어떤 디렉토리를 읽을지는 KNOWLEDGE_DIR 환경변수 하나로 정해진다. 스왑 실증(Phase 6)을 위해 서로 다른 도메인 샘플 지식셋 2벌을 처음부터 만들어 둔다.
 
-사용자 확정(2026-07-11, intake open questions): 첫 챗봇 도메인은 **상담 초기 면담**이고, 프론트매터 스키마는 SecondBrain wiki(`/Volumes/부부공용/SecondBrain/wiki/`)를 레퍼런스로 한다 — 키: `type / aliases / author / date / tags [/ cluster]`, 제목은 프론트매터가 아닌 본문 H1. 따라서 로더는 title 키에 의존하면 안 된다(부재 시 파일명 stem 또는 H1 폴백, 미지정 키는 meta로 보존).
+사용자 확정(2026-07-11, intake open questions): 첫 챗봇 도메인은 **상담 초기 면담**이고, 프론트매터 스키마는 비공개 로컬 wiki를 레퍼런스로 한다 — 키: `type / aliases / author / date / tags [/ cluster]`, 제목은 프론트매터가 아닌 본문 H1. 따라서 로더는 title 키에 의존하면 안 된다(부재 시 파일명 stem 또는 H1 폴백, 미지정 키는 meta로 보존).
 
 프로젝트 전체 의존성도 이 phase에서 선기재한다. 뒤 phase들이 requirements.txt를 다시 건드리지 않게 하기 위함이다 (spec review O2).
 

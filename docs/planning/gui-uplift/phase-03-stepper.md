@@ -94,7 +94,7 @@ phase_context:
 ## 검증
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+cd /path/to/chatbot_phaseskill
 .venv/bin/python -m pytest -q
 # edge: 스테퍼 기본 미노출(스왑 회귀 정적 단언) — hidden 속성 없이 렌더되는 실패 경로 차단
 grep -Eq '<[a-z]+[^>]*id="stepper"[^>]*hidden' static/index.html && echo "stepper hidden ok"

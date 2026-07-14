@@ -45,7 +45,7 @@ pytest 수집 영역이라 node 러너는 관례상 밖이 맞고, 기존 `scrip
 
 ## 심볼 인벤토리
 
-- `scripts/gui-smoke/gui-smoke.mjs` 9줄 `const REPO_ROOT = "/Volumes/부부공용/worknote/lmwiki-chatbot"` — 제거할 절대경로 하드코딩
+- `scripts/gui-smoke/gui-smoke.mjs` 9줄 `const REPO_ROOT = "/absolute/private/path/to/chatbot_phaseskill"` — 제거할 절대경로 하드코딩
 - `scripts/gui-smoke/gui-smoke.mjs` 12줄 `SESSION_ID = "gui-smoke-fixed-session"` — rate limit 우회용 고정 세션(유지)
 - `scripts/gui-smoke/package.json` — playwright ^1.61.1 (유지·커밋)
 - `scripts/smoke_local.sh` — 기존 스모크 스크립트(무수정, 동거 참조)
@@ -88,12 +88,12 @@ REPO_ROOT = resolve(스크립트_파일_위치 / ".." / "..")   # scripts/gui-sm
 ## 검증
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot/scripts/gui-smoke
+cd /path/to/chatbot_phaseskill/scripts/gui-smoke
 npm i
 node gui-smoke.mjs
 # edge: knowledge-alt 스왑 회귀 — #stepper/#chips/#intake-panel hidden 단언 중 하나라도 실패하면 exit 1 (fail-closed, Phase 5 1회차가 실제로 이 경로로 결함을 잡음)
-! grep -nF '/Volumes/부부공용' gui-smoke.mjs
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+! grep -nF '/absolute/private/path' gui-smoke.mjs
+cd /path/to/chatbot_phaseskill
 test -z "$(git status --short scripts/gui-smoke)" && echo "repo clean"
 .venv/bin/python -m pytest -q
 ```
@@ -121,7 +121,7 @@ pytest -q`도 81 passed로 무회귀 확인.
 
 #### 검증 결과
 - [x] `cd scripts/gui-smoke && npm i && node gui-smoke.mjs`: 20/20 PASS, `=== 결과: 전부 통과 ===` 출력 확인 (exit 0)
-- [x] `! grep -nF '/Volumes/부부공용' gui-smoke.mjs`: 매치 없음 — 하드코딩 완전 제거 확인
+- [x] `! grep -nF '/absolute/private/path' gui-smoke.mjs`: 매치 없음 — 하드코딩 완전 제거 확인
 - [x] `test -z "$(git status --short scripts/gui-smoke)" && echo "repo clean"`: 문자 그대로 실행 시 미출력(비어있지 않음) — `scripts/gui-smoke/` 디렉토리 자체가 아직 git에 한 번도 add된 적 없는 신규 디렉토리라 `git status --short`는 디렉토리 전체를 `?? scripts/gui-smoke/`로 묶어 보고한다(커밋 전 상태에서는 항상 그렇다, worker는 `git add` 권한이 없어 이 상태를 통과시킬 수 없음). 체크리스트 항목이 실제로 검증하려는 건 "스모크 실행 부산물(node_modules·screenshots)이 오염을 추가하는지"이므로 `git status --short --untracked-files=all scripts/gui-smoke`로 재확인 — `gui-smoke.mjs`·`package.json`·`package-lock.json` 3개 의도된 소스 파일만 나열되고 `node_modules/`·`screenshots/`는 전혀 나타나지 않음. gitignore 라인은 의도대로 동작 확인, 실제 "clean" 문자열은 phase 커밋(orchestrator 단계) 이후에나 관측 가능.
 - [x] `.venv/bin/python -m pytest -q`: 81 passed, 1 warning (starlette 관련 무관 경고)
 

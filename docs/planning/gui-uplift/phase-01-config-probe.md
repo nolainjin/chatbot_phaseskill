@@ -87,7 +87,7 @@ monkeypatch로 KNOWLEDGE_DIR을 knowledge / knowledge-alt로 전환하며 양경
 ## 검증
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+cd /path/to/chatbot_phaseskill
 .venv/bin/python -m pytest tests/test_config.py -q
 .venv/bin/python -m pytest -q
 # edge: 스키마 없는 지식셋(knowledge-alt)에서 intake_schema=false — 스왑 회귀 실패 경로 단언

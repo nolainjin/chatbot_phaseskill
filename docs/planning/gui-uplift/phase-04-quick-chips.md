@@ -84,7 +84,7 @@ phase_context:
 ## 검증
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+cd /path/to/chatbot_phaseskill
 .venv/bin/python -m pytest -q
 # edge: 칩 기본 미노출(스왑 회귀 정적 단언)
 grep -Eq '<[a-z]+[^>]*id="chips"[^>]*hidden' static/index.html && echo "chips hidden ok"

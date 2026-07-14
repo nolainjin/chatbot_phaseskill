@@ -73,7 +73,7 @@ research_required: true
 
 전부 해소 (2026-07-11 사용자 답변):
 
-- ~~LM Wiki 지식 데이터의 실제 파일 위치와 샘플 형식은?~~ → **SecondBrain wiki를 레퍼런스로** (`/Volumes/부부공용/SecondBrain/wiki/`). 프론트매터 스키마: `type / aliases / author / date / tags [/ cluster]`, 제목은 프론트매터가 아닌 본문 H1. 로더 요건(title 부재 시 H1→파일명 stem 폴백, 미지정 키 `meta` 보존)은 phase-01 스펙에 반영
+- ~~LM Wiki 지식 데이터의 실제 파일 위치와 샘플 형식은?~~ → **비공개 로컬 wiki를 레퍼런스로 사용**. 프론트매터 스키마: `type / aliases / author / date / tags [/ cluster]`, 제목은 프론트매터가 아닌 본문 H1. 로더 요건(title 부재 시 H1→파일명 stem 폴백, 미지정 키 `meta` 보존)은 phase-01 스펙에 반영
 - ~~첫 챗봇의 대상 도메인은?~~ → **상담 초기 면담 챗봇**으로 테스트. 실배포용 지식셋은 SecondBrain 스키마 기준으로 별도 작성 (Phase 6 스왑 검증 자체는 기존 2벌 샘플로 충분)
 - ~~rate limit "5회"의 단위?~~ → 목적 = 해킹·프롬프트 인젝션·API 비용 공격 방어 (사용자 확인). D05 확정대로 **대화 세션 5회/시간** 유지 — 10턴 캡과 결합해 IP당 시간당 최대 50 LLM 호출 + DAILY_REQUEST_CAP 500 전역 캡. 프롬프트 인젝션 자체는 rate limit이 아닌 Phase 7 점검 항목 3에서 방어
 - ~~"10턴 미만"의 턴 정의?~~ → **사용자 발화 기준** (추천 채택). 근거: 사용자 발화 1건 = LLM 호출 1회라 비용 단위와 일치하고 구현이 최단. Phase 2에서 이미 이 기준으로 구현·테스트 완료 (11번째 사용자 발화 거부)
