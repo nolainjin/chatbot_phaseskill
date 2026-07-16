@@ -1,9 +1,9 @@
 """knowledge-math(PNK 수학 학습 코칭) 지식셋 검증.
 
-수학 팩은 지식 문서 교체(knowledge-alt)와 달리 스키마·페르소나·톤·안전
-프로토콜까지 전부 교체하는 완전한 커스터마이징 예제다. 여기서는 (1) 팩이
+수학 팩은 지식 문서 교체(knowledge-alt)와 달리 스키마·페르소나·톤·개인정보
+경계까지 전부 교체하는 완전한 커스터마이징 예제다. 여기서는 (1) 팩이
 온전히 로드되는지, (2) 수학 트랙 흐름이 fake 모드로 끝까지 돌아가는지,
-(3) 도메인이 바뀌어도 위기 안전 경로가 그대로 살아 있는지를 고정한다.
+(3) 수학학원 화면에 상담형 위기 고지가 노출되지 않는지를 고정한다.
 """
 
 import json
@@ -46,9 +46,8 @@ def test_math_schema_loads_with_ui_and_tracks():
     schema = load_schema(KNOWLEDGE_MATH_DIR)
     assert schema is not None
     track = next(slot for slot in schema.slots if slot.id == "track")
-    assert track.values == ["위기", "개념", "문제풀이", "학습습관"]
-    # 위기 승격은 도메인과 무관하게 유지한다.
-    assert track.allow_override_values == ["위기"]
+    assert track.values == ["개념", "문제풀이", "학습습관"]
+    assert track.allow_override_values is None
     assert schema.ui["title"] == "PNK 수학 학습 코치"
     assert schema.ui["stepper_labels"] == ["고민 영역", "상황 파악", "코칭 준비"]
 
@@ -84,18 +83,18 @@ def test_problem_solving_track_fills_stuck_point_and_summarizes(monkeypatch, tmp
     assert summary["track"] == "문제풀이"
 
 
-def test_crisis_signal_escalates_math_track_and_asks_safety_first(monkeypatch, tmp_path):
-    """수학 팩에서도 자살 신호는 확정된 트랙을 위기로 승격하고 안전 확인을 먼저 한다."""
-    monkeypatch.chdir(tmp_path)
-    settings = _settings()
-    session_id = "math-e2e-crisis"
+def test_math_pack_does_not_expose_counseling_disclosure_copy():
+    schema = load_schema(KNOWLEDGE_MATH_DIR)
+    assert schema is not None
+    joined_ui = json.dumps(schema.ui, ensure_ascii=False)
+    slot_ids = {slot.id for slot in schema.slots}
 
-    chat.handle_message(session_id, "미적분 문제가 안 풀려요.", settings)
-    assert chat._sessions[session_id].slots["track"] == "문제풀이"
-
-    result = chat.handle_message(session_id, "요즘은 죽고 싶다는 생각이 들어요.", settings)
-    assert chat._sessions[session_id].slots["track"] == "위기"
-    assert "109" in result["reply"]
+    assert "보호자" not in joined_ui
+    assert "전문기관" not in joined_ui
+    assert "자신이나 타인" not in joined_ui
+    assert "위기" not in next(slot for slot in schema.slots if slot.id == "track").values
+    assert "crisis_plan_means" not in slot_ids
+    assert "crisis_attempt_history" not in slot_ids
 
 
 def test_fake_intro_uses_schema_ui_intro(monkeypatch, tmp_path):
@@ -103,3 +102,5 @@ def test_fake_intro_uses_schema_ui_intro(monkeypatch, tmp_path):
     result = chat.handle_message("math-e2e-intro", "안녕하세요", _settings())
     assert "수학 학습 코칭 전 접수 대화" in result["reply"]
     assert "상담" not in result["reply"]
+    assert "보호자" not in result["reply"]
+    assert "전문기관" not in result["reply"]

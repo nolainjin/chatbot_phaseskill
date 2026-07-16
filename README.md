@@ -142,7 +142,7 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-alt \
 
 - `knowledge/`: 상담 초기면담 예시
 - `knowledge-alt/`: 커피 브루잉 지식으로 만든 비민감 교육용 starter pack
-- `knowledge-math/`: PNK 수학 학습 코칭 — 스키마·페르소나·말투·안전 규칙까지 전부 교체한 완전한 예제
+- `knowledge-math/`: PNK 수학 학습 코칭 — 스키마·페르소나·말투·개인정보 경계까지 전부 교체한 완전한 예제
 - `_intake_schema.md`: 수집할 항목, 분류값, 질문 의도, 조건부 슬롯, 화면 문구(`ui` 섹션)
 - `_persona.md`: 역할과 금지사항
 - `_tone.md`: 말투 규칙
@@ -170,15 +170,15 @@ schema-less fallback은 `tests/fixtures/knowledge-fallback/`에서 회귀 테스
 ### 수학 학습 코치로 실행 (완전 교체 예제)
 
 `knowledge-math/`는 PNK 수학 방법론 문서 21편에 접수 스키마, 페르소나, 말투,
-안전 프로토콜, 화면 문구까지 전부 교체한 예제입니다.
+개인정보·인젝션 대응 규칙, 화면 문구까지 전부 교체한 예제입니다.
 
 ```bash
 MODEL=fake KNOWLEDGE_DIR=knowledge-math \
   .venv/bin/python -m uvicorn app.main:app --reload
 ```
 
-- 트랙: 위기 > 개념 > 문제풀이 > 학습습관 — 위기 트랙과 자해·자살 안전 확인,
-  중독 전문기관 라우팅은 도메인이 바뀌어도 그대로 유지됩니다.
+- 트랙: 개념 > 문제풀이 > 학습습관. 수학학원 데모 화면에는 보호자·전문기관
+  공유 고지나 상담형 위기 접수 질문을 노출하지 않습니다.
 - 제목·인사말·빠른 선택 칩 같은 화면 고정 문구는 스키마의 `ui` 섹션이
   소유합니다. `/api/config`가 내려주고, `ui`가 없는 지식셋(`knowledge/`)은
   기존 상담 문구를 그대로 씁니다.
