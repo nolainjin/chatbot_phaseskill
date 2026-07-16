@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -181,9 +182,34 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
     raise RuntimeError(f"codex CLI 실패({CODEX_RETRIES}회 시도): {last}")
 
 
-def _fake_reply(doc_titles: list[str]) -> str:
+def _fake_document_summary(system: str) -> str:
+    marker = "[untrusted_knowledge]"
+    if marker not in system:
+        return ""
+    payload_text = system.split(marker, 1)[1]
+    payload_start = payload_text.find("[")
+    if payload_start < 0:
+        return ""
+    try:
+        payload = json.loads(payload_text[payload_start:])
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+        return ""
+    title = payload[0].get("title")
+    body = payload[0].get("body")
+    if not isinstance(title, str) or not isinstance(body, str):
+        return ""
+    excerpt = " ".join(body.split())[:240]
+    return f"[fake] 학습 코칭 근거: {title}\n핵심: {excerpt}"
+
+
+def _fake_reply(doc_titles: list[str], system: str = "") -> str:
     if not doc_titles:
         return "[fake] 관련 문서를 찾지 못했습니다."
+    summary = _fake_document_summary(system)
+    if summary:
+        return summary
     return f"[fake] 참고 문서: {', '.join(doc_titles)}"
 
 
@@ -196,7 +222,7 @@ def _ask_single_backend(
     settings: Settings,
 ) -> str:
     if model == "fake":
-        return _fake_reply(doc_titles)
+        return _fake_reply(doc_titles, system)
 
     if model == CLI_MODEL:
         return _ask_cli(system, history, user)

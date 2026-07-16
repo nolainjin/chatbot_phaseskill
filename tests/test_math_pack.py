@@ -1,13 +1,3 @@
-"""knowledge-math(PNK 수학 학습 코칭) 지식셋 검증.
-
-수학 팩은 지식 문서 교체(knowledge-alt)와 달리 스키마·페르소나·톤·개인정보
-경계까지 전부 교체하는 완전한 커스터마이징 예제다. 여기서는 (1) 팩이
-온전히 로드되는지, (2) 수학 트랙 흐름이 fake 모드로 끝까지 돌아가는지,
-(3) 수학학원 화면에 상담형 위기 고지가 노출되지 않는지를 고정한다.
-"""
-
-import json
-from datetime import date
 from pathlib import Path
 
 from app import chat, knowledge
@@ -16,9 +6,6 @@ from app.intake import load_schema
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_MATH_DIR = str(REPO_ROOT / "knowledge-math")
-
-_FILLER = "그냥 이야기하고 싶어요"
-
 
 def _settings() -> Settings:
     return Settings(
@@ -29,27 +16,31 @@ def _settings() -> Settings:
         daily_request_cap=500,
     )
 
-
-def _run_to_summary(session_id: str, first_message: str) -> dict:
-    settings = _settings()
-    chat.handle_message(session_id, first_message, settings)
-    for _ in range(chat.MAX_TURNS - 1):
-        chat.handle_message(session_id, _FILLER, settings)
-
-    day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
-    summary_text = next(t["text"] for t in turns if t["role"] == "intake_summary")
-    return json.loads(summary_text)
-
-
-def test_math_schema_loads_with_ui_and_tracks():
+def test_math_pack_uses_coaching_fallback_instead_of_intake():
     schema = load_schema(KNOWLEDGE_MATH_DIR)
-    assert schema is not None
-    track = next(slot for slot in schema.slots if slot.id == "track")
-    assert track.values == ["개념", "문제풀이", "학습습관"]
-    assert track.allow_override_values is None
-    assert schema.ui["title"] == "PNK 수학 학습 코치"
-    assert schema.ui["stepper_labels"] == ["고민 영역", "상황 파악", "코칭 준비"]
+    assert schema is None
+
+    captured: dict[str, str] = {}
+
+    def fake_ask(**kwargs):
+        captured.update(kwargs)
+        return "질문과 관련된 개념을 문서 근거로 함께 살펴볼게요."
+
+    chat._sessions.pop("math-coaching", None)
+    original_ask = chat.llm.ask
+    chat.llm.ask = fake_ask
+    try:
+        result = chat.handle_message(
+            "math-coaching", "미분에서 기울기가 왜 필요한지 모르겠어요.", _settings()
+        )
+    finally:
+        chat.llm.ask = original_ask
+
+    assert result["reply"] == "질문과 관련된 개념을 문서 근거로 함께 살펴볼게요."
+    assert "intake" not in result
+    assert "PNK 수학" in captured["system"]
+    assert "접수" not in captured["system"]
+    assert captured["doc_titles"]
 
 
 def test_math_documents_load_excluding_reserved():
@@ -61,46 +52,28 @@ def test_math_documents_load_excluding_reserved():
     assert not any(doc.path.name.startswith("_") for doc in docs)
 
 
-def test_problem_solving_track_fills_stuck_point_and_summarizes(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    settings = _settings()
-    session_id = "math-e2e-problem"
-
-    chat.handle_message(
-        session_id, "문제를 보면 어떻게 접근해야 할지 몰라서 손도 못 대요.", settings
+def test_math_pack_prompt_and_ui_text_are_coaching_only():
+    math_dir = Path(KNOWLEDGE_MATH_DIR)
+    text = "\n".join(
+        (math_dir / name).read_text(encoding="utf-8")
+        for name in ("_persona.md", "_tone.md", "_safety_protocol.md")
     )
-    assert chat._sessions[session_id].slots["track"] == "문제풀이"
-    assert "chief_complaint" in chat._sessions[session_id].slots
 
-    chat.handle_message(session_id, "어떻게 시작해야 할지 접근 방법을 모르겠어요.", settings)
-    assert chat._sessions[session_id].slots["stuck_point"] == "접근 방법"
-
-    for _ in range(chat.MAX_TURNS - 2):
-        chat.handle_message(session_id, _FILLER, settings)
-    day_dir = Path("data/conversations") / date.today().isoformat()
-    turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
-    summary = json.loads(next(t["text"] for t in turns if t["role"] == "intake_summary"))
-    assert summary["track"] == "문제풀이"
+    assert "접수" not in text
+    assert "면접" not in text
+    assert "보호자" not in text
+    assert "전문기관" not in text
+    assert "위기" not in text
+    assert "자해" not in text
+    assert "자살" not in text
 
 
-def test_math_pack_does_not_expose_counseling_disclosure_copy():
-    schema = load_schema(KNOWLEDGE_MATH_DIR)
-    assert schema is not None
-    joined_ui = json.dumps(schema.ui, ensure_ascii=False)
-    slot_ids = {slot.id for slot in schema.slots}
+def test_math_fake_reply_contains_grounded_coaching_excerpt():
+    chat._sessions.pop("math-fake-coaching", None)
+    result = chat.handle_message(
+        "math-fake-coaching", "미분에서 기울기의 의미를 설명해 주세요.", _settings()
+    )
 
-    assert "보호자" not in joined_ui
-    assert "전문기관" not in joined_ui
-    assert "자신이나 타인" not in joined_ui
-    assert "위기" not in next(slot for slot in schema.slots if slot.id == "track").values
-    assert "crisis_plan_means" not in slot_ids
-    assert "crisis_attempt_history" not in slot_ids
-
-
-def test_fake_intro_uses_schema_ui_intro(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    result = chat.handle_message("math-e2e-intro", "안녕하세요", _settings())
-    assert "수학 학습 코칭 전 접수 대화" in result["reply"]
-    assert "상담" not in result["reply"]
-    assert "보호자" not in result["reply"]
-    assert "전문기관" not in result["reply"]
+    assert result["reply"].startswith("[fake] 학습 코칭 근거:")
+    assert "핵심:" in result["reply"]
+    assert "intake" not in result

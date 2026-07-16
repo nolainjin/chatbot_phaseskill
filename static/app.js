@@ -46,8 +46,9 @@
     "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
     "자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 경우에는 안전을 위해 공유될 수 있습니다. " +
     "오늘 상담을 받으러 오신 가장 큰 이유를 편하게 말씀해 주세요.";
-  // /api/config의 스키마 소유 ui.greeting이 있으면 교체된다 — GREETING은 기본값.
-  var greetingText = GREETING;
+  var COACHING_GREETING =
+    "안녕하세요. 질문이나 막힌 문제를 가져오시면 관련 지식과 풀이 과정을 함께 살펴볼게요.";
+  var greetingText = COACHING_GREETING;
   var BOT_AVATAR_SVG =
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
     '<rect x="5" y="8" width="14" height="11" rx="3"></rect>' +
@@ -147,7 +148,7 @@
 
     var bubble = document.createElement("div");
     bubble.className = "message message-assistant typing";
-    bubble.setAttribute("aria-label", "상담사가 답변을 준비하고 있습니다");
+    bubble.setAttribute("aria-label", "답변을 준비하고 있습니다");
     for (var i = 0; i < 3; i++) {
       var dot = document.createElement("span");
       dot.className = "dot";
@@ -382,7 +383,7 @@
         hideTyping();
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
-        setStatus("상담사가 답변을 작성하고 있어요…");
+        setStatus("답변을 작성하고 있어요…");
         typeAssistantMessage(replyText).then(function () {
           setStatus("");
           updateTurnCounter(data.turn);
@@ -491,6 +492,41 @@
     }
   }
 
+  function applyCoachingMode() {
+    greetingText = COACHING_GREETING;
+    document.title = "학습 코칭 챗봇";
+    setTextIf(".chat-title h1", "학습 코칭 챗봇");
+    setTextIf(".subtitle", "질문과 지식 문서를 바탕으로 함께 살펴봅니다");
+    var headerLink = document.querySelector(".header-link");
+    if (headerLink) headerLink.hidden = true;
+    setTextIf(".privacy-summary-text", "학습 대화 안내");
+    setTextIf(
+      ".privacy-body",
+      "대화 내용은 학습 흐름을 이어가기 위해 저장될 수 있습니다. 이름, 연락처, 학교명 같은 개인정보는 입력하지 마세요."
+    );
+    setTextIf(".lock-notice-text", "대화 내용은 학습 흐름을 이어가기 위해 저장될 수 있습니다");
+    if (panelEl) panelEl.hidden = true;
+    if (stepperEl) stepperEl.hidden = true;
+    if (chipsEl) chipsEl.hidden = true;
+    intakeSchemaActive = false;
+  }
+
+  function applyIntakeMode() {
+    greetingText = GREETING;
+    document.title = "접수 면담 챗봇";
+    setTextIf(".chat-title h1", "접수 면담 챗봇");
+    setTextIf(".subtitle", "첫 상담 전, 이야기를 정리하는 시간입니다");
+    var headerLink = document.querySelector(".header-link");
+    if (headerLink) headerLink.hidden = false;
+    setTextIf(".header-link", "내담자 통계 보기");
+    setTextIf(".privacy-summary-text", "첫 상담 전 접수용 안내");
+    setTextIf(
+      ".privacy-body",
+      "대화 내용은 서버에 저장됩니다. 자·타해 위험, 학대 의심, 법적 요청처럼 안전 예외가 있는 경우에는 보호자·전문기관과 공유될 수 있습니다."
+    );
+    setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
+  }
+
   // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
   // fail-closed로 수렴한다. 채팅 기능에는 영향 없음. 첫 인사말은 ui.greeting
   // 교체 가능성 때문에 프로브가 끝난 뒤(성공·실패 공통) 표시한다.
@@ -500,8 +536,10 @@
       return response.json();
     })
     .then(function (data) {
+      if (data && data.mode === "coaching") applyCoachingMode();
+      if (data && data.mode === "intake") applyIntakeMode();
       applyUiConfig(data && data.ui);
-      if (data && data.intake_schema === true) {
+      if (data && data.mode === "intake" && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
         setActiveStep(1);
