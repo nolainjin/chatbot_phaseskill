@@ -1,9 +1,9 @@
 """Phase 9(접수 면담 모드 전환) 검증.
 
 페르소나 주입/폴백, 턴 진행 표기, 접수 요약 저장(성공·실패 격리)을 fake 모드로
-확인한다. knowledge-alt는 _persona.md가 없는 스왑 세트라 Phase 6 invariant
-(코드 무수정으로 다른 도메인 스왑)가 페르소나 도입 이후에도 유지되는지의
-근거이기도 하다.
+확인한다. schema-less fixture는 _persona.md가 없는 스왑 세트라 Phase 6
+invariant(코드 무수정으로 다른 도메인 스왑)가 페르소나 도입 이후에도
+유지되는지의 근거이기도 하다.
 """
 
 import json
@@ -17,6 +17,7 @@ from app.knowledge import load_documents
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = str(REPO_ROOT / "knowledge")
 KNOWLEDGE_ALT_DIR = str(REPO_ROOT / "knowledge-alt")
+KNOWLEDGE_FALLBACK_DIR = str(REPO_ROOT / "tests" / "fixtures" / "knowledge-fallback")
 
 
 def _settings(knowledge_dir: str = KNOWLEDGE_DIR) -> Settings:
@@ -79,7 +80,7 @@ def test_persona_absent_falls_back_to_system_preamble(monkeypatch):
     monkeypatch.setattr(chat.llm, "ask", fake_ask)
 
     chat.handle_message(
-        "session-intake-alt-fallback", "원두 보관법 알려줘", _settings(KNOWLEDGE_ALT_DIR)
+        "session-intake-alt-fallback", "원두 보관법 알려줘", _settings(KNOWLEDGE_FALLBACK_DIR)
     )
 
     assert chat._SYSTEM_PREAMBLE in captured["system"]

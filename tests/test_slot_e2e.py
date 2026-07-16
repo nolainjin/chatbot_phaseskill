@@ -18,6 +18,7 @@ from app.intake import load_schema
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = str(REPO_ROOT / "knowledge")
 KNOWLEDGE_ALT_DIR = str(REPO_ROOT / "knowledge-alt")
+KNOWLEDGE_FALLBACK_DIR = str(REPO_ROOT / "tests" / "fixtures" / "knowledge-fallback")
 
 # 어떤 슬롯 signals와도 겹치지 않는 안전한 다턴 채움용 필러 발화.
 _FILLER = "그냥 이야기하고 싶어요"
@@ -275,11 +276,9 @@ def test_track_priority_relationship_wins_over_emotion():
     assert chat._sessions[session_id].slots["track"] == "관계"
 
 
-def test_knowledge_alt_swap_keeps_stub_reply_without_progress_suffix():
-    """스왑 회귀(CAP18) — knowledge-alt(스키마 없음) 구동 시 기존 스텁 형식 유지,
-    진행 접미사가 붙지 않음을 단언."""
+def test_schema_less_fixture_keeps_stub_reply_without_progress_suffix():
     result = chat.handle_message(
-        "e2e-swap-alt", "원두 보관법 알려줘", _settings(KNOWLEDGE_ALT_DIR)
+        "e2e-swap-alt", "원두 보관법 알려줘", _settings(KNOWLEDGE_FALLBACK_DIR)
     )
 
     assert result["reply"].startswith("[fake]")
