@@ -118,6 +118,7 @@ MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge \
 
 | 설정 | 용도 |
 |---|---|
+| `auto` | Codex CLI gpt-5.4를 먼저 시도하고 실패 시 Claude CLI, 둘 다 실패하면 fake |
 | `fake` | API 없이 테스트하는 결정론 스텁 |
 | `codex-cli` 또는 `codex-cli:<model>` | 로컬에 로그인된 Codex CLI 호출 |
 | `claude-cli` | 로컬에 로그인된 Claude CLI 호출 |
