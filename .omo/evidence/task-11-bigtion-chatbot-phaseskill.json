@@ -1,0 +1,84 @@
+{
+  "scope": "/Volumes/부부공용/worknote/lmwiki-chatbot",
+  "branch_preserved": "master",
+  "origin_preserved": "https://github.com/nolainjin/chatbot_phaseskill.git",
+  "commit_push_reset_checkout_stash": "not performed",
+  "commands": [
+    {
+      "command": ".venv/bin/python -m pytest -q",
+      "exit": 0,
+      "result": "154 passed, 1 warning"
+    },
+    {
+      "command": ".venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --json",
+      "exit": 0,
+      "result": "valid=true, errors=0, warnings=0"
+    },
+    {
+      "command": "MODEL=fake .venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --exercise --json",
+      "exit": 0,
+      "result": "exercise ok, messages=4, unfilled=[]"
+    },
+    {
+      "command": "validator negative matrix",
+      "exit": 0,
+      "result": "missing-tone exit 1, duplicate slot exit 1, short scenario exit 1, missing pack exit 2"
+    },
+    {
+      "command": "(cd /tmp && bash /Volumes/부부공용/worknote/lmwiki-chatbot/scripts/smoke_local.sh)",
+      "exit": 0,
+      "result": "default knowledge pack smoke passed on port 8934"
+    },
+    {
+      "command": "PORT=8944 bash scripts/smoke_local.sh --pack knowledge-alt",
+      "exit": 0,
+      "result": "knowledge-alt smoke passed on configurable port 8944"
+    },
+    {
+      "command": "cd scripts/gui-smoke && node gui-smoke.mjs",
+      "exit": 0,
+      "result": "knowledge, knowledge-alt, and schema-less fallback browser smoke passed"
+    },
+    {
+      "command": "fresh temporary venv install from requirements.lock plus import check",
+      "exit": 0,
+      "result": "imports passed; pip emitted cache deserialization warnings only"
+    },
+    {
+      "command": ".venv/bin/python scripts/check_dependencies.py",
+      "exit": 0,
+      "result": "dependency declarations match"
+    },
+    {
+      "command": ".venv/bin/python -m py_compile app/knowledge_pack.py scripts/validate_knowledge_pack.py scripts/check_dependencies.py",
+      "exit": 0,
+      "result": "changed Python files compile"
+    }
+  ],
+  "browser_qa": {
+    "screenshots": [
+      "scripts/gui-smoke/screenshots/01-initial-desktop.png",
+      "scripts/gui-smoke/screenshots/02-initial-mobile.png",
+      "scripts/gui-smoke/screenshots/03-after-chip-desktop.png",
+      "scripts/gui-smoke/screenshots/04-after-turns-desktop.png",
+      "scripts/gui-smoke/screenshots/05-knowledge-alt-desktop.png",
+      "scripts/gui-smoke/screenshots/06-fallback-desktop.png"
+    ],
+    "scenarios": [
+      "knowledge intake UI",
+      "knowledge-alt intake-enabled starter pack UI",
+      "tests/fixtures/knowledge-fallback schema-less UI"
+    ]
+  },
+  "pre_existing_dirty_paths_preserved": [
+    "app/addiction.py",
+    "app/chat.py",
+    "app/safety.py",
+    "knowledge/_intake_schema.md",
+    "scripts/load_to_sqlite.py",
+    "tests/test_addiction.py",
+    "tests/test_safety.py",
+    "tests/test_slot_extract.py",
+    "docs/slides/chatbot_development_story_keynote.html"
+  ]
+}
