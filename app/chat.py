@@ -176,7 +176,8 @@ def _build_fake_intake_reply(
 ) -> str:
     """API 키 없는 데모에서도 접수면담처럼 보이는 결정론 응답을 만든다."""
     next_slot = unfilled[0] if unfilled else None
-    intro = (
+    # 첫 안내문도 스키마 데이터(ui.intro)가 소유한다. 없으면 기존 상담 문구 유지.
+    intro = schema.ui.get("intro") or (
         "안녕하세요. 이 대화는 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 "
         "다루지만, 자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 "
         "경우에는 안전을 위해 공유될 수 있습니다."

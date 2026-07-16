@@ -136,8 +136,9 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-alt \
 ```
 
 - `knowledge/`: 상담 초기면담 예시
-- `knowledge-alt/`: 커피 브루잉 지식으로 폴더 교체를 검증하는 예시
-- `_intake_schema.md`: 수집할 항목, 분류값, 질문 의도, 조건부 슬롯
+- `knowledge-alt/`: 커피 브루잉 지식으로 폴더 교체를 검증하는 예시 (지식 문서만 교체, 스키마 없음)
+- `knowledge-math/`: PNK 수학 학습 코칭 — 스키마·페르소나·말투·안전 규칙까지 전부 교체한 완전한 예제
+- `_intake_schema.md`: 수집할 항목, 분류값, 질문 의도, 조건부 슬롯, 화면 문구(`ui` 섹션)
 - `_persona.md`: 역할과 금지사항
 - `_tone.md`: 말투 규칙
 - `_safety_protocol.md`: 안전·인젝션 대응 규칙
@@ -146,6 +147,23 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-alt \
 도메인의 문서와 `_intake_schema.md`를 두고 `KNOWLEDGE_DIR`만 변경합니다.
 의료·법률처럼 위험도가 높은 분야는 별도의 전문 안전 규칙과 사람 검토가
 추가로 필요합니다.
+
+### 수학 학습 코치로 실행 (완전 교체 예제)
+
+`knowledge-math/`는 PNK 수학 방법론 문서 21편에 접수 스키마, 페르소나, 말투,
+안전 프로토콜, 화면 문구까지 전부 교체한 예제입니다.
+
+```bash
+MODEL=fake KNOWLEDGE_DIR=knowledge-math \
+  .venv/bin/python -m uvicorn app.main:app --reload
+```
+
+- 트랙: 위기 > 개념 > 문제풀이 > 학습습관 — 위기 트랙과 자해·자살 안전 확인,
+  중독 전문기관 라우팅은 도메인이 바뀌어도 그대로 유지됩니다.
+- 제목·인사말·빠른 선택 칩 같은 화면 고정 문구는 스키마의 `ui` 섹션이
+  소유합니다. `/api/config`가 내려주고, `ui`가 없는 지식셋(`knowledge/`)은
+  기존 상담 문구를 그대로 씁니다.
+- 관리자 통계 화면(`/stats.html`)의 문구는 아직 상담 도메인 고정입니다.
 
 ### 지식 문서 형식
 

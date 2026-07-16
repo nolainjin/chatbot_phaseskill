@@ -46,6 +46,8 @@
     "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
     "자신이나 타인에게 즉각적인 위험이 있거나 학대·법적 요청이 있는 경우에는 안전을 위해 공유될 수 있습니다. " +
     "오늘 상담을 받으러 오신 가장 큰 이유를 편하게 말씀해 주세요.";
+  // /api/config의 스키마 소유 ui.greeting이 있으면 교체된다 — GREETING은 기본값.
+  var greetingText = GREETING;
   var BOT_AVATAR_SVG =
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
     '<rect x="5" y="8" width="14" height="11" rx="3"></rect>' +
@@ -329,7 +331,7 @@
     setStatus("");
     updateTurnCounter(0);
     setActiveStep(1);
-    addMessage("assistant", GREETING);
+    addMessage("assistant", greetingText);
     maybeShowChips();
     updateInputState();
     inputEl.focus();
@@ -436,14 +438,69 @@
     });
   }
 
+  function setTextIf(selector, value) {
+    if (!value) return;
+    var el = document.querySelector(selector);
+    if (el) el.textContent = value;
+  }
+
+  // 스키마 소유 UI 문구 적용 — 제공된 키만 덮어쓰고 나머지는 정적 기본(상담) 문구 유지.
+  function applyUiConfig(ui) {
+    if (!ui || typeof ui !== "object") return;
+    if (ui.greeting) greetingText = ui.greeting;
+    if (ui.title) {
+      document.title = ui.title;
+      setTextIf(".chat-title h1", ui.title);
+    }
+    setTextIf(".subtitle", ui.subtitle);
+    setTextIf(".privacy-summary-text", ui.privacy_summary);
+    setTextIf(".privacy-body", ui.privacy_body);
+    setTextIf(".header-link", ui.stats_link_text);
+    setTextIf(".panel-title", ui.panel_title);
+    if (Array.isArray(ui.stepper_labels)) {
+      document.querySelectorAll(".stepper-label").forEach(function (el, i) {
+        if (ui.stepper_labels[i]) el.textContent = ui.stepper_labels[i];
+      });
+    }
+    if (ui.contextual_replies && typeof ui.contextual_replies === "object") {
+      CONTEXTUAL_REPLIES = ui.contextual_replies;
+    }
+    if (Array.isArray(ui.chips) && chipsEl) {
+      chipsEl.textContent = "";
+      ui.chips.forEach(function (chip) {
+        if (!chip || !chip.send) return;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip";
+        button.setAttribute("data-send", chip.send);
+        var title = document.createElement("span");
+        title.className = "chip-title";
+        title.textContent = chip.title || chip.send;
+        button.appendChild(title);
+        if (chip.desc) {
+          var desc = document.createElement("span");
+          desc.className = "chip-desc";
+          desc.textContent = chip.desc;
+          button.appendChild(desc);
+        }
+        button.addEventListener("click", function () {
+          sendMessage(chip.send);
+        });
+        chipsEl.appendChild(button);
+      });
+    }
+  }
+
   // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
-  // fail-closed로 수렴한다. 채팅 기능에는 영향 없음.
+  // fail-closed로 수렴한다. 채팅 기능에는 영향 없음. 첫 인사말은 ui.greeting
+  // 교체 가능성 때문에 프로브가 끝난 뒤(성공·실패 공통) 표시한다.
   fetch("/api/config")
     .then(function (response) {
       if (!response.ok) throw new Error("config fetch failed: " + response.status);
       return response.json();
     })
     .then(function (data) {
+      applyUiConfig(data && data.ui);
       if (data && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
@@ -453,8 +510,11 @@
     })
     .catch(function (err) {
       console.warn("intake config probe failed; stepper stays hidden", err);
+    })
+    .finally(function () {
+      addMessage("assistant", greetingText);
+      updateInputState();
     });
 
-  addMessage("assistant", GREETING);
   updateInputState();
 })();
