@@ -46,10 +46,13 @@ def post_chat(request: Request, payload: dict = Body(...)):
 
 @app.get("/api/config")
 def get_config():
-    """스키마 프로브: 지식셋이 intake 스키마를 가지고 있는지 확인."""
+    """스키마 프로브 + 스키마 소유 UI 문구. ui가 비면 프론트는 기본 문구를 쓴다."""
     settings = Settings.from_env()
-    schema_exists = intake.load_schema(settings.knowledge_dir) is not None
-    return {"intake_schema": schema_exists}
+    schema = intake.load_schema(settings.knowledge_dir)
+    return {
+        "intake_schema": schema is not None,
+        "ui": schema.ui if schema is not None else {},
+    }
 
 
 @app.get("/api/stats")

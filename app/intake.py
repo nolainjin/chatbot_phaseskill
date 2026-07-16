@@ -12,7 +12,7 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -59,6 +59,9 @@ class Schema:
     version: str
     opening_question: str
     slots: list[Slot]
+    # 화면 고정 문구(제목·인사말·칩 등)도 스키마 데이터가 소유한다 — 모듈
+    # 상단 원칙의 UI 연장. 비어 있으면 static/의 기본(상담) 문구를 쓴다.
+    ui: dict = field(default_factory=dict)
 
     def active_slots(self, filled: dict) -> list[Slot]:
         return [slot for slot in self.slots if slot.is_active(filled)]
@@ -336,4 +339,8 @@ def load_schema(knowledge_dir) -> Schema | None:
     except (KeyError, TypeError, ValueError):
         return None
 
-    return Schema(version=version, opening_question=opening_question, slots=slots)
+    ui = data.get("ui")
+    if not isinstance(ui, dict):
+        ui = {}
+
+    return Schema(version=version, opening_question=opening_question, slots=slots, ui=ui)
