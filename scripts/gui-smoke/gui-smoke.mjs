@@ -57,9 +57,13 @@ async function waitForServer(timeoutMs = 15000) {
 
 async function stopServer(proc) {
   if (!proc) return;
+  const exited = new Promise((resolve) => proc.once("exit", resolve));
   proc.kill("SIGTERM");
-  await sleep(500);
-  if (!proc.killed) proc.kill("SIGKILL");
+  const timedOut = await Promise.race([exited.then(() => false), sleep(3000).then(() => true)]);
+  if (timedOut) {
+    proc.kill("SIGKILL");
+    await exited.catch(() => {});
+  }
 }
 
 async function newPage(browser) {
@@ -194,22 +198,64 @@ async function scenarioKnowledge(browser) {
 }
 
 async function scenarioKnowledgeAlt(browser) {
-  console.log("\n=== 시나리오 3: knowledge-alt 스왑 회귀 ===");
+  console.log("\n=== 시나리오 3: knowledge-alt starter pack ===");
   const page = await newPage(browser);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
-  // config 프로브가 intake_schema:false를 반환할 시간 확보 — 폴백은 어차피 hidden.
+  await waitChipsReady(page);
+
+  const stepperVisible = await page.isVisible("#stepper");
+  const chipsVisible = await page.isVisible("#chips");
+  const panelHiddenInitially = await page.isHidden("#intake-panel");
+
+  assert(stepperVisible, "knowledge-alt: #stepper visible");
+  assert(chipsVisible, "knowledge-alt: #chips visible");
+  assert(panelHiddenInitially, "knowledge-alt: initial #intake-panel hidden");
+
+  const beforeAssistant = await page.locator(".message-row-assistant").count();
+  await page.fill("#message-input", "드립 커피를 처음 배워보고 싶어요");
+  await page.click("#send-button");
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".message-row-assistant").length > n,
+    beforeAssistant,
+    { timeout: 15000 }
+  );
+  await page.waitForSelector("#intake-panel:not([hidden])", { timeout: 15000 });
+  const slotCount = await page.locator("#slot-list .slot").count();
+  assert(slotCount > 0, `knowledge-alt: slot list rendered (${slotCount})`);
+
+  await page.screenshot({ path: path.join(SHOT_DIR, "05-knowledge-alt-desktop.png") });
+
+  await page.context().close();
+}
+
+async function scenarioFallback(browser) {
+  console.log("\n=== 시나리오 4: schema-less fallback fixture ===");
+  const page = await newPage(browser);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(BASE_URL, { waitUntil: "networkidle" });
   await sleep(1000);
 
   const stepperHidden = await page.isHidden("#stepper");
   const chipsHidden = await page.isHidden("#chips");
   const panelHidden = await page.isHidden("#intake-panel");
 
-  assert(stepperHidden, "knowledge-alt: #stepper hidden");
-  assert(chipsHidden, "knowledge-alt: #chips hidden");
-  assert(panelHidden, "knowledge-alt: #intake-panel hidden");
+  assert(stepperHidden, "fallback: #stepper hidden");
+  assert(chipsHidden, "fallback: #chips hidden");
+  assert(panelHidden, "fallback: #intake-panel hidden");
 
-  await page.screenshot({ path: path.join(SHOT_DIR, "05-knowledge-alt-desktop.png") });
+  const beforeAssistant = await page.locator(".message-row-assistant").count();
+  await page.fill("#message-input", "원두 보관법 알려줘");
+  await page.click("#send-button");
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".message-row-assistant").length > n,
+    beforeAssistant,
+    { timeout: 15000 }
+  );
+  const bodyText = await page.locator("body").innerText();
+  assert(bodyText.includes("원두 보관법"), "fallback: document title appears");
+
+  await page.screenshot({ path: path.join(SHOT_DIR, "06-fallback-desktop.png") });
 
   await page.context().close();
 }
@@ -230,6 +276,7 @@ async function main() {
 
   await runScenario(browser, "knowledge", scenarioKnowledge);
   await runScenario(browser, "knowledge-alt", scenarioKnowledgeAlt);
+  await runScenario(browser, "tests/fixtures/knowledge-fallback", scenarioFallback);
 
   await browser.close();
 

@@ -1,7 +1,7 @@
 ---
 phase: 10
 title: 단계 스크립트 순차 면담
-status: pending
+status: completed
 depends_on: [9]
 scope:
   - app/chat.py
@@ -75,11 +75,13 @@ knowledge/_persona.md:
 
 ## 체크리스트
 
-- [ ] `knowledge/_script.md` 작성 — 10턴 단계 스크립트(턴범위 | 라벨 | 지시 | 예시 질문), `접수-면접-질문지-구성.md`·`위기-상황-스크리닝.md`와 내용 정합, `_persona.md` 면담 순서 섹션은 스크립트 참조로 축약
-- [ ] 스크립트 파서: `_script.md` 파싱해 현재 턴의 단계 결정 — 파일 부재·형식 오류 시 스크립트 없이 기존 동작으로 폴백 (tests/test_script.py)
-- [ ] 단계 주입: 시스템 프롬프트에 `[현재 단계: 라벨 — 지시]` 결합, 기존 `[진행: n/10턴]`·페르소나·지식 문서 결합 순서 유지 (tests/test_script.py: 프롬프트 조립 검증)
-- [ ] fake 모드 데모: `llm.ask`에 optional `fake_hint` 추가(기본 None, 기존 호출 무수정) — 스크립트 있으면 fake 응답이 해당 단계 예시 질문, 없으면 기존 스텁 (tests/test_script.py)
-- [ ] 회귀 + 스왑 invariant: 전체 pytest 통과, knowledge-alt(`_script.md` 없음) 스왑 시 기존 Q&A/자유 진행 폴백 (tests/test_script.py)
+> **superseded 마감 (2026-07-16)**: 아래 항목은 구현되지 않았다. intake-slot-engine task(스키마 선언 기반 문진 엔진)가 본 phase(D10 선형 단계 스크립트)를 대체 — 사용자 승인으로 마감 체크 처리. 체크 표시는 "구현 완료"가 아니라 "항목 해소(대체)"를 의미한다.
+
+- [x] `knowledge/_script.md` 작성 — 10턴 단계 스크립트(턴범위 | 라벨 | 지시 | 예시 질문), `접수-면접-질문지-구성.md`·`위기-상황-스크리닝.md`와 내용 정합, `_persona.md` 면담 순서 섹션은 스크립트 참조로 축약
+- [x] 스크립트 파서: `_script.md` 파싱해 현재 턴의 단계 결정 — 파일 부재·형식 오류 시 스크립트 없이 기존 동작으로 폴백 (tests/test_script.py)
+- [x] 단계 주입: 시스템 프롬프트에 `[현재 단계: 라벨 — 지시]` 결합, 기존 `[진행: n/10턴]`·페르소나·지식 문서 결합 순서 유지 (tests/test_script.py: 프롬프트 조립 검증)
+- [x] fake 모드 데모: `llm.ask`에 optional `fake_hint` 추가(기본 None, 기존 호출 무수정) — 스크립트 있으면 fake 응답이 해당 단계 예시 질문, 없으면 기존 스텁 (tests/test_script.py)
+- [x] 회귀 + 스왑 invariant: 전체 pytest 통과, knowledge-alt(`_script.md` 없음) 스왑 시 기존 Q&A/자유 진행 폴백 (tests/test_script.py)
 
 ## 실패 경로
 
@@ -98,3 +100,24 @@ knowledge/_persona.md:
 .venv/bin/python -m pytest -q
 bash scripts/smoke_local.sh
 ```
+
+## 실행 결과
+
+### 마감 처리 (2026-07-16) — superseded
+**상태**: completed (superseded — 코드 미구현)
+**진행 모델**: 없음 (worker 미디스패치, 오케스트레이터 bookkeeping)
+
+#### 요약
+Phase 10은 미실행 상태로 intake-slot-engine task가 supersede했다(checklist cross-phase 메모 2026-07-12, intake-slot-engine/origin.md). 스키마 선언 기반 문진 엔진이 D10 선형 단계 스크립트 접근을 대체하므로 본 phase의 코드 구현은 불필요. 2026-07-16 /phase-run에서 사용자가 "superseded 마감 처리"를 선택해 마감했다.
+
+#### 변경 파일
+- 없음 — planning 아티팩트(본 파일·checklist.md)만 갱신. `app/chat.py`·`app/llm.py`·`knowledge/_script.md`·`tests/test_script.py`는 건드리지 않음.
+
+#### 검증 결과
+- 해당 없음 — 코드 변경이 없어 `## 검증` 커맨드의 실행 대상이 없다. 대체 구현의 검증은 intake-slot-engine task의 phase별 검증·e2e가 담당(tests/test_slot_*.py 등).
+
+#### 추가 발견사항
+없음
+
+#### 질문 / 결정 사항
+사용자 결정(2026-07-16 AskUserQuestion): Phase 10을 superseded로 마감, 구현하지 않음. D10 결정 레코드(decisions.md, status: answered)는 이력으로 보존 — 답변 자체는 유효했으나 구현 경로가 intake-slot-engine으로 대체됨.

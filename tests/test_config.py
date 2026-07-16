@@ -20,9 +20,15 @@ def test_config_with_schema(client, monkeypatch):
     assert response.json() == {"intake_schema": True, "ui": {}}
 
 
-def test_config_without_schema(client, monkeypatch):
-    """스키마가 없는 지식셋(knowledge-alt)에서 intake_schema=false."""
+def test_config_with_starter_pack_schema(client, monkeypatch):
     monkeypatch.setenv("KNOWLEDGE_DIR", "knowledge-alt")
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    assert response.json() == {"intake_schema": True, "ui": {}}
+
+
+def test_config_without_schema_fixture(client, monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_DIR", "tests/fixtures/knowledge-fallback")
     response = client.get("/api/config")
     assert response.status_code == 200
     assert response.json() == {"intake_schema": False, "ui": {}}

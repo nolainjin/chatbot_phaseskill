@@ -11,9 +11,13 @@
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from app import storage
 
 DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")

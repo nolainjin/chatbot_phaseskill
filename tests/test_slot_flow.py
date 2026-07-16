@@ -2,8 +2,8 @@
 
 Phase 1(파서)·Phase 2(스키마)를 handle_message 대화 루프에 배선한 결과를
 확인한다: 시스템 프롬프트 슬롯 섹션 주입, fake 모드 다중 슬롯 결정론 추출,
-조건부 활성 배선, 레드플래그 우선 정렬, 기채움 슬롯 보호, knowledge-alt(스키마
-없음) 경로의 기존 동작 유지.
+조건부 활성 배선, 레드플래그 우선 정렬, 기채움 슬롯 보호, schema-less fixture
+경로의 기존 동작 유지.
 """
 
 from pathlib import Path
@@ -45,7 +45,7 @@ intake_schema:
 """
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-KNOWLEDGE_ALT_DIR = str(REPO_ROOT / "knowledge-alt")
+KNOWLEDGE_FALLBACK_DIR = str(REPO_ROOT / "tests" / "fixtures" / "knowledge-fallback")
 
 
 def _settings(knowledge_dir) -> Settings:
@@ -136,8 +136,12 @@ def test_already_filled_slot_is_not_overwritten(tmp_path):
     assert "채움:" not in result["reply"]  # 이미 채워진 track은 이번 턴 신규 채움이 아니다
 
 
-def test_knowledge_alt_without_schema_keeps_existing_behavior():
-    result = chat.handle_message("slot-no-schema", "원두 보관법 알려줘", _settings(KNOWLEDGE_ALT_DIR))
+def test_schema_less_fixture_keeps_existing_behavior():
+    result = chat.handle_message(
+        "slot-no-schema",
+        "원두 보관법 알려줘",
+        _settings(KNOWLEDGE_FALLBACK_DIR),
+    )
 
     assert "채움:" not in result["reply"]
     assert "다음 질문:" not in result["reply"]

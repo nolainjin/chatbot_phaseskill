@@ -1,0 +1,28 @@
+Timestamp: 2026-07-16 Asia/Seoul
+Scope: /Volumes/부부공용/worknote/lmwiki-chatbot only
+
+Baseline repository identity:
+- branch: master
+- origin: https://github.com/nolainjin/chatbot_phaseskill.git
+- HEAD: 1929f4ec4abeb4dd9d9362bb3cea4156c230bca6
+- no AGENTS.md or CLAUDE.md in target repo
+- PHASE-SKILLS.md present
+
+Baseline dirty/untracked paths observed before implementation:
+- M app/addiction.py
+- M app/chat.py
+- M app/safety.py
+- M knowledge/_intake_schema.md
+- M scripts/load_to_sqlite.py
+- M scripts/smoke_local.sh
+- M tests/test_addiction.py
+- M tests/test_safety.py
+- M tests/test_slot_extract.py
+- ?? docs/slides/chatbot_development_story_keynote.html
+
+Baseline focused check:
+- .venv/bin/python -m pytest -q: exit 0, 145 passed, 1 warning
+
+Initial reproduced error:
+- .venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --json: exit 2
+- Cause: scripts/validate_knowledge_pack.py did not exist in the target checkout yet.

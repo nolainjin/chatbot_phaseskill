@@ -1,13 +1,3 @@
-"""Claude 호출. MODEL 설정이 백엔드를 고른다.
-
-- ``fake``: Anthropic 미호출. 검색된 문서 제목을 인용하는 오프라인 스텁 —
-  API 키 없이 테스트/스모크를 돌리기 위한 스위치다.
-- ``claude-cli``: 로컬에 인증된 ``claude`` CLI를 서브프로세스로 부른다. API 키
-  없이 실제 Claude 응답을 받는 시연용 백엔드다. 슬롯 추출은 실모드와 같은
-  경로(``intake.extract_real``)를 탄다.
-- 그 외(``claude-haiku-4-5`` 등): Anthropic API 실호출. 운영 설정이다.
-"""
-
 import os
 import subprocess
 import tempfile
@@ -20,6 +10,7 @@ from app.config import Settings
 
 MAX_TOKENS = 1024
 
+AUTO_MODEL = "auto"
 CLI_MODEL = "claude-cli"
 # CLI 기동 오버헤드가 턴당 5~8초라 API 실호출보다 넉넉하게 잡는다.
 CLI_TIMEOUT_SEC = 120
@@ -121,6 +112,15 @@ def _codex_model(model_setting: str) -> str:
     return os.getenv("CODEX_MODEL", CODEX_DEFAULT_MODEL)
 
 
+def _auto_model_chain() -> list[str]:
+    configured = os.getenv("MODEL_CHAIN")
+    if configured:
+        models = [item.strip() for item in configured.split(",") if item.strip()]
+        if models:
+            return models
+    return [f"{CODEX_CLI_MODEL}:{_codex_model(CODEX_CLI_MODEL)}", CLI_MODEL, "fake"]
+
+
 def _codex_prompt(system: str, history: list[dict[str, str]], user: str) -> str:
     """Codex exec는 system 인자가 없으므로 상담 시스템 지시와 대화 이력을 한 프롬프트로 편다."""
     return (
@@ -181,29 +181,34 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
     raise RuntimeError(f"codex CLI 실패({CODEX_RETRIES}회 시도): {last}")
 
 
-def ask(
+def _fake_reply(doc_titles: list[str]) -> str:
+    if not doc_titles:
+        return "[fake] 관련 문서를 찾지 못했습니다."
+    return f"[fake] 참고 문서: {', '.join(doc_titles)}"
+
+
+def _ask_single_backend(
+    model: str,
     system: str,
     history: list[dict[str, str]],
     user: str,
     doc_titles: list[str],
     settings: Settings,
 ) -> str:
-    if settings.model == "fake":
-        if not doc_titles:
-            return "[fake] 관련 문서를 찾지 못했습니다."
-        return f"[fake] 참고 문서: {', '.join(doc_titles)}"
+    if model == "fake":
+        return _fake_reply(doc_titles)
 
-    if settings.model == CLI_MODEL:
+    if model == CLI_MODEL:
         return _ask_cli(system, history, user)
 
-    if settings.model == CODEX_CLI_MODEL or settings.model.startswith(f"{CODEX_CLI_MODEL}:"):
+    if model == CODEX_CLI_MODEL or model.startswith(f"{CODEX_CLI_MODEL}:"):
         return run_codex_cli(
             _codex_prompt(system, history, user),
-            _codex_model(settings.model),
+            _codex_model(model),
         )
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
-        model=settings.model,
+        model=model,
         max_tokens=MAX_TOKENS,
         system=system,
         messages=history + [{"role": "user", "content": user}],
@@ -212,3 +217,25 @@ def ask(
         if block.type == "text":
             return block.text
     return ""
+
+
+def ask(
+    system: str,
+    history: list[dict[str, str]],
+    user: str,
+    doc_titles: list[str],
+    settings: Settings,
+) -> str:
+    if settings.model == AUTO_MODEL:
+        for model in _auto_model_chain():
+            try:
+                return _ask_single_backend(model, system, history, user, doc_titles, settings)
+            except (
+                RuntimeError,
+                FileNotFoundError,
+                subprocess.SubprocessError,
+                anthropic.APIError,
+            ):
+                continue
+        return _fake_reply(doc_titles)
+    return _ask_single_backend(settings.model, system, history, user, doc_titles, settings)

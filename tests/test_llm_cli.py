@@ -168,6 +168,60 @@ def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
     assert prompt.endswith("위 시스템 지시를 우선하여 상담사 최종 응답만 출력하라.")
 
 
+def test_auto_backend_tries_codex_first_then_claude(monkeypatch):
+    calls: list[tuple[str, str | None]] = []
+
+    def fail_codex(_prompt: str, model: str, _timeout: int = llm.CODEX_TIMEOUT_SEC) -> str:
+        calls.append(("codex", model))
+        raise RuntimeError("codex unavailable")
+
+    def ok_claude(argv: list[str], _timeout: int = llm.CLI_TIMEOUT_SEC) -> str:
+        calls.append(("claude", argv[argv.index("--model") + 1]))
+        return "2차 모델 응답"
+
+    monkeypatch.delenv("MODEL_CHAIN", raising=False)
+    monkeypatch.setattr(llm, "run_codex_cli", fail_codex)
+    monkeypatch.setattr(llm, "run_claude_cli", ok_claude)
+
+    reply = llm.ask(
+        system="s",
+        history=[],
+        user="u",
+        doc_titles=["문서A"],
+        settings=_settings(llm.AUTO_MODEL),
+    )
+
+    assert reply == "2차 모델 응답"
+    assert calls == [("codex", "gpt-5.4"), ("claude", "claude-haiku-4-5")]
+
+
+def test_auto_backend_uses_fake_only_after_configured_chain_fails(monkeypatch):
+    calls: list[str] = []
+
+    def fail_codex(_prompt: str, model: str, _timeout: int = llm.CODEX_TIMEOUT_SEC) -> str:
+        calls.append(f"codex:{model}")
+        raise RuntimeError("codex unavailable")
+
+    def fail_claude(_argv: list[str], _timeout: int = llm.CLI_TIMEOUT_SEC) -> str:
+        calls.append("claude")
+        raise RuntimeError("claude unavailable")
+
+    monkeypatch.setenv("MODEL_CHAIN", "codex-cli:gpt-5.6-terra,claude-cli,fake")
+    monkeypatch.setattr(llm, "run_codex_cli", fail_codex)
+    monkeypatch.setattr(llm, "run_claude_cli", fail_claude)
+
+    reply = llm.ask(
+        system="s",
+        history=[],
+        user="u",
+        doc_titles=["문서A"],
+        settings=_settings(llm.AUTO_MODEL),
+    )
+
+    assert reply == "[fake] 참고 문서: 문서A"
+    assert calls == ["codex:gpt-5.6-terra", "claude"]
+
+
 def test_codex_backend_accepts_inline_model_name(monkeypatch):
     seen = {}
 
