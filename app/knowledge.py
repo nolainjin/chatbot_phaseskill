@@ -78,8 +78,10 @@ def search(query: str, documents: list, top_n: int = 3) -> list:
 
     scored = []
     for doc in documents:
-        haystack = " ".join([doc.title, " ".join(doc.tags), doc.body]).lower()
-        score = sum(haystack.count(word) for word in words)
+        title = doc.title.lower()
+        haystack = " ".join([title, " ".join(doc.tags), doc.body.lower()])
+        title_score = 100 * sum(title.count(word) for word in words)
+        score = title_score + sum(haystack.count(word) for word in words)
         if score > 0:
             scored.append((score, doc))
 
