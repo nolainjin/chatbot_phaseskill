@@ -36,6 +36,10 @@ _CRISIS_ESCALATION_INSTRUCTION = (
     "이미 다른 트랙이 채워져 있어도 위기로 올려라. 위험이 읽히지 않으면 track을 건드리지 마라. "
     "신호어 사전은 놓치는 표현이 있다 — 판단은 사전이 아니라 발화의 의미로 하라."
 )
+_CRISIS_HOTLINE_NOTICE = (
+    " 지금 혼자 버티기 어렵거나 스스로를 해칠까 걱정된다면 "
+    "자살예방상담전화 109 또는 생명의전화 1588-9191에 바로 연락해 주세요."
+)
 
 _EXTRACTION_INSTRUCTION = (
     "응답을 마친 뒤 마지막 줄에 ```slots 로 시작하는 fenced 코드블록을 추가하고, "
@@ -224,6 +228,13 @@ def _build_guardrail_reply(
         f"{next_question}"
     )
 
+
+def _ensure_crisis_hotline(reply: str) -> str:
+    if "109" in reply and "1588-9191" in reply:
+        return reply
+    return reply.rstrip() + _CRISIS_HOTLINE_NOTICE
+
+
 def _slot_by_id(schema: intake.Schema, slot_id: str | None) -> intake.Slot | None:
     if slot_id is None:
         return None
@@ -392,6 +403,8 @@ def handle_message(
             else:
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
                 reply = _build_guardrail_reply(schema, unfilled)
+        if schema is not None and session.slots.get("track") == "위기":
+            reply = _ensure_crisis_hotline(reply)
 
         storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
         storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
@@ -474,6 +487,8 @@ def handle_message(
             reply,
             _build_guardrail_reply(schema, fallback_unfilled),
         )
+        if session.slots.get("track") == "위기":
+            reply = _ensure_crisis_hotline(reply)
     else:
         reply = safety.sanitize_model_reply(reply, _build_guardrail_reply(None, []))
 

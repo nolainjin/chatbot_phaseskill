@@ -327,6 +327,7 @@ def test_crisis_signal_beats_relationship_signal_in_same_message():
     msg = "회사 잘리고 나서 사는 게 의미가 없다는 생각이 들어요. 아내가 가보라고 해서 왔습니다."
     assert extract_classification(msg, schema, {})["track"] == "위기"
 
+
 def test_spousal_bereavement_tracks_emotional_not_relationship():
     """'배우자와 사별'은 관계 갈등이 아니라 애도·정서 호소다."""
     from app.intake import extract_classification
@@ -336,6 +337,14 @@ def test_spousal_bereavement_tracks_emotional_not_relationship():
 
     assert extract_classification(msg, schema, {})["track"] == "정서"
 
+
+def test_spousal_support_mention_tracks_emotional_not_relationship():
+    from app.intake import extract_classification
+
+    schema = load_schema("knowledge")
+    msg = "요즘 우울해서 남편에게 도움을 요청했습니다."
+
+    assert extract_classification(msg, schema, {})["track"] == "정서"
 
 
 def test_model_can_escalate_track_to_crisis_over_existing_value():
