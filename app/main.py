@@ -66,6 +66,7 @@ def get_config():
     settings = Settings.from_env()
     schema = intake.load_schema(settings.knowledge_dir)
     return {
+        "mode": "intake" if schema is not None else "coaching",
         "intake_schema": schema is not None,
         "ui": schema.ui if schema is not None else {},
     }

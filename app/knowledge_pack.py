@@ -1,24 +1,19 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 import yaml
 
-from app.config import Settings
-
 REQUIRED_FILES = (
-    "_intake_schema.md",
     "_persona.md",
     "_tone.md",
     "_safety_protocol.md",
-    "_validation_scenario.json",
 )
+OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json")
 RESERVED_PREFIX = "_"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SAFE_WHEN_RE = re.compile(r"^[A-Za-z0-9_-]+=[^=\n]+$")
@@ -266,7 +261,7 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
             continue
         if path.is_file() and not _is_inside(path, root):
             errors.append(ValidationIssue("PACK_PATH_ESCAPE", _relative(path, root), "pack root 밖 파일은 허용하지 않습니다."))
-        if path.is_file() and path.name.startswith(RESERVED_PREFIX) and path.name not in REQUIRED_FILES:
+        if path.is_file() and path.name.startswith(RESERVED_PREFIX) and path.name not in REQUIRED_FILES + OPTIONAL_FILES:
             warnings.append(ValidationIssue("PACK_UNKNOWN_RESERVED_FILE", _relative(path, root), "알 수 없는 예약 파일입니다.", "warning"))
 
     if (root / "_intake_schema.md").is_file():
@@ -296,7 +291,9 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
                 errors.append(ValidationIssue("SCENARIO_MESSAGES", "scenario.messages", "messages는 비어있지 않은 문자열 목록이어야 합니다."))
 
     if exercise and not errors:
-        exercise_payload = _exercise_pack(root)
+        from app.knowledge_pack_exercise import exercise_pack
+
+        exercise_payload = exercise_pack(root, (root / "_intake_schema.md").is_file())
         if exercise_payload.get("ok") is not True:
             errors.append(
                 ValidationIssue(
@@ -307,62 +304,3 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
             )
 
     return ValidationResult(pack=pack_name, valid=not errors, errors=errors, warnings=warnings, exercise=exercise_payload)
-
-
-def _exercise_pack(root: Path) -> dict[str, object]:
-    from app import chat
-
-    scenario = _load_json_no_duplicates(root / "_validation_scenario.json")
-    if not isinstance(scenario, dict):
-        return {"ok": False, "path": "scenario", "message": "scenario는 JSON object여야 합니다."}
-    messages_obj = scenario.get("messages")
-    if not _list_of_strings(messages_obj):
-        return {"ok": False, "path": "scenario.messages", "message": "messages는 문자열 목록이어야 합니다."}
-    messages = cast(list[str], messages_obj)
-    session_id = str(scenario.get("session_id") or "knowledge-pack-validator")
-    expect_unfilled_empty = scenario.get("expect_unfilled_empty", True) is True
-
-    old_cwd = Path.cwd()
-    old_model = os.environ.get("MODEL")
-    old_knowledge_dir = os.environ.get("KNOWLEDGE_DIR")
-    try:
-        with tempfile.TemporaryDirectory(prefix="lmwiki-pack-exercise-") as temp_dir:
-            os.chdir(temp_dir)
-            os.environ["MODEL"] = "fake"
-            os.environ["KNOWLEDGE_DIR"] = str(root)
-            chat._sessions.pop(session_id, None)
-            settings = Settings(
-                anthropic_api_key="",
-                knowledge_dir=str(root),
-                model="fake",
-                trust_proxy_hops=0,
-                daily_request_cap=500,
-            )
-            last: dict[str, object] = {}
-            for index, message in enumerate(messages):
-                last = chat.handle_message(session_id, message, settings=settings)
-                intake_state = last.get("intake")
-                if not isinstance(intake_state, dict):
-                    return {"ok": False, "path": f"messages[{index}]", "message": "응답에 intake 상태가 없습니다."}
-            intake_state = last.get("intake")
-            unfilled = intake_state.get("unfilled") if isinstance(intake_state, dict) else None
-            if expect_unfilled_empty and unfilled:
-                first = unfilled[0] if isinstance(unfilled, list) and unfilled else {}
-                slot_id = first.get("id") if isinstance(first, dict) else "unknown"
-                return {
-                    "ok": False,
-                    "path": f"messages[{len(messages) - 1}]",
-                    "message": f"터미널 상태가 아닙니다. 첫 미충족 slot: {slot_id}",
-                    "unfilled": unfilled,
-                }
-            return {"ok": True, "messages": len(messages), "unfilled": unfilled or []}
-    finally:
-        os.chdir(old_cwd)
-        if old_model is None:
-            os.environ.pop("MODEL", None)
-        else:
-            os.environ["MODEL"] = old_model
-        if old_knowledge_dir is None:
-            os.environ.pop("KNOWLEDGE_DIR", None)
-        else:
-            os.environ["KNOWLEDGE_DIR"] = old_knowledge_dir

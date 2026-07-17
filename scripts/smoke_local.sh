@@ -84,16 +84,33 @@ post_chat() {
     -d "{\"schema_version\":2,\"metadata\":{\"smoke\":true},\"session_id\":\"$1\",\"message\":\"$2\"}"
 }
 
-for i in 1 2 3 4 5; do
+post_chat_body() {
+  curl -s -X POST "http://$HOST:$PORT/api/chat" \
+    -H 'Content-Type: application/json' \
+    -d "{\"schema_version\":2,\"metadata\":{\"smoke\":true},\"session_id\":\"$1\",\"message\":\"$2\"}"
+}
+
+post_chat_owned() {
+  curl -s -o /dev/null -w '%{http_code}' -X POST "http://$HOST:$PORT/api/chat" \
+    -H 'Content-Type: application/json' \
+    -d "{\"schema_version\":2,\"metadata\":{\"smoke\":true},\"session_id\":\"$1\",\"session_token\":\"$3\",\"message\":\"$2\"}"
+}
+
+first_body=$(post_chat_body "smoke-session-1" "안녕하세요")
+status=$(printf '%s' "$first_body" | "$PYTHON" -c 'import json, sys; print(json.load(sys.stdin).get("session_token", ""))')
+[ -n "$status" ] || fail "first session did not return a session token"
+session_token="$status"
+
+for i in 2 3 4 5; do
   status=$(post_chat "smoke-session-$i" "안녕하세요")
   [ "$status" = "200" ] || fail "new session $i expected 200, got $status"
 done
 status=$(post_chat "smoke-session-6" "안녕하세요")
 [ "$status" = "429" ] || fail "6th new session expected 429, got $status"
 
-status=$(post_chat "smoke-session-1" "두 번째 질문")
+status=$(post_chat_owned "smoke-session-1" "두 번째 질문" "$session_token")
 [ "$status" = "200" ] || fail "second turn expected 200, got $status"
-status=$(post_chat "smoke-session-1" "세 번째 질문")
+status=$(post_chat_owned "smoke-session-1" "세 번째 질문" "$session_token")
 [ "$status" = "200" ] || fail "third turn expected 200, got $status"
 
 TODAY=$(date +%F)

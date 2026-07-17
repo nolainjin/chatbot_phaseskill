@@ -36,6 +36,23 @@ def test_runtime_schema_rejects_symlink(tmp_path):
     assert load_schema(tmp_path) is None
 
 
+def test_validator_accepts_schema_less_coaching_pack(tmp_path):
+    pack = tmp_path / "coaching"
+    pack.mkdir()
+    for name in ("_persona.md", "_tone.md", "_safety_protocol.md"):
+        (pack / name).write_text("# coaching\n", encoding="utf-8")
+    (pack / "lesson.md").write_text(
+        "---\ntype: concept\n---\n# Lesson\n\nKnowledge.\n", encoding="utf-8"
+    )
+
+    result = validate_pack(pack)
+    exercise = validate_pack(pack, exercise=True)
+
+    assert result.valid
+    assert exercise.valid
+    assert exercise.exercise == {"ok": True, "mode": "coaching", "messages": 0, "unfilled": []}
+
+
 def test_validator_json_is_deterministic_and_relative():
     first = _run_validator("knowledge-alt", "--json")
     second = _run_validator("knowledge-alt", "--json")

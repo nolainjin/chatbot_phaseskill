@@ -1,0 +1,1661 @@
+{
+  "model": "fake",
+  "knowledge_dir": "knowledge-math",
+  "total": 150,
+  "passed": 150,
+  "failed": 0,
+  "failures": [],
+  "digest": "007955005e92178437e9a2aaa9ab41e1a5d65b3f2ed1e042d71db07471a71cda",
+  "results": [
+    {
+      "student_id": "math-student-001",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-002",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-003",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-004",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-005",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-006",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-007",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-008",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-009",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-010",
+      "expected_title": "PNK수학의 방향성",
+      "matched_titles": [
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기), TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-011",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-012",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "TB11. 대수",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), TB11. 대수, 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-013",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-014",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-015",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-016",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-017",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-018",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-019",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-020",
+      "expected_title": "Backwarding(역산해서 사고 정돈하기)",
+      "matched_titles": [
+        "Backwarding(역산해서 사고 정돈하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Backwarding(역산해서 사고 정돈하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-021",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-022",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-023",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-024",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-025",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-026",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-027",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-028",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-029",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-030",
+      "expected_title": "Tagging(방법론으로 접근하기)",
+      "matched_titles": [
+        "Tagging(방법론으로 접근하기)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: Tagging(방법론으로 접근하기), 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-031",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-032",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-033",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-034",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-035",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-036",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-037",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), 사고의 4단계(풀이 방법 탐색하기), TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-038",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-039",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-040",
+      "expected_title": "Why&How(제대로 된 셀프 피드백)",
+      "matched_titles": [
+        "Why&How(제대로 된 셀프 피드백)",
+        "PNK수학의 방향성",
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석"
+      ],
+      "reply": "[fake] 참고 문서: Why&How(제대로 된 셀프 피드백), PNK수학의 방향성, TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-041",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-042",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "TB11. 대수",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, TB11. 대수, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-043",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-044",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-045",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-046",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-047",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-048",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-049",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-050",
+      "expected_title": "1. 수준 떨어뜨리기",
+      "matched_titles": [
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-051",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-052",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-053",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-054",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-055",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-056",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-057",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-058",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-059",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-060",
+      "expected_title": "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "matched_titles": [
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-061",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-062",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "TB11. 대수",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), TB11. 대수, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-063",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-064",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-065",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-066",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-067",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-068",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-069",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-070",
+      "expected_title": "사고의 4단계(풀이 방법 탐색하기)",
+      "matched_titles": [
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "Tagging(방법론으로 접근하기)"
+      ],
+      "reply": "[fake] 참고 문서: 사고의 4단계(풀이 방법 탐색하기), 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), Tagging(방법론으로 접근하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-071",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-072",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-073",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-074",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-075",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-076",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-077",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-078",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-079",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-080",
+      "expected_title": "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "matched_titles": [
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식), TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-081",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-082",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-083",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-084",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-085",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-086",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-087",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-088",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-089",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-090",
+      "expected_title": "TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "matched_titles": [
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "TB11. 대수",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB5.목적에 따른 식의 종류(등식, 부등식), TB11. 대수, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-091",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "Backwarding(역산해서 사고 정돈하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, Backwarding(역산해서 사고 정돈하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-092",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-093",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "Backwarding(역산해서 사고 정돈하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, Backwarding(역산해서 사고 정돈하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-094",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-095",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "TB13. 미적분2"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, TB13. 미적분2",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-096",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "Backwarding(역산해서 사고 정돈하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, Backwarding(역산해서 사고 정돈하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-097",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-098",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-099",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "Backwarding(역산해서 사고 정돈하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, Backwarding(역산해서 사고 정돈하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-100",
+      "expected_title": "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+      "matched_titles": [
+        "TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석",
+        "1. 수준 떨어뜨리기",
+        "Backwarding(역산해서 사고 정돈하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB6. 도형(연역기하)의 종류 - 평면도형 → 기하적분석, 1. 수준 떨어뜨리기, Backwarding(역산해서 사고 정돈하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-101",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-102",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB11. 대수",
+        "TB9. 함수의 그래프 표현"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB11. 대수, TB9. 함수의 그래프 표현",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-103",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-104",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-105",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-106",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-107",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-108",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-109",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-110",
+      "expected_title": "TB7. 그래프와 관련된 표현들",
+      "matched_titles": [
+        "TB7. 그래프와 관련된 표현들",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB7. 그래프와 관련된 표현들, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-111",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-112",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB11. 대수",
+        "TB9. 함수의 그래프 표현"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB11. 대수, TB9. 함수의 그래프 표현",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-113",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-114",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-115",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-116",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-117",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-118",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-119",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-120",
+      "expected_title": "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB4.식의 사용된 함수에 따른 형태(다항식, 유무리식, 초월식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-121",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-122",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB9. 함수의 그래프 표현",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB9. 함수의 그래프 표현, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-123",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-124",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-125",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-126",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-127",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-128",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB11. 대수"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB11. 대수",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-129",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-130",
+      "expected_title": "TB9. 함수의 그래프 표현",
+      "matched_titles": [
+        "TB9. 함수의 그래프 표현",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "TB7. 그래프와 관련된 표현들"
+      ],
+      "reply": "[fake] 참고 문서: TB9. 함수의 그래프 표현, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, TB7. 그래프와 관련된 표현들",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-131",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-132",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선, 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-133",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-134",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-135",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-136",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-137",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "사고의 4단계(풀이 방법 탐색하기)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, 사고의 4단계(풀이 방법 탐색하기), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-138",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "1. 수준 떨어뜨리기",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, 1. 수준 떨어뜨리기, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-139",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-140",
+      "expected_title": "TB11. 대수",
+      "matched_titles": [
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)",
+        "1. 수준 떨어뜨리기"
+      ],
+      "reply": "[fake] 참고 문서: TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식), 1. 수준 떨어뜨리기",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-141",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-142",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB8. 함수의 구조 → 일반적으로 함수의 구조가 함수식 종류보다 우선",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-143",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-144",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-145",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-146",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-147",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "사고의 4단계(풀이 방법 탐색하기)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, 사고의 4단계(풀이 방법 탐색하기)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-148",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "문제풀이4단계(고난도 문제를 풀기 위한 필수단계)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, 문제풀이4단계(고난도 문제를 풀기 위한 필수단계)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-149",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    },
+    {
+      "student_id": "math-student-150",
+      "expected_title": "TB14. 확률과 통계",
+      "matched_titles": [
+        "TB14. 확률과 통계",
+        "TB11. 대수",
+        "TB5.목적에 따른 식의 종류(등식, 부등식)"
+      ],
+      "reply": "[fake] 참고 문서: TB14. 확률과 통계, TB11. 대수, TB5.목적에 따른 식의 종류(등식, 부등식)",
+      "passed": true
+    }
+  ]
+}

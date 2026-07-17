@@ -96,6 +96,19 @@ def test_load_documents_skips_symlink_and_oversized_files(tmp_path):
     assert [doc.path.name for doc in docs] == ["safe.md"]
 
 
+def test_search_prioritizes_title_terms_over_body_noise(tmp_path):
+    (tmp_path / "target.md").write_text(
+        "# 역산 사고 정돈\n\n역산을 활용합니다.\n", encoding="utf-8"
+    )
+    (tmp_path / "noise.md").write_text(
+        "# 일반 설명\n\n" + ("사고 " * 30), encoding="utf-8"
+    )
+
+    docs = load_documents(tmp_path)
+
+    assert search("역산 사고 정돈", docs, top_n=1)[0].title == "역산 사고 정돈"
+
+
 def test_sample_knowledge_sets_have_min_five_docs():
     knowledge_docs = load_documents(Path("knowledge"))
     alt_docs = load_documents(Path("knowledge-alt"))
