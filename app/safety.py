@@ -19,6 +19,21 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _BASE64_RE = re.compile(r"\b[A-Za-z0-9+/]{16,}={0,2}\b")
 _HEX_RE = re.compile(r"\b(?:0x)?[0-9a-fA-F]{24,}\b")
 _WORD_RE = re.compile(r"[a-zA-Z]{4,}")
+_CONFUSABLE_TRANSLATION = str.maketrans(
+    {
+        "а": "a",
+        "е": "e",
+        "і": "i",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "ѕ": "s",
+        "у": "y",
+        "ν": "v",
+        "ο": "o",
+        "ρ": "p",
+    }
+)
 
 _ATTACK_PATTERNS: dict[str, tuple[str, ...]] = {
     "instruction_override": (
@@ -118,7 +133,7 @@ class SafetyAssessment:
 
 def normalize_text(text: str) -> str:
     """Normalize obvious obfuscation before detection."""
-    normalized = unicodedata.normalize("NFKC", text).casefold()
+    normalized = unicodedata.normalize("NFKC", text).translate(_CONFUSABLE_TRANSLATION).casefold()
     normalized = _ZERO_WIDTH_AND_BIDI_RE.sub("", normalized)
     normalized = _WHITESPACE_RE.sub(" ", normalized)
     # Long repeated characters are a cheap bypass for exact filters: byyyyypass.

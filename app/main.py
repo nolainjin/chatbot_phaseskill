@@ -1,8 +1,9 @@
 """FastAPI 앱: POST /api/chat + static 파일 서빙."""
 
 import os
+import secrets
 
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
 from app import chat, intake, ratelimit, stats, storage
@@ -20,6 +21,7 @@ def post_chat(request: Request, payload: dict = Body(...)):
     session_id = payload.get("session_id")
     message = payload.get("message")
     participant_id = payload.get("participant_id")
+    session_token = payload.get("session_token")
 
     # session_id는 파일명이 되므로 API 경계에서 화이트리스트를 강제한다 —
     # 통과 못 하면 400. 아래 storage 층 검증까지 내려가 500으로 새는 걸 막는다.
@@ -33,6 +35,17 @@ def post_chat(request: Request, payload: dict = Body(...)):
         not isinstance(participant_id, str) or not storage.valid_participant_id(participant_id)
     ):
         raise HTTPException(status_code=400, detail="participant_id 형식이 올바르지 않습니다.")
+    if session_token is not None and (
+        not isinstance(session_token, str) or len(session_token) > 128
+    ):
+        raise HTTPException(status_code=400, detail="session_token 형식이 올바르지 않습니다.")
+
+    session_was_known = chat.has_session(session_id)
+    if session_was_known:
+        if not chat.owns_session(session_id, session_token):
+            raise HTTPException(status_code=401, detail="세션 인증이 필요합니다.")
+    elif storage.conversation_exists(session_id):
+        raise HTTPException(status_code=401, detail="만료된 세션입니다. 새 세션으로 시작해 주세요.")
 
     settings = Settings.from_env()
     ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
@@ -41,7 +54,10 @@ def post_chat(request: Request, payload: dict = Body(...)):
     except ratelimit.RateLimitExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
-    return chat.handle_message(session_id, message, participant_id=participant_id)
+    result = chat.handle_message(session_id, message, participant_id=participant_id)
+    if not session_was_known:
+        result["session_token"] = chat.session_token(session_id)
+    return result
 
 
 @app.get("/api/config")
@@ -59,8 +75,14 @@ def get_config():
 def get_stats(
     participant_prefix: str | None = Query(default=None, max_length=64),
     session_prefix: str | None = Query(default=None, max_length=64),
+    stats_token: str | None = Header(default=None, alias="X-Stats-Token"),
 ):
     """SQLite 적재 결과를 내담자 통계 대시보드용 JSON으로 반환한다."""
+    settings = Settings.from_env()
+    if not settings.stats_api_token:
+        raise HTTPException(status_code=503, detail="통계 API 토큰이 구성되지 않았습니다.")
+    if not stats_token or not secrets.compare_digest(stats_token, settings.stats_api_token):
+        raise HTTPException(status_code=401, detail="통계 API 인증이 필요합니다.")
     return stats.read_stats(
         participant_prefix=participant_prefix,
         session_prefix=session_prefix,

@@ -17,10 +17,13 @@ from pathlib import Path
 
 import yaml
 
+from app import knowledge
+
 _SCHEMA_FILENAME = "_intake_schema.md"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SLOTS_FENCE_RE = re.compile(r"```slots\s*?\n(.*?)```", re.DOTALL)
 _MAX_SLOT_VALUE_LEN = 200
+_MAX_SCHEMA_FILE_BYTES = 64 * 1024
 
 
 @dataclass
@@ -216,13 +219,15 @@ def extract_real(
     if match is None:
         return reply, {}
 
+    clean_reply = reply[: match.start()].rstrip()
+
     try:
         parsed = json.loads(match.group(1))
     except json.JSONDecodeError:
-        return reply, {}
+        return clean_reply, {}
 
     if not isinstance(parsed, dict):
-        return reply, {}
+        return clean_reply, {}
 
     active_slots = {slot.id: slot for slot in schema.active_slots(filled)}
     accepted: dict[str, str] = {}
@@ -245,7 +250,6 @@ def extract_real(
             continue
         accepted[slot_id] = value
 
-    clean_reply = (reply[: match.start()] + reply[match.end() :]).rstrip()
     return clean_reply, accepted
 
 
@@ -312,7 +316,9 @@ def load_schema(knowledge_dir) -> Schema | None:
     if not schema_path.is_file():
         return None
 
-    text = schema_path.read_text(encoding="utf-8")
+    text = knowledge.read_safe_text(schema_path, max_bytes=_MAX_SCHEMA_FILE_BYTES)
+    if text is None:
+        return None
     match = _YAML_FENCE_RE.search(text)
     if match is None:
         return None

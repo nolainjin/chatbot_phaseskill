@@ -115,6 +115,74 @@ def test_cli_backend_retries_then_raises_with_stdout(monkeypatch):
     assert slept == [5, 10]  # 백오프 — 마지막 시도 뒤에는 안 잔다
 
 
+def test_codex_backend_does_not_inherit_secret_environment(monkeypatch):
+    seen = _capture(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sentinel-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "sentinel-openai")
+    monkeypatch.setenv("SERVICE_TOKEN", "sentinel-service")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    llm.ask(
+        system="상담 규칙",
+        history=[],
+        user="무해한 질문",
+        doc_titles=[],
+        settings=_settings(llm.CODEX_CLI_MODEL),
+    )
+
+    env = seen["kwargs"]["env"]
+    assert env["PATH"] == "/usr/bin"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "OPENAI_API_KEY" not in env
+    assert "SERVICE_TOKEN" not in env
+
+
+def test_codex_backend_uses_strict_agent_environment_allowlist(monkeypatch):
+    seen = _capture(monkeypatch)
+    for key in (
+        "DATABASE_URL",
+        "KUBECONFIG",
+        "SSH_AUTH_SOCK",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "AWS_ACCESS_KEY_ID",
+        "RANDOM_CONFIG",
+    ):
+        monkeypatch.setenv(key, "sentinel")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    llm.ask(
+        system="상담 규칙",
+        history=[],
+        user="무해한 질문",
+        doc_titles=[],
+        settings=_settings(llm.CODEX_CLI_MODEL),
+    )
+
+    env = seen["kwargs"]["env"]
+    assert env["PATH"] == "/usr/bin"
+    assert all(key not in env for key in (
+        "DATABASE_URL",
+        "KUBECONFIG",
+        "SSH_AUTH_SOCK",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "AWS_ACCESS_KEY_ID",
+        "RANDOM_CONFIG",
+    ))
+
+
+def test_cli_backend_rejects_oversized_output(monkeypatch):
+    _capture(monkeypatch, stdout="응답" * (llm.MAX_MODEL_OUTPUT_CHARS // 2 + 1))
+
+    with pytest.raises(llm.ModelOutputTooLarge):
+        llm.ask(
+            system="상담 규칙",
+            history=[],
+            user="무해한 질문",
+            doc_titles=[],
+            settings=_settings(llm.CLI_MODEL),
+        )
+
+
 def test_fake_backend_still_bypasses_cli(monkeypatch):
     def explode(*_args, **_kwargs):
         raise AssertionError("fake 모드는 CLI를 부르면 안 된다")

@@ -97,6 +97,7 @@ def test_api_chat_returns_429_after_six_new_sessions(tmp_path, monkeypatch):
     monkeypatch.setattr(
         main_module, "_rate_limiter", ratelimit.RateLimiter(path=str(tmp_path / "ratelimit.json"))
     )
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MODEL", "fake")
     client = TestClient(main_module.app)
 

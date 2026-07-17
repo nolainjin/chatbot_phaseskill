@@ -3,6 +3,7 @@
   "use strict";
 
   var SESSION_KEY = "lmwiki_session_id";
+  var SESSION_TOKEN_KEY = "lmwiki_session_token";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
@@ -93,6 +94,10 @@
       localStorage.setItem(PARTICIPANT_KEY, id);
     }
     return id;
+  }
+
+  function getSessionToken() {
+    return sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
   }
 
   function formatTimestamp(date) {
@@ -320,6 +325,7 @@
   function resetSession() {
     if (requestPending) return;
     sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
     getSessionId();
     userHasSpoken = false;
     inputEl.disabled = false;
@@ -358,6 +364,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         session_id: getSessionId(),
+        session_token: getSessionToken() || null,
         participant_id: getParticipantId(),
         message: message,
       }),
@@ -380,6 +387,7 @@
         if (!data) return;
 
         hideTyping();
+        if (data.session_token) sessionStorage.setItem(SESSION_TOKEN_KEY, data.session_token);
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("상담사가 답변을 작성하고 있어요…");

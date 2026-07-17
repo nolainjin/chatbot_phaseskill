@@ -11,6 +11,7 @@ class Settings:
     model: str
     trust_proxy_hops: int
     daily_request_cap: int
+    stats_api_token: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -20,4 +21,5 @@ class Settings:
             model=os.getenv("MODEL", "auto"),
             trust_proxy_hops=int(os.getenv("TRUST_PROXY_HOPS", "0")),
             daily_request_cap=int(os.getenv("DAILY_REQUEST_CAP", "500")),
+            stats_api_token=os.getenv("STATS_API_TOKEN", ""),
         )

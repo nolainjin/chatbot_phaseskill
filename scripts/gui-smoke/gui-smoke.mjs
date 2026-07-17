@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PORT = 8791;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
-const SESSION_ID = "gui-smoke-fixed-session";
+const SESSION_ID = `gui-smoke-${process.pid}-${Date.now()}`;
+let pageSequence = 0;
 const SHOT_DIR = path.join(process.cwd(), "screenshots");
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 
@@ -30,7 +31,12 @@ function startServer(knowledgeDir) {
     ["-m", "uvicorn", "app.main:app", "--port", String(PORT)],
     {
       cwd: REPO_ROOT,
-      env: { ...process.env, MODEL: "fake", KNOWLEDGE_DIR: knowledgeDir },
+      env: {
+        ...process.env,
+        MODEL: "fake",
+        KNOWLEDGE_DIR: knowledgeDir,
+        TRUST_PROXY_HOPS: "1",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     }
   );
@@ -68,9 +74,13 @@ async function stopServer(proc) {
 
 async function newPage(browser) {
   const context = await browser.newContext();
+  pageSequence += 1;
+  await context.setExtraHTTPHeaders({
+    "X-Forwarded-For": `198.51.100.${pageSequence}`,
+  });
   await context.addInitScript((sid) => {
     sessionStorage.setItem("lmwiki_session_id", sid);
-  }, SESSION_ID);
+  }, `${SESSION_ID}-${pageSequence}`);
   return context.newPage();
 }
 

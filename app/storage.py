@@ -26,6 +26,16 @@ def valid_participant_id(participant_id: str) -> bool:
     return bool(_SAFE_ID_RE.fullmatch(participant_id))
 
 
+def conversation_exists(
+    session_id: str,
+    base_dir: str | Path = DEFAULT_CONVERSATIONS_DIR,
+) -> bool:
+    if not valid_session_id(session_id):
+        return False
+    path = Path(base_dir) / date.today().isoformat() / f"{session_id}.json"
+    return path.is_file()
+
+
 def normalize_conversation_payload(
     raw,
     session_id: str,

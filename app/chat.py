@@ -5,6 +5,7 @@
 """
 
 import json
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from app import addiction, intake, knowledge, llm, safety, storage
 from app.config import Settings
 
 MAX_TURNS = 10
+MAX_REPLY_CHARS = llm.MAX_MODEL_OUTPUT_CHARS
 LIMIT_MESSAGE = f"이 세션은 대화 {MAX_TURNS}턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
 
 _PROMPT_FILENAMES = ("_persona.md", "_tone.md", "_safety_protocol.md")
@@ -52,6 +54,7 @@ _EXTRACTION_INSTRUCTION = (
 @dataclass
 class ChatSession:
     session_id: str
+    session_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     turns: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
     slots: dict[str, str] = field(default_factory=dict)
@@ -60,6 +63,24 @@ class ChatSession:
 
 
 _sessions: dict[str, ChatSession] = {}
+
+
+def has_session(session_id: str) -> bool:
+    return session_id in _sessions
+
+
+def owns_session(session_id: str, session_token: str | None) -> bool:
+    session = _sessions.get(session_id)
+    return bool(
+        session
+        and session_token
+        and secrets.compare_digest(session.session_token, session_token)
+    )
+
+
+def session_token(session_id: str) -> str | None:
+    session = _sessions.get(session_id)
+    return session.session_token if session else None
 
 
 def _get_session(session_id: str) -> ChatSession:
@@ -76,8 +97,9 @@ def _load_persona(knowledge_dir: str) -> str:
     parts = []
     for filename in _PROMPT_FILENAMES:
         path = directory / filename
-        if path.is_file():
-            parts.append(path.read_text(encoding="utf-8"))
+        text = knowledge.read_safe_text(path)
+        if text is not None:
+            parts.append(text)
     if parts:
         return "\n\n".join(parts)
     return _SYSTEM_PREAMBLE
@@ -409,7 +431,6 @@ def handle_message(
 
         storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
         storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
-        session.history.append({"role": "user", "content": message})
         session.history.append({"role": "assistant", "content": reply})
         session.turns += 1
 
@@ -464,13 +485,19 @@ def handle_message(
         sections.append(doc_section)
         system = "\n\n".join(sections)
 
-    reply = llm.ask(
-        system=system,
-        history=session.history,
-        user=message,
-        doc_titles=[doc.title for doc in docs],
-        settings=settings,
-    )
+    try:
+        reply = llm.ask(
+            system=system,
+            history=session.history,
+            user=message,
+            doc_titles=[doc.title for doc in docs],
+            settings=settings,
+        )
+    except llm.ModelOutputTooLarge:
+        reply = _build_guardrail_reply(schema, unfilled)
+
+    if len(reply) > MAX_REPLY_CHARS:
+        reply = _build_guardrail_reply(schema, unfilled)
 
     if schema is not None and settings.model == "fake":
         reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
@@ -482,6 +509,8 @@ def handle_message(
         reply, real_fills = intake.extract_real(reply, schema, session.slots, message)
         session.slots.update(real_fills)
         new_fills.update(real_fills)
+        if not reply.strip():
+            reply = _build_guardrail_reply(schema, unfilled)
     if schema is not None:
         fallback_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
         reply = safety.sanitize_model_reply(

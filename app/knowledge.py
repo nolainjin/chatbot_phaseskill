@@ -16,6 +16,7 @@ import yaml
 
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+MAX_KNOWLEDGE_FILE_BYTES = 256 * 1024
 
 
 @dataclass
@@ -48,6 +49,20 @@ def _resolve_title(meta: dict, body: str, path: Path) -> str:
     return path.stem
 
 
+def read_safe_text(path: Path, max_bytes: int = MAX_KNOWLEDGE_FILE_BYTES) -> str | None:
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        root = path.parent.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root)
+        if resolved.stat().st_size > max_bytes:
+            return None
+        return resolved.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
 def load_documents(knowledge_dir) -> list:
     """knowledge_dir 안의 *.md를 전부 읽어 Document 목록으로 반환한다.
 
@@ -59,7 +74,9 @@ def load_documents(knowledge_dir) -> list:
     for md_file in sorted(directory.glob("*.md")):
         if md_file.name.startswith("_"):
             continue
-        text = md_file.read_text(encoding="utf-8")
+        text = read_safe_text(md_file)
+        if text is None:
+            continue
         meta, body = _split_frontmatter(text)
         title = _resolve_title(meta, body, md_file)
         tags = meta.get("tags") or []

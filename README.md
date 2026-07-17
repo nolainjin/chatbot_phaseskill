@@ -102,6 +102,11 @@ MODEL=fake KNOWLEDGE_DIR=knowledge \
 - 챗봇: http://127.0.0.1:8000/
 - 관리자 통계: http://127.0.0.1:8000/stats.html
 
+관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
+관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로 설정한
+뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는 fail-closed로 503을
+반환합니다.
+
 ### Codex GPT로 대화 시연
 
 첫 안내문은 고정 문구이고, 이후 일반 접수 응답은 Codex GPT가 생성합니다.

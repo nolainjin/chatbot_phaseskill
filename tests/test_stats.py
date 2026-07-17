@@ -99,13 +99,22 @@ def test_addiction_handoff_is_flagged_without_false_missing_support():
 
 
 def test_api_stats_returns_json(monkeypatch):
+    monkeypatch.setenv("STATS_API_TOKEN", "stats-test-token")
     monkeypatch.setattr(
         stats,
         "read_stats",
         lambda **_kwargs: {"totals": {"participants": 1}, "track_counts": []},
     )
 
-    response = client.get("/api/stats")
+    response = client.get("/api/stats", headers={"X-Stats-Token": "stats-test-token"})
 
     assert response.status_code == 200
     assert response.json()["totals"]["participants"] == 1
+
+
+def test_api_stats_rejects_anonymous_requests(monkeypatch):
+    monkeypatch.setenv("STATS_API_TOKEN", "stats-test-token")
+
+    response = client.get("/api/stats")
+
+    assert response.status_code == 401

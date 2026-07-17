@@ -46,9 +46,10 @@ def test_11th_message_is_rejected():
     assert eleventh["turn"] == chat.MAX_TURNS
 
 
-def test_api_chat_endpoint_happy_path(monkeypatch):
+def test_api_chat_endpoint_happy_path(monkeypatch, tmp_path):
     monkeypatch.setenv("MODEL", "fake")
     monkeypatch.setenv("KNOWLEDGE_DIR", KNOWLEDGE_DIR)
+    monkeypatch.chdir(tmp_path)
     response = client.post(
         "/api/chat",
         json={

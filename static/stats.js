@@ -187,10 +187,6 @@ function sortRecords(records) {
   });
 }
 
-function csvCell(value) {
-  return `"${String(value ?? '').replaceAll('"', '""')}"`;
-}
-
 function exportVisibleCsv() {
   if (!visibleRecords.length) return;
   const header = [
@@ -211,7 +207,7 @@ function exportVisibleCsv() {
     record.expectation,
     (record.missing || []).join(' | '),
   ]);
-  const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+  const csv = [header, ...rows].map((row) => row.map(window.csvCell).join(',')).join('\n');
   const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -351,7 +347,9 @@ function renderStats(data) {
 async function loadStats() {
   statusEl.textContent = '통계를 불러오는 중입니다.';
   try {
-    const response = await fetch('/api/stats?participant_prefix=demo-person-');
+    const statsToken = sessionStorage.getItem('lmwiki_stats_token') || '';
+    const headers = statsToken ? { 'X-Stats-Token': statsToken } : {};
+    const response = await fetch('/api/stats?participant_prefix=demo-person-', { headers });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     renderStats(data);

@@ -24,6 +24,22 @@ CODEX_TIMEOUT_SEC = 180
 CODEX_RETRIES = 2
 CODEX_RETRY_BACKOFF_SEC = 5
 
+_AGENT_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "CODEX_HOME",
+        "XDG_CONFIG_HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "NO_COLOR",
+    }
+)
+MAX_MODEL_OUTPUT_CHARS = 12_000
+
 _ROLE_LABEL = {"user": "사용자", "assistant": "상담사"}
 
 
@@ -43,6 +59,27 @@ def _clean_env() -> dict[str, str]:
     배포 환경엔 이 변수들이 없으므로 이 필터는 무해하다.
     """
     return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+
+
+def _clean_agent_env() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key in _AGENT_ENV_ALLOWLIST
+    }
+
+
+class ModelOutputTooLarge(RuntimeError):
+    pass
+
+
+def _bounded_output(raw: str) -> str:
+    cleaned = raw.strip()
+    if len(cleaned) > MAX_MODEL_OUTPUT_CHARS:
+        raise ModelOutputTooLarge(
+            f"모델 출력이 {MAX_MODEL_OUTPUT_CHARS}자를 초과했습니다."
+        )
+    return cleaned
 
 
 def run_claude_cli(argv: list[str], timeout: int = CLI_TIMEOUT_SEC) -> str:
@@ -73,7 +110,7 @@ def run_claude_cli(argv: list[str], timeout: int = CLI_TIMEOUT_SEC) -> str:
                     stdin=subprocess.DEVNULL,
                 )
             if proc.returncode == 0:
-                return proc.stdout.strip()
+                return _bounded_output(proc.stdout)
             last = (
                 f"rc={proc.returncode} "
                 f"stdout={proc.stdout.strip()[-200:]!r} stderr={proc.stderr.strip()[-200:]!r}"
@@ -161,11 +198,12 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
                     timeout=timeout,
                     check=False,
                     cwd=neutral_cwd,
+                    env=_clean_agent_env(),
                     stdin=subprocess.DEVNULL,
                 )
                 if proc.returncode == 0:
-                    text = output_path.read_text(encoding="utf-8") if output_path.is_file() else proc.stdout
-                    cleaned = text.strip()
+                    raw = output_path.read_text(encoding="utf-8") if output_path.is_file() else proc.stdout
+                    cleaned = _bounded_output(raw)
                     if cleaned:
                         return cleaned
                     last = f"empty stdout={proc.stdout.strip()[-200:]!r}"
@@ -215,7 +253,7 @@ def _ask_single_backend(
     )
     for block in response.content:
         if block.type == "text":
-            return block.text
+            return _bounded_output(block.text)
     return ""
 
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app import knowledge
 from app.knowledge import load_documents, search
 
 
@@ -76,6 +77,23 @@ def test_search_no_match_returns_empty(tmp_path):
     )
     docs = load_documents(tmp_path)
     assert search("전혀다른단어", docs) == []
+
+
+def test_load_documents_skips_symlink_and_oversized_files(tmp_path):
+    external = tmp_path / "external"
+    external.mkdir()
+    outside = external / "outside.md"
+    outside.write_text("# 외부 문서\n\n읽히면 안 됩니다.\n", encoding="utf-8")
+    (tmp_path / "linked.md").symlink_to(outside)
+    (tmp_path / "oversized.md").write_text(
+        "# 너무 큰 문서\n" + ("x" * (knowledge.MAX_KNOWLEDGE_FILE_BYTES + 1)),
+        encoding="utf-8",
+    )
+    (tmp_path / "safe.md").write_text("# 안전 문서\n\n읽혀야 합니다.\n", encoding="utf-8")
+
+    docs = load_documents(tmp_path)
+
+    assert [doc.path.name for doc in docs] == ["safe.md"]
 
 
 def test_sample_knowledge_sets_have_min_five_docs():

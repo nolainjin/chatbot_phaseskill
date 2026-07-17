@@ -7,6 +7,7 @@ session_id 화이트리스트)을 회귀 방지용으로 못 박는다.
 from fastapi.testclient import TestClient
 
 from app import storage
+from app import chat
 from app.main import MAX_MESSAGE_LEN, app
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -24,13 +25,30 @@ def test_over_length_message_is_rejected(monkeypatch):
     assert response.status_code == 400
 
 
-def test_message_at_limit_is_accepted(monkeypatch):
+def test_message_at_limit_is_accepted(monkeypatch, tmp_path):
     monkeypatch.setenv("MODEL", "fake")
+    monkeypatch.chdir(tmp_path)
     response = client.post(
         "/api/chat",
         json={"session_id": "sec-len-ok", "message": "가" * MAX_MESSAGE_LEN},
     )
     assert response.status_code == 200
+
+
+def test_oversized_model_reply_is_not_persisted(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MODEL", "codex-cli")
+    oversized = "응답" * (chat.MAX_REPLY_CHARS // 2 + 1)
+    monkeypatch.setattr(chat.llm, "ask", lambda **_kwargs: oversized)
+
+    result = chat.handle_message("sec-output-bound", "안녕하세요")
+
+    assert len(result["reply"]) <= chat.MAX_REPLY_CHARS
+    assert result["reply"] != oversized
+    assistant_entries = [
+        entry for entry in chat._sessions["sec-output-bound"].history if entry["role"] == "assistant"
+    ]
+    assert assistant_entries[-1]["content"] == result["reply"]
 
 
 # --- 비 JSON content-type 거부 --------------------------------------------------
@@ -77,3 +95,22 @@ def test_valid_session_id_helper_matches_whitelist():
     assert not storage.valid_session_id("a/b")
     assert not storage.valid_session_id("")
     assert not storage.valid_session_id("a" * 129)
+
+
+def test_api_chat_requires_session_token_after_session_creation(monkeypatch, tmp_path):
+    monkeypatch.setenv("MODEL", "fake")
+    monkeypatch.chdir(tmp_path)
+    session_id = "sec-token-boundary"
+
+    created = client.post("/api/chat", json={"session_id": session_id, "message": "첫 발화"})
+    assert created.status_code == 200
+    session_token = created.json()["session_token"]
+
+    stolen = client.post("/api/chat", json={"session_id": session_id, "message": "탈취 발화"})
+    assert stolen.status_code == 401
+
+    owned = client.post(
+        "/api/chat",
+        json={"session_id": session_id, "session_token": session_token, "message": "정상 발화"},
+    )
+    assert owned.status_code == 200

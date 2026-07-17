@@ -28,6 +28,14 @@ def test_knowledge_alt_validates_and_runtime_schema_loads():
     assert load_schema(REPO_ROOT / "knowledge-alt") is not None
 
 
+def test_runtime_schema_rejects_symlink(tmp_path):
+    target = tmp_path / "real-schema.md"
+    shutil.copy(REPO_ROOT / "knowledge" / "_intake_schema.md", target)
+    (tmp_path / "_intake_schema.md").symlink_to(target)
+
+    assert load_schema(tmp_path) is None
+
+
 def test_validator_json_is_deterministic_and_relative():
     first = _run_validator("knowledge-alt", "--json")
     second = _run_validator("knowledge-alt", "--json")
