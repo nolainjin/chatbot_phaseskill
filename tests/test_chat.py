@@ -65,6 +65,30 @@ def test_api_chat_endpoint_happy_path(monkeypatch, tmp_path):
     assert "reply" in body
 
 
+def test_api_self_directed_exposes_only_safe_coaching_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("MODEL", "fake")
+    monkeypatch.setenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge-self-directed"))
+    monkeypatch.chdir(tmp_path)
+    chat._sessions.pop("api-self-directed", None)
+    response = client.post(
+        "/api/chat",
+        json={"session_id": "api-self-directed", "message": "계획은 세웠지만 시작 버튼을 누르지 못했어요."},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["coach_stage"] == "anchor"
+    assert body["next_action"]
+    assert "learning_state" not in body
+    assert "intake" not in body
+
+
+def test_api_self_directed_config_keeps_intake_hidden(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge-self-directed"))
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    assert response.json() == {"mode": "coaching", "intake_schema": False, "ui": {}}
+
+
 def test_api_chat_rejects_empty_message(monkeypatch):
     monkeypatch.setenv("MODEL", "fake")
     response = client.post("/api/chat", json={"session_id": "api-empty", "message": ""})
