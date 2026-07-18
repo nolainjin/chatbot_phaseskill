@@ -1,3 +1,11 @@
+---
+type: concept
+aliases: ["AI와 자기조절학습"]
+author: "lmwiki-chatbot"
+date: 2026-07-18
+tags: [self-directed, ai, learning]
+---
+
 # AI와 자기조절학습
 
 AI를 학습에 쓰는 핵심은 답을 빨리 받는 것이 아니라 학습자의 판단과 점검을 더
