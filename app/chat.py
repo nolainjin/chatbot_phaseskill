@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -120,6 +121,8 @@ def _handle_self_directed_message(
                 settings=settings,
             )
         except (llm.ModelOutputTooLarge, RuntimeError):
+            if os.getenv("SELF_DIRECTED_EVAL_STRICT") == "1":
+                raise
             reply = learning_coach.fake_reply(turn)
         reply = safety.sanitize_model_reply(reply, learning_coach.fake_reply(turn))
 

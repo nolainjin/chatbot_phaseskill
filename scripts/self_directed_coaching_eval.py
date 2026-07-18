@@ -9,7 +9,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from app import chat, knowledge, learning_coach
+from app import chat, knowledge, learning_coach, llm
 from app.config import Settings
 
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "self_directed_coaching_scenarios.json"
@@ -113,7 +113,22 @@ def run(model: str, count: int | None, knowledge_dir: str) -> dict:
         daily_request_cap=500,
     )
     documents = knowledge.load_documents(root)
-    results = [_run_case(case, settings, documents) for case in selected]
+    old_strict = os.environ.get("SELF_DIRECTED_EVAL_STRICT")
+    old_timeout = llm.CODEX_TIMEOUT_SEC
+    old_retries = llm.CODEX_RETRIES
+    if model != "fake":
+        os.environ["SELF_DIRECTED_EVAL_STRICT"] = "1"
+        llm.CODEX_TIMEOUT_SEC = 15
+        llm.CODEX_RETRIES = 1
+    try:
+        results = [_run_case(case, settings, documents) for case in selected]
+    finally:
+        if old_strict is None:
+            os.environ.pop("SELF_DIRECTED_EVAL_STRICT", None)
+        else:
+            os.environ["SELF_DIRECTED_EVAL_STRICT"] = old_strict
+        llm.CODEX_TIMEOUT_SEC = old_timeout
+        llm.CODEX_RETRIES = old_retries
     payload = {
         "model": model,
         "evaluation": "deterministic_contract" if model == "fake" else "external_sample",
@@ -137,6 +152,21 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
+    except RuntimeError:
+        report = {
+            "status": "BLOCKED",
+            "model": args.model,
+            "knowledge_dir": args.knowledge_dir,
+            "requested_count": args.count,
+            "blocker": "external model CLI or provider call unavailable; no fake fallback was used",
+            "cleanup_receipt": "No raw prompt, secret, token, or model output was written.",
+        }
+        text = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.out:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(text + "\n", encoding="utf-8")
+        print(text, file=sys.stderr)
+        return 3
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
