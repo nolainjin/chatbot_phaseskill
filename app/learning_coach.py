@@ -268,3 +268,15 @@ def build_turn(
         micro_action=state.micro_action,
         doc_titles=_titles_for(state.route, docs),
     )
+
+
+def choose_route(message: str) -> str:
+    return _route_for(message)
+
+
+def choose_question(state: LearningState) -> str:
+    return _question_for(state.route, state.stage)
+
+
+def choose_micro_action(state: LearningState) -> str:
+    return state.micro_action

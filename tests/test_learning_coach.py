@@ -2,7 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-from app.learning_coach import LearningState, build_turn, reduce_state
+from app.learning_coach import LearningState, build_turn, choose_question, choose_route, reduce_state
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "self_directed_coaching_scenarios.json"
@@ -49,3 +49,10 @@ def test_reducer_is_deterministic_and_does_not_regress_stage() -> None:
     assert first == second
     assert first.stage == "reflect"
     assert first.bottleneck == "unknown"
+
+
+def test_ambiguous_input_gets_one_scene_question_without_fixed_study_recipe() -> None:
+    assert choose_route("공부를 잘하고 싶어요") == "concrete_scene"
+    turn = build_turn(None, "공부를 잘하고 싶어요")
+    assert choose_question(turn.state).count("?") + choose_question(turn.state).count("？") <= 1
+    assert "5-20-5" not in turn.micro_action
