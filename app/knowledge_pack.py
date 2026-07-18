@@ -14,6 +14,14 @@ REQUIRED_FILES = (
     "_safety_protocol.md",
 )
 OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json")
+COACHING_MARKER = "_coaching_contract.md"
+COACHING_REQUIRED_FILES = (
+    COACHING_MARKER,
+    "학습장면진단루브릭.md",
+    "개입카드.md",
+    "코칭사례와반례.md",
+    "문헌근거와출처상태.md",
+)
 RESERVED_PREFIX = "_"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SAFE_WHEN_RE = re.compile(r"^[A-Za-z0-9_-]+=[^=\n]+$")
@@ -255,13 +263,26 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
         if not path.is_file():
             errors.append(ValidationIssue("PACK_REQUIRED_FILE_MISSING", required, f"{required} 파일이 필요합니다."))
 
+    coaching_marked = (root / COACHING_MARKER).is_file()
+    if coaching_marked:
+        for required in COACHING_REQUIRED_FILES:
+            path = root / required
+            if not path.is_file():
+                errors.append(
+                    ValidationIssue(
+                        "PACK_COACHING_REQUIRED_FILE_MISSING",
+                        required,
+                        f"코칭 운영팩에는 {required} 파일이 필요합니다.",
+                    )
+                )
+
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             errors.append(ValidationIssue("PACK_SYMLINK_FORBIDDEN", _relative(path, root), "pack 안의 symlink는 허용하지 않습니다."))
             continue
         if path.is_file() and not _is_inside(path, root):
             errors.append(ValidationIssue("PACK_PATH_ESCAPE", _relative(path, root), "pack root 밖 파일은 허용하지 않습니다."))
-        if path.is_file() and path.name.startswith(RESERVED_PREFIX) and path.name not in REQUIRED_FILES + OPTIONAL_FILES:
+        if path.is_file() and path.name.startswith(RESERVED_PREFIX) and path.name not in REQUIRED_FILES + OPTIONAL_FILES + (COACHING_MARKER,):
             warnings.append(ValidationIssue("PACK_UNKNOWN_RESERVED_FILE", _relative(path, root), "알 수 없는 예약 파일입니다.", "warning"))
 
     if (root / "_intake_schema.md").is_file():
