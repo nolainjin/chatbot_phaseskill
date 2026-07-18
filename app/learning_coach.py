@@ -231,7 +231,7 @@ def _titles_for(route: str, docs: Sequence[Document]) -> tuple[str, ...]:
     }
     target = preferred[route]
     matching = tuple(doc.title for doc in docs if target in doc.title)
-    return matching or (target,)
+    return matching or ((docs[0].title,) if docs else (target,))
 
 
 def reduce_state(
@@ -280,3 +280,13 @@ def choose_question(state: LearningState) -> str:
 
 def choose_micro_action(state: LearningState) -> str:
     return state.micro_action
+
+
+def public_fields(turn: CoachingTurn) -> dict[str, str]:
+    return {"coach_stage": turn.state.stage, "next_action": turn.micro_action}
+
+
+def fake_reply(turn: CoachingTurn) -> str:
+    source = turn.doc_titles[0] if turn.doc_titles else "학습장면진단루브릭"
+    cycle_hint = " 학습 계획·모니터링·성찰의 연결도 직접 확인해 보세요." if "순환모델" in source else ""
+    return f"[fake] 학습 코칭 근거: {source}\n{turn.question} {turn.micro_action}{cycle_hint}"
