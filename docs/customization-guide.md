@@ -33,6 +33,8 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-my-demo \
 추천 파일:
 
 - 도메인 지식 문서 `*.md`: frontmatter와 H1 제목을 포함한 합성 문서
+- self-directed 코칭을 사용할 때 `_coaching_contract.md`, 진단 루브릭, 개입 카드,
+  사례·반례, 출처 상태 문서를 함께 둔다.
 
 선택 파일:
 
@@ -83,6 +85,24 @@ PORT=8944 bash scripts/smoke_local.sh --pack knowledge-alt
 cd scripts/gui-smoke
 node gui-smoke.mjs
 ```
+
+self-directed pack은 schema-less fallback과 구분하기 위해 `_coaching_contract.md`
+marker를 사용한다. 이 marker가 있으면 validator가 코칭 운영 문서를 요구하고,
+runtime은 `coach_stage`와 `next_action`만 공개한다. 내부 `LearningState`, prompt,
+문서 JSON, 세션 토큰은 저장하거나 화면에 렌더링하지 않는다.
+
+```bash
+.venv/bin/python scripts/validate_knowledge_pack.py knowledge-self-directed --json --exercise
+.venv/bin/python scripts/self_directed_coaching_eval.py --model fake --out /tmp/self-directed-fake.json
+.venv/bin/python scripts/self_directed_red_team.py --out /tmp/self-directed-red-team.json
+PORT=8962 bash scripts/smoke_local.sh --pack knowledge-self-directed
+node scripts/gui-smoke/self-directed-coaching-smoke.mjs
+```
+
+`MODEL=fake`는 결정론 상태·안전·공개 필드 계약의 gate이지 모델 자연어 품질의
+증명이 아니다. 실제 모델은 12~20개 표본만 별도 실행하고, 평가 CLI는 `--count 21`
+및 실제 150명 호출을 차단한다. `knowledge-math` 150명 fake gate는 기존
+`scripts/math_student_eval.py --out` 명령을 그대로 사용한다.
 
 ## 5. 운영 경계
 
