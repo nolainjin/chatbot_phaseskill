@@ -401,6 +401,34 @@ details[open] > .privacy-summary::after {
   margin: 0;
 }
 
+.coaching-status {
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line, #d7dce4);
+  border-radius: 0.8rem;
+  background: var(--surface-muted, #f6f8fb);
+}
+
+.coaching-status h2,
+.coaching-status p {
+  margin: 0;
+}
+
+.coaching-status h2 {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--muted, #657184);
+}
+
+.coaching-stage {
+  margin-top: 0.3rem !important;
+  font-weight: 700;
+}
+
+.coaching-next-action {
+  margin-top: 0.35rem !important;
+}
+
 .chips {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

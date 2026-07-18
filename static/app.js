@@ -71,6 +71,9 @@
   var contextualRepliesEl = document.getElementById("contextual-replies");
   var resetSessionEl = document.getElementById("reset-session");
   var characterCountEl = document.getElementById("character-count");
+  var coachingStatusEl = document.getElementById("coaching-status");
+  var coachingStageEl = document.getElementById("coaching-stage");
+  var coachingNextActionEl = document.getElementById("coaching-next-action");
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
@@ -323,6 +326,13 @@
     contextualRepliesEl.hidden = false;
   }
 
+  function renderCoachingStatus(data) {
+    if (!coachingStatusEl || !data || typeof data.coach_stage !== "string" || typeof data.next_action !== "string") return;
+    coachingStageEl.textContent = data.coach_stage;
+    coachingNextActionEl.textContent = "다음 행동: " + data.next_action;
+    coachingStatusEl.hidden = false;
+  }
+
   function resetSession() {
     if (requestPending) return;
     sessionStorage.removeItem(SESSION_KEY);
@@ -334,6 +344,9 @@
     messagesEl.textContent = "";
     slotListEl.textContent = "";
     panelEl.hidden = true;
+    if (coachingStatusEl) coachingStatusEl.hidden = true;
+    if (coachingStageEl) coachingStageEl.textContent = "";
+    if (coachingNextActionEl) coachingNextActionEl.textContent = "";
     hideContextualReplies();
     setStatus("");
     updateTurnCounter(0);
@@ -397,6 +410,7 @@
           updateTurnCounter(data.turn);
           renderIntake(data.intake);
           renderContextualReplies(data.intake);
+          renderCoachingStatus(data);
           requestPending = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
 
