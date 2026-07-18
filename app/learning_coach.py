@@ -215,7 +215,7 @@ def _question_for(route: str, stage: str) -> str:
     return "지금의 시도에서 다음으로 직접 확인할 수 있는 한 가지는 무엇인가요?"
 
 
-def _titles_for(route: str, docs: Sequence[Document]) -> tuple[str, ...]:
+def _titles_for(route: str, docs: Sequence[Document], message: str = "") -> tuple[str, ...]:
     preferred = {
         "safety": "_safety_protocol",
         "provenance": "문헌근거와출처상태",
@@ -229,9 +229,31 @@ def _titles_for(route: str, docs: Sequence[Document]) -> tuple[str, ...]:
         "concrete_scene": "자기주도학습 순환모델",
         "retry": "자기주도학습 순환모델",
     }
+    text = message.lower()
     target = preferred[route]
-    matching = tuple(doc.title for doc in docs if target in doc.title)
-    return matching or ((docs[0].title,) if docs else (target,))
+    aliases = {
+        "학습장면진단루브릭": "학습장면 진단 루브릭",
+        "개입카드": "자기주도학습 개입 카드",
+        "코칭사례와반례": "자기주도학습 코칭 사례와 반례",
+        "문헌근거와출처상태": "자기주도학습 논문 출처와 검증상태",
+    }
+    if route == "concrete_scene" and ("영어" in text or "지문" in text):
+        target = "학습전략과 피드백"
+    if route == "artifact" and ("답지" in text or "답은" in text):
+        target = "학습전략과 피드백"
+    if route == "monitoring" and "오답" in text:
+        target = "개입카드"
+    if route == "monitoring" and "점검" in text:
+        target = "학습장면진단루브릭"
+    if route == "understanding" and "다른 문제" in text:
+        target = "학습전략과 피드백"
+    if route == "reflection":
+        if "친구에게 설명" in text or "여러 방법" in text:
+            target = "개입카드"
+        elif "이번 주" in text:
+            target = "자기주도학습 순환모델"
+    matching = tuple(doc.title for doc in docs if target in doc.title or aliases.get(target, target) in doc.title)
+    return matching or ((docs[0].title,) if docs and route != "safety" else (target,))
 
 
 def reduce_state(
@@ -266,7 +288,7 @@ def build_turn(
         state=state,
         question=_question_for(state.route, state.stage),
         micro_action=state.micro_action,
-        doc_titles=_titles_for(state.route, docs),
+        doc_titles=_titles_for(state.route, docs, message),
     )
 
 
