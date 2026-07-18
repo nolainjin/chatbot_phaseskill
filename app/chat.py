@@ -106,12 +106,7 @@ def _handle_self_directed_message(
     elif settings.model == "fake":
         reply = learning_coach.fake_reply(turn)
     else:
-        builder = getattr(prompting, "build_coaching_prompt", None)
-        system = (
-            builder(turn.state, persona, doc_section)
-            if callable(builder)
-            else f"{persona}\n\n{doc_section}"
-        )
+        system = prompting.build_coaching_prompt(turn.state, persona, doc_section)
         try:
             reply = llm.ask(
                 system=system,
