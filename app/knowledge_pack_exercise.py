@@ -41,11 +41,26 @@ def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
                 daily_request_cap=500,
             )
             last: dict[str, object] = {}
+            coaching_stages: list[str] = []
             for index, message in enumerate(messages):
                 last = chat.handle_message(session_id, message, settings=settings)
+                if not intake_mode and isinstance(last.get("coach_stage"), str):
+                    coaching_stages.append(last["coach_stage"])
                 if intake_mode and not isinstance(last.get("intake"), dict):
                     return {"ok": False, "path": f"messages[{index}]", "message": "응답에 intake 상태가 없습니다."}
             if not intake_mode:
+                if (root / knowledge_pack.COACHING_MARKER).is_file():
+                    if last.get("coach_stage") != "reflect" or not last.get("next_action"):
+                        return {"ok": False, "path": "messages.terminal", "message": "코칭 terminal stage에 도달하지 못했습니다."}
+                    return {
+                        "ok": True,
+                        "mode": "self-directed",
+                        "messages": len(messages),
+                        "stages": coaching_stages,
+                        "terminal_stage": last["coach_stage"],
+                        "public_fields": ["coach_stage", "next_action"],
+                        "unfilled": [],
+                    }
                 return {"ok": True, "mode": "coaching", "messages": len(messages), "unfilled": []}
             intake_state = last.get("intake")
             unfilled = intake_state.get("unfilled") if isinstance(intake_state, dict) else None

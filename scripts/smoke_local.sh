@@ -59,8 +59,21 @@ export MODEL="${MODEL:-fake}"
 export KNOWLEDGE_DIR="$PACK_DIR"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-if [ -f "$REPO_ROOT/scripts/validate_knowledge_pack.py" ] && [ -f "$PACK_DIR/_validation_scenario.json" ]; then
-  "$PYTHON" "$REPO_ROOT/scripts/validate_knowledge_pack.py" "$PACK_DIR" >/dev/null
+VALIDATION_JSON="$WORK_DIR/validation.json"
+if [ -f "$REPO_ROOT/scripts/validate_knowledge_pack.py" ] && { [ -f "$PACK_DIR/_validation_scenario.json" ] || [ -f "$PACK_DIR/_coaching_contract.md" ]; }; then
+  if [ -f "$PACK_DIR/_coaching_contract.md" ]; then
+    "$PYTHON" "$REPO_ROOT/scripts/validate_knowledge_pack.py" "$PACK_DIR" --json --exercise >"$VALIDATION_JSON"
+    "$PYTHON" - "$VALIDATION_JSON" <<'PY'
+import json
+import sys
+payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+exercise = payload.get("exercise") or {}
+if not payload.get("valid") or exercise.get("ok") is not True or exercise.get("terminal_stage") != "reflect":
+    raise SystemExit("self-directed validation exercise did not reach reflect")
+PY
+  else
+    "$PYTHON" "$REPO_ROOT/scripts/validate_knowledge_pack.py" "$PACK_DIR" >/dev/null
+  fi
 fi
 
 cd "$WORK_DIR"
@@ -100,6 +113,16 @@ first_body=$(post_chat_body "smoke-session-1" "안녕하세요")
 status=$(printf '%s' "$first_body" | "$PYTHON" -c 'import json, sys; print(json.load(sys.stdin).get("session_token", ""))')
 [ -n "$status" ] || fail "first session did not return a session token"
 session_token="$status"
+
+if [ -f "$PACK_DIR/_coaching_contract.md" ]; then
+  "$PYTHON" - "$first_body" <<'PY'
+import json
+import sys
+body = json.loads(sys.argv[1])
+if not body.get("coach_stage") or not body.get("next_action") or "intake" in body:
+    raise SystemExit("self-directed response did not expose safe coaching fields")
+PY
+fi
 
 for i in 2 3 4 5; do
   status=$(post_chat "smoke-session-$i" "안녕하세요")

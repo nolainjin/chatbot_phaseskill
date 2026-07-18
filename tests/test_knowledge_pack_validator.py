@@ -115,6 +115,16 @@ def test_validator_exercise_reaches_terminal_state():
     assert payload["exercise"]["unfilled"] == []
 
 
+def test_self_directed_validator_exercise_reaches_reflect_without_intake():
+    result = _run_validator("knowledge-self-directed", "--exercise", "--json")
+    payload = json.loads(result.stdout)
+
+    assert result.returncode == 0
+    assert payload["exercise"]["mode"] == "self-directed"
+    assert payload["exercise"]["terminal_stage"] == "reflect"
+    assert payload["exercise"]["public_fields"] == ["coach_stage", "next_action"]
+
+
 def test_validator_exercise_reports_unfilled_slot(tmp_path):
     pack = tmp_path / "pack"
     shutil.copytree(REPO_ROOT / "knowledge-alt", pack)
