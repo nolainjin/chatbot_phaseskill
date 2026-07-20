@@ -15,12 +15,13 @@
       ["안전 위기", "자해나 자살 생각처럼 안전이 걱정돼요."]
     ],
     symptom_context: [
-      ["최근부터", "최근 한 달 사이 시작됐어요."],
-      ["일상 영향", "잠이나 일에 영향을 많이 주고 있어요."]
+      ["최근 시작했어요", "최근 한 달 사이 시작됐어요."],
+      ["몇 달 이상 됐어요", "몇 달 전부터 계속되고 있어요."],
+      ["일상에 영향이 커요", "잠이나 일상생활에 영향을 많이 주고 있어요."]
     ],
     relationship_context: [
-      ["가족", "가족과의 관계이고 최근 더 심해졌어요."],
-      ["대인관계", "친구나 직장 동료와의 관계예요."]
+      ["가족·부부 관계", "가족이나 배우자와의 관계이고 최근 더 심해졌어요."],
+      ["친구·직장 관계", "친구나 직장 동료와의 관계예요."]
     ],
     crisis_plan_means: [
       ["현재 계획 없음", "지금 당장 실행할 구체적인 계획이나 수단은 없어요."],
@@ -31,17 +32,44 @@
       ["시도 이력 있음", "예전에 스스로를 해치려고 시도한 적이 있어요."]
     ],
     coping: [
-      ["쉬어봤어요", "집에서 쉬면서 버텨봤어요."],
-      ["주변에 말했어요", "친구나 가족에게 이야기해봤어요."]
+      ["쉬면서 버텼어요", "집에서 쉬거나 버티면서 지냈어요."],
+      ["병원·상담을 찾아봤어요", "병원이나 상담을 알아봤어요."],
+      ["아직 해본 게 없어요", "아직 특별히 해본 방법은 없어요."]
     ],
     support: [
-      ["도와주는 사람 있음", "친구 한 명이 알고 있고 도와주고 있어요."],
+      ["가족·친구가 있어요", "가족이나 친구가 알고 도와주고 있어요."],
       ["혼자 감당 중", "지금은 대부분 혼자 감당하고 있어요."]
     ],
     expectation: [
       ["마음이 편해지고 싶어요", "상담을 통해 마음이 조금 편해지고 싶어요."],
-      ["상황을 정리하고 싶어요", "상황을 정리하고 다음 방법을 찾고 싶어요."]
+      ["상황을 정리하고 싶어요", "상황을 정리하고 다음 방법을 찾고 싶어요."],
+      ["방법을 찾고 싶어요", "상담에서 다음 방법을 함께 찾고 싶어요."]
     ]
+  };
+  var QUESTION_SLOT_HINTS = {
+    symptom_context: [
+      "언제부터",
+      "얼마나 오래",
+      "얼마 동안",
+      "기간",
+      "시작된",
+      "시작됐",
+      "지속",
+      "일상에 어떤 영향",
+      "잠이나 일"
+    ],
+    relationship_context: [
+      "관계 대상",
+      "누구와의 관계",
+      "가족과",
+      "연인과",
+      "배우자와",
+      "친구와",
+      "직장 동료"
+    ],
+    coping: ["해본 방법", "대처해", "어떻게 버텼", "시도해", "해보신", "어떤 방법"],
+    support: ["도와주는 사람", "지지해", "누구에게 말", "혼자 감당"],
+    expectation: ["상담에서 어떤 도움", "기대하", "원하는 도움", "무엇을 얻"]
   };
   var GREETING =
     "안녕하세요. 첫 상담 전 접수면담입니다. 내용은 기본적으로 비밀로 다루지만, " +
@@ -232,6 +260,25 @@
     return remaining.length > 0 ? 2 : 3;
   };
 
+  window.lmwikiChooseReplySlot = function (intake, reply) {
+    var unfilled = intake && Array.isArray(intake.unfilled) ? intake.unfilled : [];
+    if (!unfilled.length) return null;
+
+    var normalizedReply = String(reply || "").replace(/\s+/g, " ");
+    var hintedSlotIds = Object.keys(QUESTION_SLOT_HINTS).filter(function (slotId) {
+      return QUESTION_SLOT_HINTS[slotId].some(function (hint) {
+        return normalizedReply.indexOf(hint) !== -1;
+      });
+    });
+    var hintedUnfilled = unfilled.filter(function (slot) {
+      return hintedSlotIds.indexOf(slot.id) !== -1;
+    });
+
+    if (hintedUnfilled.length) return hintedUnfilled[0].id;
+    if (hintedSlotIds.length) return null;
+    return unfilled[0].id;
+  };
+
   function setActiveStep(step) {
     if (!stepperEl) return;
     stepperEl.querySelectorAll(".stepper-step").forEach(function (el, i) {
@@ -304,11 +351,16 @@
     contextualRepliesEl.textContent = "";
   }
 
-  function renderContextualReplies(intake) {
+  function renderContextualReplies(intake, reply) {
     hideContextualReplies();
     if (!contextualRepliesEl || !intake || !intake.unfilled || !intake.unfilled.length) return;
 
-    var nextSlot = intake.unfilled[0];
+    var nextSlotId = window.lmwikiChooseReplySlot(intake, reply);
+    if (!nextSlotId) return;
+    var nextSlot = intake.unfilled.find(function (slot) {
+      return slot.id === nextSlotId;
+    });
+    if (!nextSlot) return;
     var suggestions = CONTEXTUAL_REPLIES[nextSlot.id];
     if (!suggestions || !suggestions.length) return;
 
@@ -409,7 +461,7 @@
           setStatus("");
           updateTurnCounter(data.turn);
           renderIntake(data.intake);
-          renderContextualReplies(data.intake);
+          renderContextualReplies(data.intake, replyText);
           renderCoachingStatus(data);
           requestPending = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
