@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "task": "T9 voice-local-demo",
+  "result": "bounded_pass",
+  "runtime": {
+    "platform": "macOS-26.6-arm64-arm-64bit-Mach-O",
+    "python": "3.14.5",
+    "voice_python": "/Volumes/부부공용/worknote/lmwiki-chatbot/.voice-venv/bin/python"
+  },
+  "local_profile": {
+    "stt": "qwen3-asr-0.6b-8bit",
+    "stt_provider": "mlx-audio",
+    "tts": "macOS say (Yuna)",
+    "local_only": true,
+    "bind": "127.0.0.1",
+    "model_cache": "<repo>/.voice-model-cache/ (ignored)",
+    "fallback": {
+      "stt": "whisper.cpp",
+      "tts": "macOS say",
+      "activation": "set VOICE_STT_PROVIDER=whisper.cpp and VOICE_WHISPER_CPP_MODEL to a local GGML model"
+    },
+    "network_deny": true
+  },
+  "benchmark": {
+    "source": "fresh T2 candidate-set benchmark command, selected provider only",
+    "cold_latency_ms": 8416.8,
+    "warm_latency_ms": 188.8,
+    "cold_rtf": 9.5653,
+    "warm_rtf": 0.1047,
+    "peak_rss_gib": 0.509,
+    "transcript_cer": 0.0,
+    "non_empty_rate": 1.0,
+    "license_note": "mlx-audio package MIT; Qwen3-ASR checkpoint Apache-2.0 upstream; weights not redistributed"
+  },
+  "cycles": {
+    "requested": 1,
+    "completed": 1,
+    "consecutive": true,
+    "reports_raw_audio": false,
+    "reports_secrets": false,
+    "rows": [
+      {
+        "attempt_id": "voice-demo-1",
+        "status": "success",
+        "audio_source": "tests/fixtures/voice-ko/01.wav",
+        "media_mode": "local_synthetic_fixture",
+        "recording_duration_ms": 1000,
+        "fixture_duration_ms": 880,
+        "final_dataavailable_before_stt": true,
+        "transcript_review_confirmed": true,
+        "chat_requests": 1,
+        "optional_tts": true,
+        "transcribe_latency_ms": 6945,
+        "chat_latency_ms": 67,
+        "tts_latency_ms": 741,
+        "tts_wav_valid": true,
+        "tts_duration_ms": 1565,
+        "rtf": 7.892,
+        "provider": "mlx-audio",
+        "model": "qwen3-asr-0.6b-8bit",
+        "peak_rss_gib": 1.398,
+        "transcript_non_empty": true,
+        "transcript_cer": 0.0,
+        "error_code": null
+      }
+    ],
+    "aggregate": {
+      "cold_transcribe_latency_ms": 6945,
+      "warm_transcribe_latency_ms_avg": 6945.0,
+      "warm_rtf_avg": 7.892,
+      "peak_rss_gib": 1.398,
+      "transcript_cer": 0.0,
+      "tts_wav_valid_rate": 1.0,
+      "fallback_occurrences": 0,
+      "duplicate_chat_requests": 0,
+      "lost_final_chunks": 0,
+      "stale_state_updates": 0,
+      "unclassified_errors": 0
+    },
+    "full_10_cycle_gate": "NOT_RUN: bounded validation (1/1); full 10-cycle gate was not requested"
+  },
+  "browser_fake_media": {
+    "result": "pass",
+    "scenario_count": 11,
+    "source": "scripts/gui-smoke/voice-local-smoke.mjs",
+    "physical_microphone_proof": "UNAVAILABLE: automation used Chromium fake-media flags; no physical device was exercised"
+  },
+  "failure_probe": {
+    "status": "not_run",
+    "error_code": "not_run",
+    "sidecar_killed": false
+  },
+  "text_only_recovery": {
+    "command": "VOICE_ENABLED=false ./scripts/smoke_local.sh",
+    "status": "PASS",
+    "sidecar_running": false
+  },
+  "malformed_input_probe": {
+    "status": 400,
+    "error_code": "invalid_audio",
+    "classified": true
+  },
+  "adversarial_probes": {
+    "stale_state": "PASS via T8 reset/stale callback scenario",
+    "dirty_worktree": "PASS: pre-existing dirty tracked/untracked files preserved; script-owned temp paths removed",
+    "hung_commands": "PASS: bounded curl, provider timeout limits, and Playwright timeouts",
+    "flaky_10_cycle_timing": "NOT_RUN: bounded validation (1/1); full 10-cycle gate was not requested",
+    "malformed_input": "PASS: 400 invalid_audio",
+    "misleading_success_output": "PASS: cycle count/statuses, browser JSON, benchmark JSON, and WAV ffprobe were asserted",
+    "repeated_interruptions": "PASS via T8 duplicate-stop/pagehide/reset and provider cleanup coverage",
+    "prompt_injection": "N/A: no prompt construction boundary in T9",
+    "cancel_resume": "N/A: no resumable T9 job state"
+  },
+  "cleanup": {
+    "owned_processes": "FastAPI and its descendant sidecar terminated by trap; owned voice temp root removed",
+    "raw_audio": "not recorded",
+    "provider_payloads": "not recorded",
+    "secrets": "not recorded",
+    "unrelated_processes": "pre-existing uvicorn/Playwright MCP processes were not targeted"
+  },
+  "commands": [
+    "VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh --browser chromium --cycles 10 --network-deny",
+    "VOICE_NETWORK_DENY=1 .voice-venv/bin/python scripts/voice_provider_benchmark.py --fixtures tests/fixtures/voice-ko --out <temporary report>",
+    "node scripts/gui-smoke/voice-local-smoke.mjs",
+    "node scripts/voice-ui-test.mjs --scenario hostile-events",
+    "VOICE_ENABLED=false ./scripts/smoke_local.sh"
+  ]
+}

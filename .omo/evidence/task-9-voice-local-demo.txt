@@ -1,0 +1,12 @@
+T9 voice-local-demo evidence: BOUNDED_PASS
+
+Selected local profile: Qwen3-ASR 0.6B 8-bit via MLX-Audio + macOS say (Yuna).
+Explicit fallback: whisper.cpp + macOS say; whisper.cpp requires a local GGML model.
+Network deny: PASS; fake-media browser scenarios: 11 PASS.
+Local cycles: 1/1 consecutive; full 10-cycle gate: NOT_RUN: bounded validation (1/1); full 10-cycle gate was not requested; duplicate chat=0; lost final chunks=0; stale updates=0; unclassified errors=0.
+Cold/warm STT latency: 8416.8 ms / 188.8 ms; warm RTF=0.1047; peak RSS=0.509 GiB; CER=0.0; TTS WAV validity=100%.
+Physical microphone: UNAVAILABLE — Chromium automation used fake media and no physical device proof was attempted.
+Failure probe: status=not_run, error_code=not_run, sidecar_killed=False.
+Malformed input: HTTP 400 / invalid_audio; text-only recovery: PASS.
+Raw audio, provider request bodies, model weights, credentials, and secrets are absent from this evidence.
+Adversarial probes: stale_state, dirty_worktree, hung_commands, malformed_input, misleading_success_output, repeated_interruptions PASS; flaky_10_cycle_timing: NOT_RUN: bounded validation (1/1); full 10-cycle gate was not requested; prompt_injection/cancel_resume N/A.
