@@ -18,6 +18,7 @@ BROWSER_AUDIO_MEDIA_TYPES: Final = frozenset(
     {"audio/mp4", "audio/webm", "audio/x-m4a", "video/mp4", "video/webm"}
 )
 FFMPEG_TIMEOUT_SECONDS: Final = 20.0
+MAX_MULTIPART_OVERHEAD_BYTES: Final = 64 * 1024
 NORMALIZED_CHANNELS: Final = 1
 NORMALIZED_SAMPLE_RATE: Final = 16_000
 PCM_SAMPLE_WIDTH: Final = 2
@@ -45,7 +46,9 @@ def declared_body_too_large(content_length: str | None) -> bool:
     if content_length is None:
         return False
     try:
-        return int(content_length, 10) > MAX_AUDIO_BYTES
+        return int(content_length, 10) > (
+            MAX_AUDIO_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
+        )
     except ValueError:
         return False
 

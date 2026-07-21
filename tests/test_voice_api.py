@@ -27,6 +27,7 @@ from voice_runtime.sidecar import SidecarConfig, SidecarManager
 
 
 client = TestClient(app, raise_server_exceptions=False)
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 def make_wav(duration_ms: int, sample_rate: int = 16_000) -> bytes:
@@ -368,18 +369,37 @@ def test_synthesize_permits_ipv4_ipv6_and_testclient_loopback(
     assert response.status_code == 200
 
 
-def test_transcribe_rejects_declared_oversize_before_multipart_parse(monkeypatch):
+def test_transcribe_allows_exact_file_limit_with_multipart_overhead(monkeypatch):
+    # Given an invalid audio file whose payload is exactly the per-file limit
     monkeypatch.setenv("VOICE_ENABLED", "true")
 
+    # When the client wraps it in a multipart request body
+    response = post_transcribe("voice-exact-file-limit", b"x" * MAX_AUDIO_BYTES)
+
+    # Then multipart framing alone does not trigger the file-size error
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "invalid_audio"
+
+
+def test_transcribe_rejects_declared_body_over_multipart_limit_before_parse(
+    monkeypatch,
+):
+    # Given a malformed multipart body declared above the file-plus-overhead cap
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+
+    # When the endpoint receives the request
     response = client.post(
         "/api/voice/transcribe",
         content=b"this is intentionally not a parsed multipart body",
         headers={
             "Content-Type": "multipart/form-data; boundary=voice-boundary",
-            "Content-Length": str(MAX_AUDIO_BYTES + 1),
+            "Content-Length": str(
+                MAX_AUDIO_BYTES + MULTIPART_OVERHEAD_BYTES + 1
+            ),
         },
     )
 
+    # Then it rejects from Content-Length without invoking multipart parsing
     assert response.status_code == 413
     assert response.json()["error_code"] == "audio_too_large"
 

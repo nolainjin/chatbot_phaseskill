@@ -50,3 +50,11 @@ Result: `6 failed, 29 deselected, 1 warning in 1.66s`.
 - Compile gate: `.venv/bin/python -m compileall -q app tests` -> exit 0.
 - Whitespace gate before evidence update: `git diff --check` -> exit 0.
 - Pre-existing listener `Python` PID 85144 on `127.0.0.1:8766` was observed and left running; no server, sidecar, or browser process was started or stopped by this finish pass.
+
+### Multipart Content-Length overhead regression — 2026-07-22T02:18+09:00
+
+- The pre-parse request cap now allows 64 KiB of bounded multipart framing overhead above the 10 MiB file limit.
+- The exact per-file cap remains `audio.read(MAX_AUDIO_BYTES + 1)` followed by a `413 audio_too_large` response when the file payload exceeds 10 MiB.
+- Red proof: the exactly 10 MiB multipart file returned `413` before the fix while the malformed request declared above 10 MiB plus 64 KiB still returned `413` before parsing.
+- Focused boundary tests: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py::test_transcribe_allows_exact_file_limit_with_multipart_overhead tests/test_voice_api.py::test_transcribe_rejects_declared_body_over_multipart_limit_before_parse` -> `2 passed, 1 warning in 0.83s`.
+- Full voice API: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py` -> `40 passed, 1 warning in 1.67s`.
