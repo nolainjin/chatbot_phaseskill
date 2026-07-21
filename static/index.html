@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>학습 코칭 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=13" />
+  <link rel="stylesheet" href="style.css?v=14" />
 </head>
 <body>
   <div class="layout">
@@ -123,9 +123,11 @@
           <h3 id="voice-review-title">전사 확인</h3>
           <p id="voice-review-status" class="voice-review-status" aria-live="polite">전사 결과를 확인해 주세요.</p>
           <label for="voice-transcript" class="sr-only">전사 내용 수정</label>
-          <textarea id="voice-transcript" rows="3" maxlength="2000" disabled></textarea>
+          <textarea id="voice-transcript" rows="3" aria-describedby="voice-truncation-warning"></textarea>
+          <p id="voice-truncation-warning" class="voice-truncation-warning" role="status" aria-live="polite" hidden></p>
           <div class="voice-review-actions">
             <button type="button" id="voice-rerecord" disabled>다시 녹음</button>
+            <button type="button" id="voice-edit" disabled>전사 수정</button>
             <button type="button" id="voice-send" disabled>이 내용으로 보내기</button>
             <button type="button" id="voice-text-fallback">텍스트로 입력</button>
           </div>
@@ -148,7 +150,7 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="voice.js?v=1"></script>
-  <script src="app.js?v=13"></script>
+  <script src="voice.js?v=2"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

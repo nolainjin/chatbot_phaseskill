@@ -126,9 +126,17 @@
   var voiceReviewEl = document.getElementById("voice-review");
   var voiceReviewStatusEl = document.getElementById("voice-review-status");
   var voiceTranscriptEl = document.getElementById("voice-transcript");
+  var voiceTruncationWarningEl = document.getElementById("voice-truncation-warning");
   var voiceRerecordEl = document.getElementById("voice-rerecord");
+  var voiceEditEl = document.getElementById("voice-edit");
   var voiceSendEl = document.getElementById("voice-send");
   var voiceTextFallbackEl = document.getElementById("voice-text-fallback");
+  var voiceApi = null;
+  var voiceConfirmedTranscript = "";
+  var ttsAbortController = null;
+  var ttsAudio = null;
+  var ttsObjectUrl = "";
+  var ttsSerial = 0;
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
@@ -136,6 +144,86 @@
   // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
   var userHasSpoken = false;
   var requestPending = false;
+
+  function normalizeVoiceTranscript(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function revokeTtsObjectUrl() {
+    if (!ttsObjectUrl) return;
+    if (window.URL && typeof window.URL.revokeObjectURL === "function") {
+      window.URL.revokeObjectURL(ttsObjectUrl);
+    }
+    ttsObjectUrl = "";
+  }
+
+  function stopTtsPlayback() {
+    ttsSerial += 1;
+    if (ttsAbortController) {
+      ttsAbortController.abort();
+      ttsAbortController = null;
+    }
+    if (ttsAudio) {
+      ttsAudio.pause();
+      ttsAudio.removeAttribute("src");
+      ttsAudio = null;
+    }
+    revokeTtsObjectUrl();
+  }
+
+  function resetVoiceReview(options) {
+    options = options || {};
+    if (voiceReviewEl) voiceReviewEl.hidden = options.hidden !== false;
+    if (voiceTranscriptEl) {
+      voiceTranscriptEl.value = options.value || "";
+      voiceTranscriptEl.disabled = options.disabled !== false;
+    }
+    if (voiceTruncationWarningEl) {
+      voiceTruncationWarningEl.hidden = true;
+      voiceTruncationWarningEl.textContent = "";
+    }
+    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = options.status || "전사 결과를 확인해 주세요.";
+    if (voiceRerecordEl) voiceRerecordEl.disabled = options.actions !== true;
+    if (voiceEditEl) voiceEditEl.disabled = options.actions !== true;
+    if (voiceSendEl) voiceSendEl.disabled = options.actions !== true;
+    if (options.clearConfirmed !== false) voiceConfirmedTranscript = "";
+  }
+
+  function renderTranscriptReview(result) {
+    var text = result && typeof result.text === "string" ? result.text : "";
+    if (!text.trim()) {
+      resetVoiceReview({ hidden: false, status: "전사 결과가 비어 있습니다. 다시 녹음해 주세요." });
+      return;
+    }
+    if (voiceReviewEl) voiceReviewEl.hidden = false;
+    if (voiceTranscriptEl) {
+      voiceTranscriptEl.value = text;
+      voiceTranscriptEl.disabled = false;
+    }
+    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "전사 내용을 확인하고 필요하면 수정한 뒤 보내 주세요.";
+    if (voiceTruncationWarningEl) {
+      var overLimit = text.length > MAX_MESSAGE_LEN;
+      voiceTruncationWarningEl.hidden = !overLimit;
+      voiceTruncationWarningEl.textContent = overLimit
+        ? "전사가 2000자를 넘습니다. 전체 내용을 확인하세요. 보내기를 누르면 2000자까지만 전송됩니다."
+        : "";
+    }
+    if (voiceRerecordEl) voiceRerecordEl.disabled = false;
+    if (voiceEditEl) voiceEditEl.disabled = false;
+    if (voiceSendEl) voiceSendEl.disabled = false;
+  }
+
+  function setVoiceReviewError(message) {
+    if (voiceReviewEl) voiceReviewEl.hidden = false;
+    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = message;
+    if (voiceTranscriptEl) {
+      voiceTranscriptEl.value = voiceConfirmedTranscript;
+      voiceTranscriptEl.disabled = false;
+    }
+    if (voiceRerecordEl) voiceRerecordEl.disabled = false;
+    if (voiceEditEl) voiceEditEl.disabled = false;
+    if (voiceSendEl) voiceSendEl.disabled = false;
+  }
 
   function formatVoiceElapsed(elapsedMs) {
     var seconds = Math.floor(Math.max(0, elapsedMs || 0) / 1000);
@@ -167,14 +255,40 @@
     voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
     voiceToggleLabelEl.textContent = recording ? "녹음 종료" : "말하기";
     if (voiceReviewEl && snapshot.state === "transcript_review") voiceReviewEl.hidden = false;
+    if (voiceReviewEl && snapshot.state === "error" && !voiceConfirmedTranscript) {
+      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = snapshot.status || "음성 입력을 다시 시도해 주세요.";
+    }
   }
 
   var voiceController = null;
   if (voiceControlsEl && typeof window.createVoiceController === "function") {
+    if (typeof window.createVoiceApi === "function") {
+      voiceApi = window.createVoiceApi({
+        transcribeTimeoutMs: 45000,
+        synthesizeTimeoutMs: 30000,
+      });
+    }
     voiceController = window.createVoiceController({
       enabled: false,
       document: document,
+      transcribe: function (blob, metadata) {
+        if (!voiceApi) return Promise.reject(new Error("음성 API가 준비되지 않았습니다."));
+        return voiceApi.transcribe(
+          blob,
+          {
+            sessionId: getSessionId(),
+            sessionToken: getSessionToken() || "",
+            participantId: getParticipantId(),
+            durationMs: metadata && metadata.elapsedMs,
+            filename: "recording.webm",
+          },
+          { signal: metadata && metadata.signal }
+        );
+      },
       onStateChange: renderVoiceState,
+      onTranscriptReady: function (result) {
+        renderTranscriptReview(result);
+      },
       onRecordingReady: function () {
         if (voiceReviewEl) voiceReviewEl.hidden = false;
         if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "녹음이 준비되었습니다. 전사 연결을 기다리고 있습니다.";
@@ -210,6 +324,96 @@
     return date.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
   }
 
+  function appendTtsControls(rendered, text) {
+    if (!rendered || !rendered.col || !voiceApi) return;
+    var controls = document.createElement("div");
+    controls.className = "tts-controls";
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "tts-button";
+    button.textContent = "응답 듣기";
+    button.setAttribute("aria-label", "응답 듣기");
+    var status = document.createElement("span");
+    status.className = "tts-status";
+    status.setAttribute("aria-live", "polite");
+    controls.appendChild(button);
+    controls.appendChild(status);
+    rendered.col.appendChild(controls);
+
+    button.addEventListener("click", function () {
+      if (ttsAudio) {
+        stopTtsPlayback();
+        button.textContent = "응답 듣기";
+        button.setAttribute("aria-label", "응답 듣기");
+        status.textContent = "재생을 멈췄습니다.";
+        return;
+      }
+      stopTtsPlayback();
+      var requestId = ++ttsSerial;
+      var ttsText = String(text || "").slice(0, 1200);
+      if (!ttsText.trim()) {
+        status.textContent = "읽을 응답이 없습니다. 텍스트로 확인해 주세요.";
+        return;
+      }
+      if (String(text || "").length > 1200) {
+        status.textContent = "응답이 길어 앞의 1200자만 읽습니다. 전체 내용은 텍스트로 확인해 주세요.";
+      } else {
+        status.textContent = "응답을 준비하고 있습니다…";
+      }
+      button.disabled = true;
+      button.textContent = "응답 준비 중…";
+      ttsAbortController = new AbortController();
+      voiceApi.synthesize(
+        ttsText,
+        { sessionId: getSessionId(), sessionToken: getSessionToken() || "" },
+        { signal: ttsAbortController.signal }
+      )
+        .then(function (blob) {
+          if (requestId !== ttsSerial) return;
+          if (!blob || !blob.size || !window.URL || typeof window.URL.createObjectURL !== "function") {
+            throw new Error("응답 오디오를 준비하지 못했습니다.");
+          }
+          ttsObjectUrl = window.URL.createObjectURL(blob);
+          ttsAudio = new Audio(ttsObjectUrl);
+          ttsAudio.onended = function () {
+            if (requestId !== ttsSerial) return;
+            stopTtsPlayback();
+            button.disabled = false;
+            button.textContent = "응답 듣기";
+            button.setAttribute("aria-label", "응답 듣기");
+            status.textContent = "재생이 끝났습니다.";
+          };
+          ttsAudio.onerror = function () {
+            if (requestId !== ttsSerial) return;
+            stopTtsPlayback();
+            button.disabled = false;
+            button.textContent = "응답 다시 듣기";
+            button.setAttribute("aria-label", "응답 다시 듣기");
+            status.textContent = "오디오 재생에 실패했습니다. 텍스트로 계속 확인할 수 있습니다.";
+          };
+          button.disabled = false;
+          button.textContent = "응답 중지";
+          button.setAttribute("aria-label", "응답 재생 중지");
+          status.textContent = "응답을 재생하고 있습니다.";
+          var playResult = ttsAudio.play();
+          if (playResult && typeof playResult.catch === "function") {
+            playResult.catch(function () {
+              if (requestId !== ttsSerial) return;
+              ttsAudio.onerror();
+            });
+          }
+        })
+        .catch(function (error) {
+          if (requestId !== ttsSerial || (error && error.name === "AbortError")) return;
+          stopTtsPlayback();
+          button.disabled = false;
+          button.textContent = "응답 다시 듣기";
+          button.setAttribute("aria-label", "응답 다시 듣기");
+          status.textContent = "응답을 들려드리지 못했습니다. 텍스트로 계속 확인할 수 있습니다.";
+        });
+    });
+  }
+
   function addMessage(role, text) {
     var row = document.createElement("li");
     row.className = "message-row message-row-" + role;
@@ -238,7 +442,7 @@
     row.appendChild(col);
     messagesEl.appendChild(row);
     row.scrollIntoView({ block: "nearest" });
-    return { row: row, bubble: bubble, time: time };
+    return { row: row, bubble: bubble, time: time, col: col };
   }
 
   function setStatus(text) {
@@ -295,7 +499,7 @@
         if (index < text.length) {
           window.setTimeout(tick, delay);
         } else {
-          resolve();
+          resolve(rendered);
         }
       }
       tick();
@@ -461,14 +665,9 @@
 
   function resetSession() {
     if (requestPending) return;
+    stopTtsPlayback();
     if (voiceController) voiceController.reset();
-    if (voiceReviewEl) voiceReviewEl.hidden = true;
-    if (voiceTranscriptEl) {
-      voiceTranscriptEl.value = "";
-      voiceTranscriptEl.disabled = true;
-    }
-    if (voiceRerecordEl) voiceRerecordEl.disabled = true;
-    if (voiceSendEl) voiceSendEl.disabled = true;
+    resetVoiceReview();
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
     getSessionId();
@@ -491,10 +690,21 @@
     inputEl.focus();
   }
 
-  function sendMessage(message) {
+  function sendMessage(message, options) {
+    options = options || {};
     if (requestPending) return;
-    message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
+    var voiceMessage = options.source === "voice";
+    var normalizedMessage = voiceMessage ? normalizeVoiceTranscript(message) : String(message || "").trim();
+    message = normalizedMessage.slice(0, MAX_MESSAGE_LEN);
     if (!message) return;
+
+    if (voiceMessage) {
+      voiceConfirmedTranscript = normalizedMessage;
+      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "확인한 내용을 보내고 있어요…";
+      if (voiceSendEl) voiceSendEl.disabled = true;
+      if (voiceRerecordEl) voiceRerecordEl.disabled = true;
+      if (voiceEditEl) voiceEditEl.disabled = true;
+    }
 
     requestPending = true;
     userHasSpoken = true;
@@ -502,7 +712,7 @@
     hideContextualReplies();
     setStatus("방금 입력을 읽고 있어요…");
     addMessage("user", message);
-    inputEl.value = "";
+    if (!options.preserveInput) inputEl.value = "";
     if (resetSessionEl) resetSessionEl.disabled = true;
     updateInputState();
     showTyping();
@@ -526,6 +736,7 @@
             ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
             : "오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
         );
+        if (voiceMessage) setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -539,7 +750,11 @@
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("답변을 작성하고 있어요…");
-        typeAssistantMessage(replyText).then(function () {
+          typeAssistantMessage(replyText).then(function (rendered) {
+          if (voiceMessage) {
+            appendTtsControls(rendered, replyText);
+            resetVoiceReview();
+          }
           setStatus("");
           updateTurnCounter(data.turn);
           renderIntake(data.intake);
@@ -562,6 +777,7 @@
       .catch(function () {
         hideTyping();
         setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+        if (voiceMessage) setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -595,8 +811,9 @@
 
   if (voiceTextFallbackEl && voiceController) {
     voiceTextFallbackEl.addEventListener("click", function () {
+      stopTtsPlayback();
       voiceController.reset();
-      if (voiceReviewEl) voiceReviewEl.hidden = true;
+      resetVoiceReview();
       inputEl.focus();
     });
   }
@@ -604,7 +821,43 @@
   if (voiceRerecordEl && voiceController) {
     voiceRerecordEl.addEventListener("click", function () {
       voiceController.reset();
+      resetVoiceReview();
       voiceController.start();
+    });
+  }
+
+  if (voiceEditEl) {
+    voiceEditEl.addEventListener("click", function () {
+      if (!voiceTranscriptEl) return;
+      voiceTranscriptEl.disabled = false;
+      voiceTranscriptEl.focus();
+      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "전사를 수정한 뒤 보내 주세요.";
+    });
+  }
+
+  if (voiceTranscriptEl) {
+    voiceTranscriptEl.addEventListener("input", function () {
+      if (!voiceSendEl || requestPending) return;
+      voiceSendEl.disabled = !normalizeVoiceTranscript(voiceTranscriptEl.value);
+      if (voiceTruncationWarningEl) {
+        var overLimit = voiceTranscriptEl.value.length > MAX_MESSAGE_LEN;
+        voiceTruncationWarningEl.hidden = !overLimit;
+        voiceTruncationWarningEl.textContent = overLimit
+          ? "전사가 2000자를 넘습니다. 전체 내용을 확인하세요. 보내기를 누르면 2000자까지만 전송됩니다."
+          : "";
+      }
+    });
+  }
+
+  if (voiceSendEl && voiceController) {
+    voiceSendEl.addEventListener("click", function () {
+      if (!voiceTranscriptEl || requestPending) return;
+      var transcript = normalizeVoiceTranscript(voiceTranscriptEl.value);
+      if (!transcript) {
+        if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "보낼 전사 내용이 없습니다. 다시 녹음해 주세요.";
+        return;
+      }
+      sendMessage(transcript, { source: "voice", preserveInput: true });
     });
   }
 

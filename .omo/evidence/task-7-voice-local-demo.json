@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "task": "T7 voice-local-demo",
+  "plan": ".omo/plans/voice-local-demo.md",
+  "verdict": "confirmed",
+  "scope": {
+    "changed_files": [
+      "static/app.js",
+      "static/index.html",
+      "static/style.css",
+      "scripts/gui-smoke/voice-local-smoke.mjs",
+      ".omo/evidence/task-7-voice-local-demo.png"
+    ],
+    "protected": [
+      "unrelated dirty tracked files",
+      "unrelated untracked files",
+      "existing .omo/start-work/ledger.jsonl entries"
+    ]
+  },
+  "implementation": {
+    "transcript_review": [
+      "editable transcript review after STT success",
+      "explicit re-record, edit, send, and text fallback controls",
+      "typed composer input preserved before voice confirmation",
+      "visible warning for transcripts over 2000 characters"
+    ],
+    "chat_boundary": "confirmed transcript uses the existing sendMessage and /api/chat path exactly once",
+    "response_playback": [
+      "assistant text renders before optional TTS",
+      "synthesize is requested only after chat success",
+      "playback stop and object URL revoke are handled",
+      "TTS errors preserve the assistant text fallback"
+    ],
+    "lifecycle": "reset invalidates stale transcription callbacks and clears voice review state"
+  },
+  "validation": [
+    {
+      "command": "node --check static/app.js && node --check static/voice.js && node --check scripts/gui-smoke/voice-local-smoke.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "node scripts/gui-smoke/voice-local-smoke.mjs",
+      "result": "pass",
+      "bounded": true,
+      "scenarios": [
+        "zero chat before confirmation",
+        "one canonical chat after confirmation",
+        "tts synthesize then revoke",
+        "overlong transcript warning and explicit confirmation",
+        "chat error preserves confirmed transcript",
+        "tts error keeps assistant text",
+        "reset blocks stale transcription callback"
+      ],
+      "screenshot": ".omo/evidence/task-7-voice-local-demo.png"
+    }
+  ],
+  "adversarial_classes": {
+    "malformed_input": "covered by overlong transcript and empty-review handling",
+    "stale_state": "covered by reset during delayed transcription",
+    "dirty_worktree": "covered; unrelated tracked and untracked paths preserved",
+    "hung_timeout": "covered by bounded browser smoke invocation",
+    "misleading_success_output": "covered by direct DOM and request-count assertions",
+    "repeated_interruptions": "covered by playback stop and reset cleanup",
+    "prompt_injection": "not_applicable; no prompt construction boundary",
+    "cancel_resume": "not_applicable; no resumable voice job state"
+  },
+  "cleanup": {
+    "voice_ui_processes": "none remaining after smoke exit",
+    "raw_audio": "no raw audio or provider payload persisted",
+    "network": "smoke uses local HTTP server and fake API routes only",
+    "redacted_ledger_entry": "T7 confirmed: transcript review, canonical chat confirmation, optional TTS playback, and stale-state cleanup verified"
+  },
+  "findings": []
+}

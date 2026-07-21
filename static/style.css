@@ -689,10 +689,61 @@ details[open] > .privacy-summary::after {
   line-height: 1.45;
 }
 
+.voice-truncation-warning {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  font-weight: 750;
+}
+
+.voice-truncation-warning[hidden] {
+  display: none;
+}
+
 .voice-review-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.tts-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.tts-button {
+  min-height: 2rem;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  padding: 0.32rem 0.7rem;
+  color: var(--accent);
+  background: var(--card-bg);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.tts-button:hover:not(:disabled),
+.tts-button:focus-visible {
+  color: var(--bubble-user-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tts-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.tts-status {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 #character-count.near-limit {
