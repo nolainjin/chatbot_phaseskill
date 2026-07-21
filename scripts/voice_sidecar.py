@@ -57,6 +57,11 @@ class FakeBackend:
 
     def transcribe(self, _audio_path: Path) -> str:
         behavior = os.getenv("VOICE_SIDECAR_TEST_BEHAVIOR", "")
+        if behavior == "block_first_stt":
+            marker_path = os.getenv("VOICE_SIDECAR_TEST_MARKER")
+            if marker_path and not Path(marker_path).exists():
+                Path(marker_path).touch()
+                time.sleep(5.0)
         if behavior == "hang_stt":
             time.sleep(5.0)
         if behavior == "fail_stt":

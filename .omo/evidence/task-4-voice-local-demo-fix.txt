@@ -1,0 +1,17 @@
+T4-fix red-before-fix evidence
+
+- T4-VRF-001: killed in-flight STT was replayed after one sidecar restart and returned the successful transcript `테스트 전사`; the focused regression expected `VoiceProviderUnavailable` and failed with `DID NOT RAISE`.
+- T4-VRF-002: the direct killed-request probe observed an owned `voice-sidecar-*` directory after manager close.
+- Red command: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py -k killed_inflight_stt_fails_closed_without_replay_or_temp_leak`.
+- Red result: 1 failed, 12 deselected.
+- No raw audio, provider request body, model, or persistent transcript was recorded.
+
+Fix and green validation
+
+- `voice_runtime/sidecar.py` now fails closed on an in-flight timeout/process death, restarts only for future requests, launches an owned process group, propagates the configured temp root, and removes only owned `voice-sidecar-*` directories.
+- `scripts/voice_sidecar.py` has a deterministic first-request blocking behavior used only by the regression harness.
+- Regression: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py` passed 13 tests twice consecutively.
+- API probe: killed in-flight STT returned HTTP 503 with `provider_unavailable` within the bound; `/api/chat` returned 200; temp root was empty before teardown.
+- TTS/loopback probe: sidecar bound to `127.0.0.1`; ffprobe reported `pcm_s16le`, 16000 Hz, mono; temp root was empty before and after close.
+- Broader suite: 53 tests passed; compileall and `git diff --check` passed; no-provider and loopback probes passed.
+- Cleanup: removed 9 prior owned `.voice-tmp/voice-sidecar-*` leftovers through scoped manager cleanup. Model cache, voice venv, dirty tracked files, and unrelated untracked files were preserved.

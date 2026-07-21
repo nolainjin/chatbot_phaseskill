@@ -4,7 +4,9 @@ import io
 import os
 import subprocess
 import sys
+import time
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -40,7 +42,12 @@ def make_wav(duration_ms: int, *, silent: bool = False) -> bytes:
 
 
 def make_manager(tmp_path: Path, *, stt_timeout: float = 2.0, tts_timeout: float = 2.0, **extra_env: str) -> SidecarManager:
-    env = {"VOICE_PROVIDER_TEST_MODE": "1", "VOICE_NETWORK_DENY": "1", **extra_env}
+    env = {
+        "VOICE_PROVIDER_TEST_MODE": "1",
+        "VOICE_NETWORK_DENY": "1",
+        "VOICE_TEMP_ROOT": str(tmp_path / "voice-runtime"),
+        **extra_env,
+    }
     return SidecarManager(
         SidecarConfig(
             python_executable=Path(sys.executable),
@@ -147,6 +154,35 @@ def test_sidecar_shutdown_is_graceful(tmp_path: Path) -> None:
     manager.close()
     manager.close()
     assert process.poll() is not None
+
+
+def test_killed_inflight_stt_fails_closed_without_replay_or_temp_leak(tmp_path: Path) -> None:
+    marker = tmp_path / "first-stt-started"
+    manager = make_manager(
+        tmp_path,
+        VOICE_SIDECAR_TEST_BEHAVIOR="block_first_stt",
+        VOICE_SIDECAR_TEST_MARKER=str(marker),
+    )
+    provider = SidecarVoiceProvider(manager, temp_root=tmp_path / "voice-runtime")
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(provider.transcribe, make_wav(1000), "audio/wav")
+            deadline = time.monotonic() + 2.0
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert marker.exists()
+            manager.process.kill()
+
+            with pytest.raises(VoiceProviderUnavailable):
+                pending.result(timeout=3.0)
+
+        result = provider.transcribe(make_wav(1000), "audio/wav")
+    finally:
+        provider.close()
+
+    assert result.text == "테스트 전사"
+    assert not list((tmp_path / "voice-runtime").iterdir())
 
 
 def test_audio_temp_files_are_removed_when_cancelled(tmp_path: Path) -> None:

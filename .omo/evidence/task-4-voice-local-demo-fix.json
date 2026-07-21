@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "task": "T4 voice-local-demo fix",
+  "status": "fixed_pending_scoped_commit",
+  "findings": ["T4-VRF-001", "T4-VRF-002"],
+  "red_before_fix": {
+    "focused_test": {
+      "command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py -k killed_inflight_stt_fails_closed_without_replay_or_temp_leak",
+      "result": "1 failed: DID NOT RAISE VoiceProviderUnavailable; restarted sidecar replayed the request and returned a successful transcript"
+    },
+    "direct_probe": {
+      "result": "red_result=테스트 전사",
+      "sidecar_temp_after_close": ["voice-sidecar-*"],
+      "interpretation": "in-flight sidecar death was hidden by replay and owned sidecar temp remained"
+    }
+  },
+  "fix": {
+    "request_lifecycle": "A failed in-flight request raises its original provider_unavailable/provider_timeout error; one restart is performed only for future requests and the request body is never replayed.",
+    "process_cleanup": "The sidecar starts a new process group; owned group termination has bounded SIGTERM/SIGKILL cleanup.",
+    "temp_cleanup": "The configured temp root is passed to the sidecar and only voice-sidecar-* directories are removed during close/restart, including after process death.",
+    "regression": "The killed-inflight test also proves the restarted sidecar remains usable for the next request."
+  },
+  "validation": [
+    {"command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py", "result": "13 passed"},
+    {"command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py", "result": "13 passed (second consecutive run)"},
+    {"command": ".venv/bin/python -m pytest -q tests/test_voice_api.py tests/test_security.py tests/test_chat.py tests/test_config.py", "result": "53 passed, 1 existing Starlette deprecation warning"},
+    {"command": ".venv/bin/python -m compileall -q app voice_runtime scripts/voice_sidecar.py tests/test_voice_provider.py", "result": "passed"},
+    {"command": "git diff --check", "result": "passed"},
+    {"command": "exact killed-sidecar-during-STT API probe", "result": "503 provider_unavailable; /api/chat 200; temp root empty before teardown"},
+    {"command": "TTS loopback ffprobe probe under VOICE_NETWORK_DENY=1", "result": "127.0.0.1; pcm_s16le; 16000 Hz; mono; temp root empty before and after close"},
+    {"command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py -k 'no_sidecar_operation or provider_defaults_are_loopback_and_bounded'", "result": "2 passed"}
+  ],
+  "scope": {
+    "protected_files": ["app/chat.py", "static/index.html", "static/app.js", "static/style.css"],
+    "implementation_files": ["voice_runtime/sidecar.py", "scripts/voice_sidecar.py", "tests/test_voice_provider.py"],
+    "evidence_and_ledger": [".omo/evidence/task-4-voice-local-demo-fix.json", ".omo/evidence/task-4-voice-local-demo-fix.txt", ".omo/start-work/ledger.jsonl"]
+  },
+  "cleanup_receipt": {
+    "preexisting_generated_artifacts": "Removed 9 prior owned .voice-tmp/voice-sidecar-* directories using the scoped SidecarManager cleanup; model cache and voice venv were preserved.",
+    "current_probe_state": "No voice-sidecar temp directories remain; no raw audio, model weights, provider request bodies, persistent URLs, or unrelated files were removed."
+  }
+}

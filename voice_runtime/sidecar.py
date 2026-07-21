@@ -3,6 +3,8 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -75,6 +77,8 @@ class SidecarManager:
         env = os.environ.copy()
         if self.config.extra_env is not None:
             env.update(self.config.extra_env)
+        if self.config.temp_root is not None:
+            env["VOICE_TEMP_ROOT"] = str(self.config.temp_root)
         if env.get("VOICE_NETWORK_DENY") == "1":
             env["HF_HUB_OFFLINE"] = "1"
             env["TRANSFORMERS_OFFLINE"] = "1"
@@ -88,8 +92,10 @@ class SidecarManager:
             return False
 
     def start(self) -> None:
-        if self._process is not None and self._process.poll() is None and self._health(0.2):
-            return
+        if self._process is not None:
+            if self._process.poll() is None and self._health(0.2):
+                return
+            self.close()
         if not self.config.auto_start:
             raise VoiceProviderUnavailable
         self._port = self.config.port or self._reserve_port()
@@ -100,6 +106,7 @@ class SidecarManager:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=self._environment(),
+                start_new_session=True,
             )
         except (FileNotFoundError, OSError) as exc:
             self._process = None
@@ -152,20 +159,22 @@ class SidecarManager:
 
     def _request(self, endpoint: str, body: bytes | None, timeout: float) -> tuple[bytes, dict[str, str]]:
         self.start()
-        for attempt in range(self.config.restart_attempts + 1):
-            try:
-                return self._raw_request(endpoint, body, timeout)
-            except VoiceProviderTimeout:
-                if attempt >= self.config.restart_attempts:
-                    raise
-                self._restart()
-            except VoiceProviderUnavailable as exc:
-                if attempt >= self.config.restart_attempts:
-                    raise
-                self._restart()
-                if self._process is None:
-                    raise VoiceProviderUnavailable from exc
-        raise VoiceProviderUnavailable
+        try:
+            return self._raw_request(endpoint, body, timeout)
+        except VoiceProviderTimeout:
+            if self.config.restart_attempts > 0:
+                self._restart_for_future_requests()
+            raise
+        except VoiceProviderUnavailable:
+            if self.config.restart_attempts > 0:
+                self._restart_for_future_requests()
+            raise
+
+    def _restart_for_future_requests(self) -> None:
+        try:
+            self._restart()
+        except VoiceProviderUnavailable:
+            return
 
     def _restart(self) -> None:
         self.close()
@@ -181,15 +190,53 @@ class SidecarManager:
         process = self._process
         self._process = None
         if process is None:
+            self._cleanup_owned_temp()
             return
+        if process.poll() is None:
+            self._signal_owned_process(process, signal.SIGTERM)
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._signal_owned_process(process, signal.SIGKILL)
+                try:
+                    process.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    pass
+        self._cleanup_owned_temp()
+
+    def _signal_owned_process(self, process: subprocess.Popen[bytes], signum: int) -> None:
         if process.poll() is not None:
             return
         try:
-            process.terminate()
-            process.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=2.0)
+            process_group = os.getpgid(process.pid)
+        except ProcessLookupError:
+            return
+        if process_group == process.pid:
+            try:
+                os.killpg(process_group, signum)
+            except ProcessLookupError:
+                return
+            return
+        try:
+            process.send_signal(signum)
+        except ProcessLookupError:
+            return
+
+    def _cleanup_owned_temp(self) -> None:
+        root = self.config.temp_root
+        if root is None or not root.is_dir():
+            return
+        try:
+            entries = tuple(root.iterdir())
+        except OSError:
+            return
+        for entry in entries:
+            if not entry.name.startswith("voice-sidecar-") or entry.is_symlink() or not entry.is_dir():
+                continue
+            try:
+                shutil.rmtree(entry)
+            except OSError:
+                continue
 
     def __enter__(self) -> Self:
         self.start()
