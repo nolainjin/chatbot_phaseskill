@@ -525,7 +525,11 @@ details[open] > .privacy-summary::after {
 }
 
 .composer {
-  padding: 0.45rem 0.55rem 0.35rem 0.75rem;
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.55rem 0.65rem 0.45rem 0.75rem;
   border: 1.5px solid var(--input-border);
   border-radius: 1.2rem;
   background: var(--input-bg);
@@ -536,6 +540,85 @@ details[open] > .privacy-summary::after {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+.interaction-mode-switch {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.interaction-mode-switch[hidden],
+.interaction-surface[hidden] {
+  display: none;
+}
+
+.interaction-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.2rem;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  background: var(--track);
+}
+
+.interaction-mode-option {
+  position: relative;
+  min-width: 0;
+  border-radius: 999px;
+}
+
+.interaction-mode-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.interaction-mode-label {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.interaction-mode-input:checked + .interaction-mode-label {
+  color: var(--bubble-user-text);
+  background: var(--accent);
+  box-shadow: 0 2px 7px rgba(85, 74, 61, 0.14);
+}
+
+.interaction-mode-option:focus-within .interaction-mode-label {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.interaction-mode-input:disabled + .interaction-mode-label {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.interaction-mode-switch[data-state="error"] .interaction-mode-options {
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px rgba(173, 101, 79, 0.14);
+}
+
+.interaction-surface {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .chat-form {
   display: flex;
   align-items: flex-end;
@@ -577,9 +660,7 @@ details[open] > .privacy-summary::after {
 .voice-controls {
   display: grid;
   gap: 0.7rem;
-  margin-top: 0.7rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--input-border);
+  min-width: 0;
 }
 
 .voice-controls[hidden],
@@ -591,6 +672,35 @@ details[open] > .privacy-summary::after {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--input-border);
+  border-left: 4px solid var(--accent);
+  border-radius: 0.85rem;
+  background: var(--accent-soft);
+}
+
+.voice-surface[data-voice-state="recording"] .voice-toolbar {
+  border-color: rgba(173, 101, 79, 0.55);
+  border-left-color: var(--error);
+  background: rgba(173, 101, 79, 0.08);
+}
+
+.voice-surface[data-voice-state="review"] .voice-review,
+.voice-surface[data-voice-state="transcript_review"] .voice-review {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.voice-surface[data-voice-state="ready"] .voice-toolbar {
+  border-left-color: var(--accent);
+}
+
+.voice-surface[data-voice-state="error"] .voice-toolbar,
+.voice-status[data-voice-state="error"] {
+  color: var(--error);
+  border-color: var(--error);
+  background: rgba(173, 101, 79, 0.08);
 }
 
 .voice-toggle,
@@ -672,6 +782,7 @@ details[open] > .privacy-summary::after {
   display: grid;
   gap: 0.45rem;
   padding: 0.7rem;
+  border: 1px solid var(--input-border);
   border-radius: 0.85rem;
   background: var(--bubble-assistant);
 }
@@ -956,11 +1067,33 @@ details[open] > .privacy-summary::after {
   }
 
   .voice-toolbar {
+    flex-direction: column;
     align-items: flex-start;
   }
 
+  .interaction-mode-option {
+    min-width: 0;
+  }
+
+  .interaction-mode-label {
+    min-width: 0;
+    padding-inline: 0.45rem;
+    overflow-wrap: anywhere;
+  }
+
+  .voice-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .voice-review-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .voice-review-actions button {
-    flex: 1 1 8rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 
