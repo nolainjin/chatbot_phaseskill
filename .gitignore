@@ -9,3 +9,6 @@ __pycache__/
 .DS_Store
 scripts/gui-smoke/node_modules/
 scripts/gui-smoke/screenshots/
+.voice-venv/
+.voice-model-cache/
+.voice-tmp/
