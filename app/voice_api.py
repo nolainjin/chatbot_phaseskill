@@ -15,6 +15,7 @@ from app.config import Settings
 from app.voice_boundary import (
     declared_body_too_large,
     is_loopback_client,
+    parsed_multipart_payload_too_large,
     prepare_transcription_audio,
 )
 from app.voice_contracts import (
@@ -118,6 +119,10 @@ async def transcribe(
         )
     form = await request.form()
     try:
+        if parsed_multipart_payload_too_large(form):
+            return _error(
+                VoiceErrorCode.AUDIO_TOO_LARGE, 413, "오디오가 10 MiB를 초과합니다."
+            )
         session_id_value = form.get("session_id")
         session_token_value = form.get("session_token")
         participant_id_value = form.get("participant_id")

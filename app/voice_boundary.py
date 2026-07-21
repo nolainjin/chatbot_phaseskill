@@ -5,7 +5,9 @@ import wave
 from dataclasses import dataclass
 from io import BytesIO
 from ipaddress import ip_address
-from typing import Final
+from typing import Final, assert_never
+
+from starlette.datastructures import FormData, UploadFile
 
 from app.voice_contracts import (
     MAX_AUDIO_BYTES,
@@ -51,6 +53,24 @@ def declared_body_too_large(content_length: str | None) -> bool:
         )
     except ValueError:
         return False
+
+
+def parsed_multipart_payload_too_large(form: FormData) -> bool:
+    total_size = 0
+    for _, value in form.multi_items():
+        match value:
+            case str():
+                part_size = len(value.encode("utf-8"))
+            case UploadFile(size=None):
+                return True
+            case UploadFile(size=int() as size):
+                part_size = size
+            case unreachable:
+                assert_never(unreachable)
+        total_size += part_size
+        if total_size > MAX_AUDIO_BYTES + MAX_MULTIPART_OVERHEAD_BYTES:
+            return True
+    return False
 
 
 def prepare_transcription_audio(

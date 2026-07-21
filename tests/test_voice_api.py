@@ -381,6 +381,44 @@ def test_transcribe_allows_exact_file_limit_with_multipart_overhead(monkeypatch)
     assert response.json()["error_code"] == "invalid_audio"
 
 
+def test_transcribe_rejects_streamed_total_payload_over_multipart_limit(
+    monkeypatch,
+):
+    # Given an exact-limit audio file plus enough text payload to exceed the total cap
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    boundary = b"voice-total-size-boundary"
+    prefix = (
+        b"--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="session_id"\r\n\r\n'
+        + b"voice-streamed-total\r\n--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="audio"; filename="sample.wav"\r\n'
+        + b"Content-Type: audio/wav\r\n\r\n"
+    )
+    padding = (
+        b"\r\n--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="padding"\r\n\r\n'
+        + b"p" * (70 * 1024)
+        + b"\r\n--"
+        + boundary
+        + b"--\r\n"
+    )
+
+    # When the multipart body is streamed without a Content-Length header
+    response = client.post(
+        "/api/voice/transcribe",
+        content=iter([prefix, b"x" * MAX_AUDIO_BYTES, padding]),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode()}"},
+    )
+
+    # Then the parsed total-size fallback classifies the request as too large
+    assert "content-length" not in response.request.headers
+    assert response.status_code == 413
+    assert response.json()["error_code"] == "audio_too_large"
+
+
 def test_transcribe_rejects_declared_body_over_multipart_limit_before_parse(
     monkeypatch,
 ):

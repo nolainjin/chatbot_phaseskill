@@ -58,3 +58,12 @@ Result: `6 failed, 29 deselected, 1 warning in 1.66s`.
 - Red proof: the exactly 10 MiB multipart file returned `413` before the fix while the malformed request declared above 10 MiB plus 64 KiB still returned `413` before parsing.
 - Focused boundary tests: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py::test_transcribe_allows_exact_file_limit_with_multipart_overhead tests/test_voice_api.py::test_transcribe_rejects_declared_body_over_multipart_limit_before_parse` -> `2 passed, 1 warning in 0.83s`.
 - Full voice API: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py` -> `40 passed, 1 warning in 1.67s`.
+
+### Streamed multipart parsed total-size fallback — 2026-07-22T02:29+09:00
+
+- Root cause: a streamed multipart request has no `Content-Length`, so it bypassed the declared-body cap; after parsing, the route checked only the audio file bytes and ignored other parsed fields before returning `400 invalid_audio`.
+- Runtime capture for the failing request: `content_length=None`, parsed sizes `session_id=20`, `audio=10485760`, `padding=71680`, response `400 invalid_audio`.
+- The fallback now sums every parsed multipart item through `FormData.multi_items()`, using `UploadFile.size` for files and UTF-8 byte lengths for strings. An upload with unknown size is rejected conservatively.
+- Red proof, repeated twice: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py::test_transcribe_rejects_streamed_total_payload_over_multipart_limit` -> `1 failed, 1 warning`; expected `413`, observed `400`.
+- Focused green proof: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py::test_transcribe_rejects_streamed_total_payload_over_multipart_limit tests/test_voice_api.py::test_transcribe_allows_exact_file_limit_with_multipart_overhead` -> `2 passed, 1 warning in 0.82s`.
+- Full voice API: `VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py` -> `41 passed, 1 warning in 0.72s`.
