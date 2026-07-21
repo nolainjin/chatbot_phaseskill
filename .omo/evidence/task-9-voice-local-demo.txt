@@ -4,7 +4,7 @@ Selected local profile: Qwen3-ASR 0.6B 8-bit via MLX-Audio + macOS say (Yuna).
 Explicit fallback: whisper.cpp + macOS say; whisper.cpp requires a local GGML model.
 Network deny: PASS; fake-media browser scenarios: 11 PASS.
 Local cycles: 10/10 consecutive; duplicate chat=0; lost final chunks=0; stale updates=0; unclassified errors=0.
-Cold/warm STT latency: 7788.0 ms / 179.2 ms; warm RTF=0.0994; peak RSS=0.705 GiB; CER=0.0; TTS WAV validity=100%.
+Cold/warm STT latency: 8941.1 ms / 182.4 ms; warm RTF=0.1012; peak RSS=0.649 GiB; CER=0.0; TTS WAV validity=100%.
 Physical microphone: UNAVAILABLE — Chromium automation used fake media and no physical device proof was attempted.
 Failure probe: status=503, error_code=provider_unavailable, sidecar_killed=True.
 Malformed input: HTTP 400 / invalid_audio; text-only recovery: PASS.

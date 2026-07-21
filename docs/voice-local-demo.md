@@ -39,7 +39,7 @@ ffprobe -version >/dev/null
 아래 명령 하나가 FastAPI, local sidecar, 선택 모델, fake-media Chromium smoke, 합성 WAV fixture 10회 cycle, TTS WAV ffprobe, malformed input, text-only recovery, JSON/TXT/PNG 증적을 실행하고 소유한 프로세스와 임시 디렉터리를 정리한다.
 
 ```bash
-VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh --browser chromium --cycles 10 --network-deny
+VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh --browser chromium --cycles 10 --network-deny --kill-sidecar
 ```
 
 ### T9 최종 검증 결과 (2026-07-22)
@@ -58,8 +58,9 @@ VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh \
 ```
 
 - 결과: `PASS`; local cycle 10/10 consecutive, `full_10_cycle_gate=PASS`, network-deny PASS, fake-media browser 시나리오 11개 PASS, malformed audio `400/invalid_audio`, text-only recovery PASS.
-- benchmark: Qwen3-ASR cold 7788.0ms, warm 179.2ms, warm RTF 0.0994, peak RSS 0.705 GiB, CER 0.0, non-empty 1.0.
+- benchmark: Qwen3-ASR cold 8941.1ms, warm 182.4ms, warm RTF 0.1012, peak RSS 0.649 GiB, CER 0.0, non-empty 1.0.
 - sidecar kill: `503 / provider_unavailable`, `sidecar_killed=true`, classified PASS.
+- hostile-events race coverage는 T8가 소유·검증하므로 T9 launcher가 중복 실행하지 않는다. T9는 `voice-local-smoke` fake-media gate와 local cycle, malformed input, sidecar kill, text-only recovery를 실행한다.
 - physical microphone: `UNAVAILABLE` — Chromium fake-media만 사용했다.
 - cleanup: launcher trap으로 FastAPI/owned sidecar/voice temp root를 정리했고, `8767` listener는 남지 않았다. pre-existing `8766` process와 unrelated dirty/untracked 파일은 건드리지 않았다.
 
