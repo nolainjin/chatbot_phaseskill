@@ -1,0 +1,187 @@
+# T1 protected baseline and voice gate evidence
+
+Captured: 2026-07-21 Asia/Seoul
+Authoritative repository: /Volumes/부부공용/worknote/lmwiki-chatbot
+Branch: agent/contextual-reply-buttons
+Remote: origin https://github.com/nolainjin/chatbot_phaseskill.git (fetch/push)
+Scope fence: did not inspect or modify /Volumes/부부공용/worknote/oss/domain-knowledge-tools or the sibling oss-subsession/stt reference.
+Secret handling: no secret values recorded; environment keys were not printed.
+
+## Repository rules read before editing
+
+- PHASE-SKILLS.md: read in full.
+- AGENTS.md: absent under the authoritative repo.
+- CLAUDE.md: absent under the authoritative repo.
+- .claude/rules/rtk.md: absent under the authoritative repo.
+- New-file search required by repo rules: templates/ absent, requests/ absent, docs/ inventoried, 강의/ absent. No existing voice-local-demo artifact was found in those locations.
+
+## Baseline commands and results (before product edits)
+
+Command: `git status --porcelain=v1 -uall`
+Result: exit 0. Full pre-edit status:
+
+```text
+ M app/chat.py
+ M app/learning_coach.py
+ M app/llm.py
+ M app/safety.py
+ M docs/slides/chatbot_development_story_keynote.html
+ M scripts/self_directed_coaching_eval.py
+ M tests/test_llm_cli.py
+ M tests/test_safety.py
+ M tests/test_self_directed_coaching_eval.py
+?? .omo/boulder.json
+?? .omo/drafts/self-directed-coaching-upgrade.md
+?? .omo/drafts/voice-local-demo-prd.md
+?? .omo/evidence/anti-slop-self-directed-coaching.txt
+?? .omo/evidence/final-quality-gates.json
+?? .omo/evidence/final-scope-self-directed-coaching-upgrade.txt
+?? .omo/evidence/task-1-math-150-baseline.json
+?? .omo/evidence/task-1-self-directed-coaching-upgrade.txt
+?? .omo/evidence/task-10-runtime-loop.txt
+?? .omo/evidence/task-12-evaluator-schema.json
+?? .omo/evidence/task-12-self-directed-fake.json
+?? .omo/evidence/task-13-self-directed-red-team.json
+?? .omo/evidence/task-14-pack-smoke.txt
+?? .omo/evidence/task-15-ui-smoke.txt
+?? .omo/evidence/task-16-docs.txt
+?? .omo/evidence/task-17-gpt54-sample.json
+?? .omo/evidence/task-17-gpt54-sample.txt
+?? .omo/evidence/task-18-spark-review.json
+?? .omo/evidence/task-18-spark-review.txt
+?? .omo/evidence/task-2-self-directed-coaching-contract.txt
+?? .omo/evidence/task-3-self-directed-pack-contract.json
+?? .omo/evidence/task-4-self-directed-validator-contract.json
+?? .omo/evidence/task-5-learning-state.txt
+?? .omo/evidence/task-6-question-policy.txt
+?? .omo/evidence/task-7-coaching-prompt.txt
+?? .omo/evidence/task-8-self-directed-fake-coaching-contract.txt
+?? .omo/evidence/task-9-self-directed-red-team-unit.txt
+?? .omo/plans/self-directed-coaching-upgrade.md
+?? .omo/plans/voice-local-demo.md
+?? .omo/ultraresearch/20260721-voice-local/SYNTHESIS.md
+?? .omo/ultraresearch/20260721-voice-local/expansion-log.md
+?? .omo/ultraresearch/20260721-voice-local/verify-host-and-local-fallback.md
+?? .omo/ultraresearch/20260721-voice-local/wave-1-apple-runtime.md
+?? .omo/ultraresearch/20260721-voice-local/wave-1-machine-existing-stt.md
+?? .omo/ultraresearch/20260721-voice-local/wave-1-repo-runtime.md
+?? .omo/ultraresearch/20260721-voice-local/wave-1-repo-seams.md
+?? .omo/ultraresearch/20260721-voice-local/wave-2-mlxaudio-and-candidates.md
+?? .omo/ulw-loop/019f729a-fe64-7ab3-95a1-95eca81485a0/brief.md
+?? .omo/ulw-loop/019f729a-fe64-7ab3-95a1-95eca81485a0/goals.json
+?? .omo/ulw-loop/019f729a-fe64-7ab3-95a1-95eca81485a0/ledger.jsonl
+?? .omo/ulw-loop/self-directed-coaching-upgrade-20260718/brief.md
+?? .omo/ulw-loop/self-directed-coaching-upgrade-20260718/goals.json
+?? .omo/ulw-loop/self-directed-coaching-upgrade-20260718/ledger.jsonl
+?? screenshots/01-initial-desktop.png
+?? screenshots/02-initial-mobile.png
+?? screenshots/03-after-chip-desktop.png
+?? screenshots/04-after-turns-desktop.png
+?? screenshots/05-knowledge-alt-desktop.png
+?? screenshots/06-fallback-desktop.png
+?? screenshots/07-chatbot-only.png
+?? screenshots/07-improved-conversation-desktop.png
+?? screenshots/07-improved-conversation-top-preview.png
+?? screenshots/07-improved-conversation-user-capture.png
+?? screenshots/self-directed-coaching.png
+```
+
+Command: `.venv/bin/python -m pytest -q`
+Result: exit 0; `216 passed, 1 warning in 6.47s`. Existing warning only: Starlette deprecates importing httpx through `starlette.testclient` and suggests httpx2.
+
+Command: `node scripts/gui-smoke/gui-smoke.mjs`
+Result: exit 0; all four scenarios passed, including knowledge, derived stepper, knowledge-alt, and schema-less fallback. Screenshots were written to the already-untracked `screenshots/` directory.
+
+## Candidate files and protected-file hashes at baseline
+
+Candidate files that may be touched by T1 were clean; `git hash-object` values:
+
+```text
+app/config.py       2bfcdf6085e75b829b8fe6499b5a5589ccf6e17e
+app/main.py         daca212500ffee22a0c345c151baf66fa4166dd6
+tests/test_chat.py  192c3d5928598c166556e9acbaa37fc0b5d207e0
+tests/test_config.py 2547d6024eaad16da2c9af2fd867be181156ece5
+```
+
+`git diff -- app/config.py app/main.py tests/test_chat.py tests/test_config.py` and the staged equivalent were empty at capture time.
+
+Pre-existing dirty tracked files are protected. Working-tree hashes and diff sizes:
+
+```text
+app/chat.py                                      126a3a0f0d33c72b7e940b118a2f78e339f32348  7 lines
+app/learning_coach.py                            2e1b359a489482088138d5f6560462ea6c3ed559  9 lines
+app/llm.py                                       cf1fdb3d3cc42d1712a133117e6c304735e14c7a  66 lines
+app/safety.py                                    46879e19a2b44ee0e6b20790a6152dd87000442d  7 lines
+docs/slides/chatbot_development_story_keynote.html 7cc1c7af2b58b525636a194d2932a8efe1450e49  1765 lines
+scripts/self_directed_coaching_eval.py          f0deb86934f472fb612d36c655bb2fba1f676426  22 lines
+tests/test_llm_cli.py                            540321f7b9ee3b90adcbcd0d5766c6ad6456c807  72 lines
+tests/test_safety.py                             500d95b6fb9c986975f3ffa584ba6703bd003d7b  50 lines
+tests/test_self_directed_coaching_eval.py       e7344d3d126d2068a7fdc3f5242dae4ad12e71c8  14 lines
+```
+
+T1 will not modify `app/chat.py` or any pre-existing dirty file.
+
+## Baseline adversarial notes
+
+- dirty_worktree: baseline captured; protected tracked and untracked paths are listed above.
+- misleading_success_output: baseline assertions include pytest exit/result counts and GUI scenario assertions, not exit codes alone.
+- malformed input: applies to environment parsing; T1 will fail closed for invalid `VOICE_ENABLED` values and test it.
+- stale_state: ruled out for baseline by fresh process invocations and clean candidate-file hashes.
+- prompt_injection: not applicable; no external prompt/content is being ingested for T1.
+- cancel_resume: not applicable to the synchronous config gate.
+- hung_long_command: pytest and GUI commands were bounded and completed; no long-running process remains.
+- flaky_tests: baseline full pytest and GUI smoke completed successfully in fresh invocations.
+- repeated_interruptions: not applicable; no interrupted command or partial product edit occurred.
+
+## T1 red-first and implementation results
+
+Red proof before production changes:
+
+Command: `.venv/bin/python -m pytest -q tests/test_config.py`
+Result: exit 1 as intended. The new default-gate test failed because `Settings.voice_enabled` did not yet exist, and the enabled-config test failed because `/api/config` had no nested `voice` object. The provider-absent route test initially also exposed a test-fixture cwd issue (`static` was not present in its temporary cwd); the test was corrected to create only a temporary static fixture before implementation. No production failure was masked.
+
+Implemented T1 behavior:
+
+- `VOICE_ENABLED` is parsed from the environment and defaults/fails closed to `False` for missing or malformed values.
+- `PROVIDER_BIN` is captured as an optional setting but is not probed or started during app import/config/chat handling; an absent provider therefore cannot block text-only boot or chat.
+- Disabled `/api/config` remains exactly the existing `{mode, intake_schema, ui}` response.
+- Enabled `/api/config` adds only the nested local voice contract: `enabled=true`, `local_only=true`, `stt=qwen3-asr-0.6b-8bit`, `tts=supertonic-3`, `min_recording_ms=800`, `max_recording_ms=60000`, and `silence_auto_stop=false`.
+- `mode`, `intake_schema`, and `ui` are unchanged in both disabled and enabled responses.
+- No `app/chat.py`, cloud speech API, Web Speech API, frontend build, or sibling reference was modified.
+
+## Post-change verification
+
+Command: `.venv/bin/python -m pytest -q tests/test_chat.py tests/test_config.py`
+Result: exit 0; `20 passed, 1 warning in 0.88s`. The warning is the same pre-existing Starlette/httpx deprecation warning recorded in the baseline.
+
+Command: `VOICE_ENABLED=true PROVIDER_BIN=/nonexistent .venv/bin/python -c 'from fastapi.testclient import TestClient; from app.main import app; c=TestClient(app); assert c.get("/").status_code == 200'`
+Result: exit 0. The exact required provider-absent real-surface invocation passed; only the existing Starlette/httpx deprecation warning was emitted.
+
+Command: `.venv/bin/python -m pytest -q`
+Result: exit 0; `220 passed, 1 warning in 6.07s`.
+
+Command: `node scripts/gui-smoke/gui-smoke.mjs`
+Result: exit 0; all four existing text/UI scenarios passed, including the schema-less fallback. No voice UI was introduced in T1.
+
+Command: `.venv/bin/python -m compileall -q app tests`
+Result: exit 0.
+
+Command: `git diff --check`
+Result: exit 0.
+
+Command: `.venv/bin/ruff check app/config.py app/main.py tests/test_config.py`
+Result: not run because `.venv/bin/ruff` is unavailable; system `ruff` is also unavailable. This is an explicit validation gap, not a claimed pass.
+
+Post-change implementation diff: `app/config.py` +15, `app/main.py` +22/-2, `tests/test_config.py` +67; only these three product/test files are T1-owned. Evidence file and ledger are process artifacts. Existing protected dirty and untracked paths remain present and were not normalized.
+
+## Final adversarial notes
+
+- dirty_worktree: preserved; final status was checked before staging and only the three T1-owned tracked files were eligible for the T1 commit.
+- misleading_success_output: config tests assert complete JSON bodies, status codes, exact disabled contract, enabled fields, and chat turn; manual QA asserts the root status code.
+- malformed input: invalid `VOICE_ENABLED` is explicitly tested and fails closed.
+- stale_state: ruled out by fresh Python processes, fresh pytest run, and fresh GUI process.
+- prompt_injection: not applicable to this environment-only gate.
+- cancel_resume: not applicable to synchronous configuration.
+- hung_long_command: all commands completed; no server or provider process was started.
+- flaky_tests: targeted, full pytest, and GUI smoke all passed in fresh invocations.
+- repeated_interruptions: not applicable; no interrupted command occurred.
