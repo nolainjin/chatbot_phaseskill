@@ -128,6 +128,12 @@ async def transcribe(
         started = time.perf_counter()
         try:
             raw_provider_output = transcription_provider.transcribe(payload, audio.content_type)
+        except AudioDecodeError:
+            return _error(
+                VoiceErrorCode.INVALID_AUDIO,
+                400,
+                "오디오를 디코드할 수 없습니다.",
+            )
         except VoiceProviderError as exc:
             return _error(
                 exc.error_code,

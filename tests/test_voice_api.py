@@ -1,4 +1,5 @@
 import io
+import sys
 import wave
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from app.voice_contracts import (
     VoiceProviderTimeout,
     VoiceProviderUnavailable,
 )
+from app.voice_provider import SidecarVoiceProvider
+from voice_runtime.sidecar import SidecarConfig, SidecarManager
 
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -164,6 +167,41 @@ def test_transcribe_rejects_empty_audio(monkeypatch, fake_providers):
 
     assert response.status_code == 400
     assert response.json()["error_code"] == "invalid_audio"
+
+
+def test_real_sidecar_transcribe_maps_silent_audio_to_invalid_audio_and_cleans_temp(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    temp_root = tmp_path / "voice-runtime"
+    provider = SidecarVoiceProvider(
+        SidecarManager(
+            SidecarConfig(
+                python_executable=Path(sys.executable),
+                sidecar_script=Path(__file__).resolve().parents[1] / "scripts/voice_sidecar.py",
+                extra_env={
+                    "VOICE_NETWORK_DENY": "1",
+                    "VOICE_PROVIDER_TEST_MODE": "1",
+                    "VOICE_TEMP_ROOT": str(temp_root),
+                },
+                startup_timeout_seconds=2.0,
+                stt_timeout_seconds=2.0,
+                tts_timeout_seconds=2.0,
+                temp_root=temp_root,
+            )
+        ),
+        temp_root=temp_root,
+    )
+    monkeypatch.setattr(voice_api, "transcription_provider", provider)
+
+    try:
+        response = post_transcribe("voice-silent-sidecar", make_wav(1000))
+    finally:
+        provider.close()
+
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "invalid_audio"
+    assert not list(temp_root.iterdir())
 
 
 def test_transcribe_rejects_malformed_provider_output(monkeypatch, fake_providers):
