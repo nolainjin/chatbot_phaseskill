@@ -42,19 +42,26 @@ ffprobe -version >/dev/null
 VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh --browser chromium --cycles 10 --network-deny
 ```
 
-### T9 복구 검증 결과 (2026-07-22)
+### T9 최종 검증 결과 (2026-07-22)
 
-복구 세션에서는 전체 10회 실행을 반복하지 않고 다음 bounded 명령만 실행했다.
+사전 red 증거는 다음 실패를 기록했다.
 
-```bash
-VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh --browser chromium --cycles 1 --network-deny
+```text
+FAIL: local cycle 2 did not return a session token
 ```
 
-- 결과: `bounded_pass`; local cycle 1/1, network-deny PASS, fake-media browser 시나리오 11개 PASS, malformed audio `400/invalid_audio`, text-only recovery PASS.
-- benchmark: Qwen3-ASR cold 8416.8ms, warm 188.8ms, warm RTF 0.1047, peak RSS 0.509 GiB, CER 0.0, non-empty 1.0.
-- full 10-cycle gate: `NOT_RUN` — 1회 bounded 검증으로 10회 연속 성공을 주장하지 않는다.
+원인은 `app/main.py`가 첫 요청에만 `session_token`을 응답하는 계약인데, launcher가 cycle 2의 빈 응답값으로 보존 중인 token을 무조건 덮어쓴 것이었다. 수정 후에는 응답 token이 non-empty일 때만 갱신하고, 다음 인증 요청에 사용할 token이 없을 때만 실패한다.
+
+```bash
+VOICE_ENABLED=true ./scripts/voice_demo_smoke.sh \
+  --browser chromium --cycles 10 --network-deny --kill-sidecar
+```
+
+- 결과: `PASS`; local cycle 10/10 consecutive, `full_10_cycle_gate=PASS`, network-deny PASS, fake-media browser 시나리오 11개 PASS, malformed audio `400/invalid_audio`, text-only recovery PASS.
+- benchmark: Qwen3-ASR cold 7788.0ms, warm 179.2ms, warm RTF 0.0994, peak RSS 0.705 GiB, CER 0.0, non-empty 1.0.
+- sidecar kill: `503 / provider_unavailable`, `sidecar_killed=true`, classified PASS.
 - physical microphone: `UNAVAILABLE` — Chromium fake-media만 사용했다.
-- 초기 실행에서 발견된 T9 blocker는 임시 작업 디렉터리에서 inline Playwright import가 `scripts/gui-smoke/node_modules`를 찾지 못한 것이었고, `scripts/voice_demo_smoke.sh`가 해당 dependency 디렉터리에서 import하도록 최소 수정했다. `scripts/voice_provider_benchmark.py`의 `[ -x ]` 검사는 통과했으며 권한 문제는 아니었다.
+- cleanup: launcher trap으로 FastAPI/owned sidecar/voice temp root를 정리했고, `8767` listener는 남지 않았다. pre-existing `8766` process와 unrelated dirty/untracked 파일은 건드리지 않았다.
 
 주요 결과:
 
