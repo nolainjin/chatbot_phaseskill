@@ -15,12 +15,14 @@ from app.config import (
     VOICE_TTS_MODEL,
     Settings,
 )
+from app.voice_api import router as voice_router
 
 MAX_MESSAGE_LEN = 2000
 STATIC_DIR = "static"
 
 app = FastAPI()
 _rate_limiter = ratelimit.RateLimiter()
+app.include_router(voice_router)
 
 
 @app.post("/api/chat")
