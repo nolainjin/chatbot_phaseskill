@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "task": "T4 voice-local-demo",
+  "verdict": "confirmed",
+  "scope": {
+    "owned_files": [
+      "voice_runtime/__init__.py",
+      "voice_runtime/audio.py",
+      "voice_runtime/adapters.py",
+      "voice_runtime/errors.py",
+      "voice_runtime/sidecar.py",
+      "app/voice_provider.py",
+      "scripts/voice_sidecar.py",
+      "tests/test_voice_provider.py"
+    ],
+    "protected_files_unchanged": ["app/chat.py", "static/index.html", "static/app.js", "static/style.css"],
+    "gitignore": "existing .voice-venv, .voice-model-cache, and .voice-tmp rules were reused; no new rule required"
+  },
+  "profile": {
+    "selected": "Qwen3-ASR 0.6B 8-bit via MLX-Audio + macOS say Yuna",
+    "fallback": "explicit whisper.cpp STT + macOS say TTS",
+    "local_only": true,
+    "model_loading": "Qwen model import/load is inside the sidecar backend transcribe call; only selected profile or explicit fallback is constructed",
+    "evidence_source": ".omo/evidence/task-2-voice-local-demo.json; T2 network-deny benchmark passed Qwen 10/10 non-empty and warm RTF 0.0855"
+  },
+  "baseline": {
+    "status": "PASS",
+    "focused_command": ".venv/bin/python -m pytest -q tests/test_chat.py tests/test_config.py tests/test_voice_api.py -k 'disabled or config or chat_endpoint_happy_path'",
+    "focused_result": "12 passed, 32 deselected",
+    "root_status": 200,
+    "disabled_transcribe": {"status": 503, "error_code": "voice_disabled"},
+    "disabled_synthesize": {"status": 503, "error_code": "voice_disabled"},
+    "red_first_result": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py failed at collection with ModuleNotFoundError: app.voice_provider before implementation"
+  },
+  "implementation_contract": {
+    "bind": "127.0.0.1 only; non-loopback SidecarConfig rejected",
+    "timeouts_seconds": {"startup": 20, "stt": 45, "tts": 30},
+    "restart_attempts": 1,
+    "shutdown": "terminate, bounded wait, kill fallback; SIGTERM exits sidecar cleanly",
+    "audio": "ffmpeg decode to private 16 kHz mono PCM; decoded frames, duration, format, and non-silence validated",
+    "tts": "one-shot validated WAV/PCM bytes; no persistent URL",
+    "network_deny": "VOICE_NETWORK_DENY sets offline model flags and blocks non-loopback TCP while allowing local IPC needed by say",
+    "disabled_mode": "app.main import probe reported app.voice_provider not imported when VOICE_ENABLED=false"
+  },
+  "validation": [
+    {"command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py tests/test_voice_api.py tests/test_chat.py tests/test_config.py tests/test_security.py", "result": "65 passed, 1 Starlette deprecation warning"},
+    {"command": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_provider.py", "result": "12 passed twice consecutively"},
+    {"command": ".venv/bin/python -m compileall -q app voice_runtime scripts/voice_sidecar.py tests/test_voice_provider.py", "result": "passed"},
+    {"command": "git diff --check", "result": "passed"},
+    {"command": "sidecar kill during STT with valid PCM and 45 second join bound", "result": "provider_timeout within bound; /api/chat returned 200; temp artifacts absent"},
+    {"command": "VOICE_NETWORK_DENY=1 sidecar TTS followed by ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of json", "result": "pcm_s16le, 22050 Hz, mono; temp artifacts absent"},
+    {"command": "VOICE_NETWORK_DENY=1 .voice-venv sidecar Qwen smoke on tests/fixtures/voice-ko/01.wav", "result": "health passed and selected Qwen returned non-empty transcription; no model download"},
+    {"command": "lsof -nP -iTCP:8600 -sTCP:LISTEN after cleanup", "result": "no listener; PID 40748 terminated"}
+  ],
+  "adversarial_classes": {
+    "malformed_input": "covered: corrupt, silent, decoded-short, decoded-long audio and invalid TTS WAV",
+    "stale_state_generated_temp_artifacts": "covered: per-request TemporaryDirectory cleanup on success, failure, timeout, cancellation, and sidecar shutdown",
+    "dirty_worktree": "covered: pre-existing dirty tracked/untracked files preserved; only T4-owned paths staged",
+    "hung_long_command": "covered: hang_stt failure returned stable provider_timeout under bounded test timeout; production STT cap is 45 seconds",
+    "flaky_timing": "covered: provider test suite passed twice consecutively after fake harness timeout was separated from production timeout constants",
+    "misleading_success_output": "covered: direct TestClient chat status, direct sidecar failure exception, and ffprobe stream metadata were asserted",
+    "repeated_interruptions": "covered: sidecar close is idempotent and SIGTERM shutdown was verified",
+    "prompt_injection": "not_applicable: T4 returns provider text to the T3 contract; no prompt construction or model instruction boundary is crossed",
+    "cancel_resume": "cancel cleanup covered; resume not_applicable because T4 has no resumable job"
+  },
+  "cleanup_receipt": {
+    "exact": "No model weights, raw browser audio, provider request bodies, persistent audio URLs, or repo temp artifacts were added. TemporaryDirectory cleanup assertions passed. Port 8600 PID 40748 was stopped. No reset, checkout, stash, delete, push, PR, merge, amend, or unrelated formatting was run."
+  }
+}

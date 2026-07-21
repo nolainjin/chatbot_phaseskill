@@ -1,0 +1,32 @@
+T4 voice-local-demo evidence
+
+Baseline
+- Authoritative repo: /Volumes/부부공용/worknote/lmwiki-chatbot
+- Existing dirty files were recorded and preserved; app/chat.py and static files were not touched.
+- Text/config/disabled characterization passed. Root was 200; disabled transcribe and synthesize were both 503 voice_disabled.
+- Failing-first provider run failed at collection because app/voice_provider.py did not exist.
+
+Implementation
+- Added loopback-only SidecarManager with 20s startup, 45s STT, 30s TTS caps, one restart, health polling, and graceful shutdown.
+- Added Qwen3-ASR 0.6B 8-bit MLX-Audio adapter with lazy model load and explicit whisper.cpp fallback.
+- Added macOS say Yuna TTS adapter producing validated PCM WAV bytes.
+- Added private ffmpeg normalization and decoded frame/duration/non-silence validation.
+- Reused existing .voice-venv/.voice-model-cache/.voice-tmp ignore rules; no new ignore rule was needed.
+
+Proof
+- VOICE_NETWORK_DENY=1 focused provider/API/chat/config/security suite: 65 passed, 1 existing Starlette deprecation warning.
+- Provider suite: 12 passed twice consecutively.
+- compileall and git diff --check: passed.
+- Sidecar kill during STT: stable provider_timeout within 45s; /api/chat stayed 200; temp artifacts absent.
+- TTS ffprobe: codec pcm_s16le, sample_rate 22050, channels 1; temp artifacts absent.
+- Qwen sidecar smoke used the cached local model under network deny and returned non-empty output; T2 remains the authoritative 10-fixture gate.
+- VOICE_ENABLED=false import probe: app.voice_provider was not imported or started.
+- Port 8600 cleanup: listener PID 40748 terminated and no listener remained.
+
+Adversarial coverage
+- malformed_input, stale_state/temp artifacts, dirty_worktree, hung_long_command, flaky_timing, misleading_success_output, and repeated_interruptions were probed.
+- prompt_injection is not applicable at this provider boundary. Cancel cleanup is covered; resume is not applicable because there is no resumable T4 job.
+
+Cleanup receipt
+- No model weights, raw browser audio, provider request bodies, persistent audio URLs, or repo temp artifacts were added.
+- No reset, checkout, stash, delete, push, PR, merge, or amend was run.
