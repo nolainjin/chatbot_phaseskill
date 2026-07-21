@@ -415,12 +415,16 @@ assert.match(html, /<button type="button" id="voice-toggle"/);
 assert.match(html, /id="voice-status"[^>]+aria-live="polite"/);
 assert.match(html, /id="voice-review"[^>]+hidden/);
 assert.match(html, /<button type="button" id="voice-send"/);
-assert.match(html, /<script src="voice\.js\?v=1"><\/script>/);
+assert.match(html, /<button type="button" id="voice-edit"/);
+assert.match(html, /id="voice-truncation-warning"/);
+assert.match(html, /<script src="voice\.js\?v=2"><\/script>/);
 assert.doesNotMatch(source, /\/api\/chat/);
 assert.doesNotMatch(source, /SpeechRecognition/);
 assert.doesNotMatch(source, /pointerdown|pointerup|silence/i);
 assert.match(app, /requestPending/);
 assert.match(app, /voiceController\.setEnabled\(true\)/);
+assert.match(app, /source: "voice"/);
+assert.match(app, /appendTtsControls/);
 
 console.log(JSON.stringify({
   scenario: requestedScenario,
