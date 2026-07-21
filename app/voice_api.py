@@ -176,7 +176,14 @@ def synthesize(payload: SynthesizeRequest) -> Response:
         metadata_error = _validate_session_metadata(payload.session_id, payload.session_token, None)
         if metadata_error is not None:
             return metadata_error
-    predicted_duration_ms = synthesis_provider.predict_duration_ms(payload.text)
+    try:
+        predicted_duration_ms = synthesis_provider.predict_duration_ms(payload.text)
+    except VoiceProviderError as exc:
+        return _error(
+            exc.error_code,
+            VOICE_HTTP_STATUS,
+            "로컬 음성 provider를 사용할 수 없습니다.",
+        )
     if predicted_duration_ms > MAX_AUDIO_DURATION_MS:
         return _error(
             VoiceErrorCode.AUDIO_TOO_LONG, 400, "예상 TTS 길이가 60초를 초과합니다."

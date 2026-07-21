@@ -241,6 +241,32 @@ def test_synthesize_rejects_predicted_output_over_60_seconds(monkeypatch, fake_p
     assert response.json()["error_code"] == "audio_too_long"
 
 
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (VoiceProviderUnavailable(), "provider_unavailable"),
+        (VoiceProviderTimeout(), "provider_timeout"),
+        (VoiceLocalOnlyViolation(), "local_only_violation"),
+    ],
+)
+def test_synthesize_maps_prediction_provider_failures(monkeypatch, error, code):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+
+    class BadPredict:
+        def predict_duration_ms(self, text: str) -> int:
+            raise error
+
+        def synthesize(self, text: str) -> SynthesizedAudio:
+            raise AssertionError("synthesis must not run after prediction failure")
+
+    monkeypatch.setattr(voice_api, "synthesis_provider", BadPredict())
+
+    response = client.post("/api/voice/synthesize", json={"text": "예측 실패"})
+
+    assert response.status_code == 503
+    assert response.json()["error_code"] == code
+
+
 def test_known_session_synthesize_requires_token(monkeypatch, tmp_path, fake_providers):
     monkeypatch.setenv("MODEL", "fake")
     monkeypatch.setenv("VOICE_ENABLED", "true")
