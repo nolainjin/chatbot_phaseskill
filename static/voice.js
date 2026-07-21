@@ -51,6 +51,165 @@
     return "";
   }
 
+  var VOICE_ERROR_MESSAGES = {
+    voice_disabled: "음성 기능이 꺼져 있습니다. 텍스트 입력을 이용해 주세요.",
+    invalid_request: "음성 요청을 확인해 주세요.",
+    invalid_audio: "녹음 파일을 읽지 못했습니다. 다시 녹음해 주세요.",
+    audio_too_large: "녹음 파일이 10 MiB보다 큽니다. 짧게 다시 녹음해 주세요.",
+    audio_too_short: "조금 더 말씀하신 뒤 다시 녹음해 주세요.",
+    audio_too_long: "녹음이 너무 깁니다. 60초 안으로 다시 녹음해 주세요.",
+    provider_unavailable: "로컬 음성 기능을 사용할 수 없습니다. 텍스트 입력을 이용해 주세요.",
+    provider_timeout: "로컬 음성 처리 시간이 초과되었습니다. 다시 시도해 주세요.",
+    local_only_violation: "로컬 음성 연결을 확인하지 못했습니다. 다시 시도해 주세요.",
+    session_auth_required: "세션 인증이 필요합니다. 새로고침 후 다시 시도해 주세요.",
+    invalid_text: "읽을 텍스트를 확인해 주세요.",
+  };
+
+  function createVoiceError(code, status, detail) {
+    var error = new Error(VOICE_ERROR_MESSAGES[code] || detail || "음성 요청에 실패했습니다. 다시 시도해 주세요.");
+    error.name = code === "request_cancelled" ? "AbortError" : "VoiceApiError";
+    error.code = code;
+    error.status = status || 0;
+    error.detail = detail || "";
+    return error;
+  }
+
+  function createVoiceApi(options) {
+    options = options || {};
+    var fetchImpl = options.fetch || root.fetch;
+    var FormDataCtor = options.FormData || root.FormData;
+    var AbortCtor = options.AbortController || root.AbortController;
+    var setTimeoutFn = options.setTimeout || root.setTimeout;
+    var clearTimeoutFn = options.clearTimeout || root.clearTimeout;
+    var defaultTimeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 45000;
+
+    function request(path, requestOptions, timeoutMs) {
+      if (typeof fetchImpl !== "function" || !FormDataCtor || !AbortCtor) {
+        return Promise.reject(createVoiceError("provider_unavailable", 503, "브라우저 음성 API를 사용할 수 없습니다."));
+      }
+      requestOptions = requestOptions || {};
+      var externalSignal = requestOptions.signal;
+      return new Promise(function (resolve, reject) {
+        var controller = new AbortCtor();
+        var timedOut = false;
+        var settled = false;
+        var timeoutId = null;
+        var onExternalAbort = null;
+
+        function cleanup() {
+          if (timeoutId !== null) clearTimeoutFn(timeoutId);
+          if (externalSignal && onExternalAbort) externalSignal.removeEventListener("abort", onExternalAbort);
+        }
+
+        function fail(error) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        }
+
+        if (externalSignal) {
+          onExternalAbort = function () {
+            controller.abort();
+            fail(createVoiceError("request_cancelled", 0, "요청이 취소되었습니다."));
+          };
+          if (externalSignal.aborted) {
+            fail(createVoiceError("request_cancelled", 0, "요청이 취소되었습니다."));
+            return;
+          }
+          externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+        }
+        timeoutId = setTimeoutFn(function () {
+          timedOut = true;
+          controller.abort();
+        }, Number.isFinite(timeoutMs) ? timeoutMs : defaultTimeoutMs);
+
+        Promise.resolve(fetchImpl(path, Object.assign({}, requestOptions, { signal: controller.signal })))
+          .then(async function (response) {
+            if (response.ok) return response;
+            var body = {};
+            try {
+              body = await response.json();
+            } catch (error) {
+              body = {};
+            }
+            var code = body && typeof body.error_code === "string" ? body.error_code : "provider_unavailable";
+            throw createVoiceError(code, response.status, body && body.detail);
+          })
+          .then(function (response) {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(response);
+          })
+          .catch(function (error) {
+            if (error && error.name === "VoiceApiError") {
+              fail(error);
+              return;
+            }
+            if (timedOut) {
+              fail(createVoiceError("provider_timeout", 504, "음성 요청 시간이 초과되었습니다."));
+              return;
+            }
+            if (externalSignal && externalSignal.aborted) {
+              fail(createVoiceError("request_cancelled", 0, "요청이 취소되었습니다."));
+              return;
+            }
+            fail(createVoiceError("provider_unavailable", 503, "음성 요청에 연결하지 못했습니다."));
+          });
+      });
+    }
+
+    function transcribe(blob, metadata, requestOptions) {
+      metadata = metadata || {};
+      if (metadata.signal && !requestOptions) {
+        requestOptions = metadata;
+        metadata = {};
+      }
+      var form = new FormDataCtor();
+      form.append("session_id", String(metadata.sessionId || ""));
+      if (metadata.sessionToken) form.append("session_token", String(metadata.sessionToken));
+      if (metadata.participantId) form.append("participant_id", String(metadata.participantId));
+      if (Number.isFinite(metadata.durationMs)) form.append("duration_ms", String(metadata.durationMs));
+      form.append("audio", blob, metadata.filename || "recording.webm");
+      return request(
+        "/api/voice/transcribe",
+        Object.assign({ method: "POST", body: form }, requestOptions || {}),
+        options.transcribeTimeoutMs || defaultTimeoutMs,
+      )
+        .then(function (response) { return response.json(); });
+    }
+
+    function synthesize(text, metadata, requestOptions) {
+      metadata = metadata || {};
+      if (metadata.signal && !requestOptions) {
+        requestOptions = metadata;
+        metadata = {};
+      }
+      return request(
+        "/api/voice/synthesize",
+        Object.assign({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: String(text || ""),
+            session_id: metadata.sessionId,
+            session_token: metadata.sessionToken,
+          }),
+        }, requestOptions || {}),
+        options.synthesizeTimeoutMs || defaultTimeoutMs,
+      ).then(function (response) { return response.blob(); });
+    }
+
+    return {
+      transcribe: transcribe,
+      synthesize: synthesize,
+      mapError: function (code) {
+        return VOICE_ERROR_MESSAGES[code] || "음성 요청에 실패했습니다. 다시 시도해 주세요.";
+      },
+    };
+  }
+
   function createVoiceController(options) {
     options = options || {};
     var mediaDevices = options.mediaDevices || (root.navigator && root.navigator.mediaDevices);
@@ -191,7 +350,12 @@
 
       transition("transcribing", "전사를 준비하고 있어요…");
       if (typeof options.onRecordingReady === "function") {
-        options.onRecordingReady(blob, { attemptId: attempt.id, signal: attempt.controller.signal });
+        options.onRecordingReady(blob, {
+          attemptId: attempt.id,
+          elapsedMs: attempt.elapsedMs,
+          mimeType: attempt.mimeType,
+          signal: attempt.controller.signal,
+        });
       }
 
       var transcribe = options.transcribe;
@@ -220,7 +384,7 @@
         })
         .catch(function (error) {
           if (!isCurrent(attempt)) return;
-          finishError(attempt, error && error.name === "AbortError" ? "전사가 취소되었습니다." : "전사에 실패했습니다. 다시 시도해 주세요.");
+          finishError(attempt, error && error.name === "AbortError" ? "전사가 취소되었습니다." : error && error.message ? error.message : "전사에 실패했습니다. 다시 시도해 주세요.");
         });
     }
 
@@ -411,5 +575,6 @@
   }
 
   root.createVoiceController = createVoiceController;
+  root.createVoiceApi = createVoiceApi;
   root.VOICE_RECORDING_STATES = STATES.slice();
 })(typeof window !== "undefined" ? window : globalThis);

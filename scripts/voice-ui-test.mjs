@@ -121,6 +121,20 @@ function loadFactory() {
   return sandbox.createVoiceController;
 }
 
+function loadVoiceApi() {
+  const sandbox = {
+    AbortController,
+    Blob,
+    FormData,
+    clearTimeout,
+    fetch: null,
+    setTimeout,
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: "static/voice.js" });
+  return sandbox.createVoiceApi;
+}
+
 function createFixture({ transcribe, document, getUserMedia, stream: suppliedStream } = {}) {
   let clock = 0;
   const stream = suppliedStream || new FakeStream();
@@ -301,6 +315,69 @@ results.push(await runScenario("pagehide-stops-tracks", async () => {
   document.emit("pagehide");
   assert.equal(fixture.controller.getState(), "idle");
   assert.equal(fixture.stream.track.stopped, true);
+}));
+
+results.push(await runScenario("voice-fetch-wrapper-upload-and-errors", async () => {
+  const calls = [];
+  const api = loadVoiceApi()({
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      return new Response(JSON.stringify({ text: "브라우저 전사", duration_ms: 1000 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  });
+  const result = await api.transcribe(new Blob([new Uint8Array(512)], { type: "audio/webm" }), {
+    sessionId: "voice-browser",
+    sessionToken: "token",
+    participantId: "participant",
+  });
+  assert.equal(result.text, "브라우저 전사");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/voice/transcribe");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.body.get("session_id"), "voice-browser");
+  assert.equal(calls[0].options.body.get("audio").type, "audio/webm");
+
+  const failingApi = loadVoiceApi()({
+    fetch: async () => new Response(JSON.stringify({ error_code: "audio_too_large" }), {
+      status: 413,
+      headers: { "Content-Type": "application/json" },
+    }),
+  });
+  await assert.rejects(
+    failingApi.transcribe(new Blob([new Uint8Array(512)], { type: "audio/webm" }), {
+      sessionId: "voice-browser",
+    }),
+    (error) => error.code === "audio_too_large" && error.message.includes("10 MiB"),
+  );
+}));
+
+results.push(await runScenario("voice-fetch-wrapper-timeout-and-cancel", async () => {
+  let timeoutSignal;
+  const api = loadVoiceApi()({
+    timeoutMs: 5,
+    fetch: (_url, options) => new Promise((_resolve, reject) => {
+      timeoutSignal = options.signal;
+      options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+  await assert.rejects(
+    api.synthesize("시간 초과"),
+    (error) => error.code === "provider_timeout" && error.message.includes("시간이 초과"),
+  );
+  assert.equal(timeoutSignal.aborted, true);
+
+  const cancelController = new AbortController();
+  const cancelApi = loadVoiceApi()({
+    fetch: (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+  const pending = cancelApi.synthesize("취소", { signal: cancelController.signal });
+  cancelController.abort();
+  await assert.rejects(pending, (error) => error.code === "request_cancelled");
 }));
 
 const html = await readFile(new URL("../static/index.html", import.meta.url), "utf8");
