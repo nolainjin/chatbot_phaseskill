@@ -118,6 +118,17 @@
   var coachingStatusEl = document.getElementById("coaching-status");
   var coachingStageEl = document.getElementById("coaching-stage");
   var coachingNextActionEl = document.getElementById("coaching-next-action");
+  var voiceControlsEl = document.getElementById("voice-controls");
+  var voiceToggleEl = document.getElementById("voice-toggle");
+  var voiceToggleLabelEl = document.getElementById("voice-toggle-label");
+  var voiceStatusEl = document.getElementById("voice-status");
+  var voiceElapsedEl = document.getElementById("voice-elapsed");
+  var voiceReviewEl = document.getElementById("voice-review");
+  var voiceReviewStatusEl = document.getElementById("voice-review-status");
+  var voiceTranscriptEl = document.getElementById("voice-transcript");
+  var voiceRerecordEl = document.getElementById("voice-rerecord");
+  var voiceSendEl = document.getElementById("voice-send");
+  var voiceTextFallbackEl = document.getElementById("voice-text-fallback");
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
@@ -125,6 +136,53 @@
   // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
   var userHasSpoken = false;
   var requestPending = false;
+
+  function formatVoiceElapsed(elapsedMs) {
+    var seconds = Math.floor(Math.max(0, elapsedMs || 0) / 1000);
+    var minutes = Math.floor(seconds / 60);
+    seconds %= 60;
+    return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+  }
+
+  function renderVoiceState(snapshot) {
+    if (!voiceToggleEl || !snapshot) return;
+    var recording = snapshot.state === "recording";
+    var busy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
+    var statusLabels = {
+      idle: "텍스트 입력을 사용할 수 있습니다.",
+      requesting_permission: "마이크 권한을 요청하고 있습니다…",
+      starting: "녹음 준비 중입니다…",
+      recording: "녹음 중입니다. 말씀을 마친 뒤 녹음 종료를 눌러 주세요.",
+      stopping: "녹음 마무리 중입니다…",
+      transcribing: "전사를 준비하고 있어요…",
+      transcript_review: "전사 내용을 확인해 주세요.",
+      sending: "확인한 내용을 보내고 있어요…",
+      ready: "새 음성 입력을 시작할 수 있습니다.",
+      error: "음성 입력을 사용할 수 없습니다.",
+    };
+    voiceStatusEl.textContent = snapshot.status || statusLabels[snapshot.state] || "";
+    voiceElapsedEl.textContent = formatVoiceElapsed(snapshot.elapsedMs);
+    voiceToggleEl.disabled = !snapshot.enabled || busy;
+    voiceToggleEl.setAttribute("aria-pressed", recording ? "true" : "false");
+    voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
+    voiceToggleLabelEl.textContent = recording ? "녹음 종료" : "말하기";
+    if (voiceReviewEl && snapshot.state === "transcript_review") voiceReviewEl.hidden = false;
+  }
+
+  var voiceController = null;
+  if (voiceControlsEl && typeof window.createVoiceController === "function") {
+    voiceController = window.createVoiceController({
+      enabled: false,
+      document: document,
+      onStateChange: renderVoiceState,
+      onRecordingReady: function () {
+        if (voiceReviewEl) voiceReviewEl.hidden = false;
+        if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "녹음이 준비되었습니다. 전사 연결을 기다리고 있습니다.";
+      },
+    });
+    window.lmwikiVoiceController = voiceController;
+    renderVoiceState(voiceController.getSnapshot());
+  }
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -403,6 +461,14 @@
 
   function resetSession() {
     if (requestPending) return;
+    if (voiceController) voiceController.reset();
+    if (voiceReviewEl) voiceReviewEl.hidden = true;
+    if (voiceTranscriptEl) {
+      voiceTranscriptEl.value = "";
+      voiceTranscriptEl.disabled = true;
+    }
+    if (voiceRerecordEl) voiceRerecordEl.disabled = true;
+    if (voiceSendEl) voiceSendEl.disabled = true;
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
     getSessionId();
@@ -521,6 +587,27 @@
     resetSessionEl.addEventListener("click", resetSession);
   }
 
+  if (voiceToggleEl && voiceController) {
+    voiceToggleEl.addEventListener("click", function () {
+      voiceController.toggle();
+    });
+  }
+
+  if (voiceTextFallbackEl && voiceController) {
+    voiceTextFallbackEl.addEventListener("click", function () {
+      voiceController.reset();
+      if (voiceReviewEl) voiceReviewEl.hidden = true;
+      inputEl.focus();
+    });
+  }
+
+  if (voiceRerecordEl && voiceController) {
+    voiceRerecordEl.addEventListener("click", function () {
+      voiceController.reset();
+      voiceController.start();
+    });
+  }
+
   if (chipsEl) {
     chipsEl.querySelectorAll(".chip").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -629,6 +716,10 @@
       if (data && data.mode === "coaching") applyCoachingMode();
       if (data && data.mode === "intake") applyIntakeMode();
       applyUiConfig(data && data.ui);
+      if (data && data.voice && data.voice.enabled === true && voiceController && voiceController.isSupported()) {
+        voiceControlsEl.hidden = false;
+        voiceController.setEnabled(true);
+      }
       if (data && data.mode === "intake" && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;

@@ -107,6 +107,30 @@
         <span>Enter 전송 · Shift+Enter 줄바꿈</span>
         <span id="character-count">0/2000</span>
       </div>
+      <section class="voice-controls" id="voice-controls" aria-labelledby="voice-title" hidden>
+        <div class="voice-toolbar">
+          <button type="button" id="voice-toggle" class="voice-toggle" aria-label="말하기 시작" aria-pressed="false">
+            <span aria-hidden="true">●</span>
+            <span id="voice-toggle-label">말하기</span>
+          </button>
+          <div class="voice-readout">
+            <h2 id="voice-title">음성 입력</h2>
+            <p id="voice-status" class="voice-status" aria-live="polite">텍스트 입력을 사용할 수 있습니다.</p>
+            <span id="voice-elapsed" class="voice-elapsed" aria-live="off">00:00</span>
+          </div>
+        </div>
+        <div class="voice-review" id="voice-review" aria-labelledby="voice-review-title" hidden>
+          <h3 id="voice-review-title">전사 확인</h3>
+          <p id="voice-review-status" class="voice-review-status" aria-live="polite">전사 결과를 확인해 주세요.</p>
+          <label for="voice-transcript" class="sr-only">전사 내용 수정</label>
+          <textarea id="voice-transcript" rows="3" maxlength="2000" disabled></textarea>
+          <div class="voice-review-actions">
+            <button type="button" id="voice-rerecord" disabled>다시 녹음</button>
+            <button type="button" id="voice-send" disabled>이 내용으로 보내기</button>
+            <button type="button" id="voice-text-fallback">텍스트로 입력</button>
+          </div>
+        </div>
+      </section>
     </div>
     <p class="lock-notice">
       <span class="lock-icon" aria-hidden="true">
@@ -124,6 +148,7 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
+  <script src="voice.js?v=1"></script>
   <script src="app.js?v=13"></script>
 </body>
 </html>
