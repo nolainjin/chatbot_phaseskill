@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import chat, voice_api
+from app import chat, ratelimit, voice_api
+import app.main as main
 from app.main import app
 from app.voice_contracts import (
     SynthesizedAudio,
@@ -111,6 +112,22 @@ def test_synthesize_disabled_returns_stable_error_code(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "request_kwargs",
+    [
+        {"data": {}, "files": {"audio": ("sample.wav", make_wav(1000), "audio/wav")}},
+        {"data": {"session_id": "voice-missing-audio"}, "files": {}},
+    ],
+)
+def test_transcribe_requires_multipart_session_and_audio(monkeypatch, fake_providers, request_kwargs):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+
+    response = client.post("/api/voice/transcribe", **request_kwargs)
+
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "invalid_request"
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [("session_id", "../escape"), ("participant_id", "../person")],
 )
@@ -158,6 +175,37 @@ def test_known_session_transcribe_requires_token(monkeypatch, tmp_path, fake_pro
 
     assert response.status_code == 401
     assert response.json()["error_code"] == "session_auth_required"
+
+
+def test_known_session_transcribe_rejects_wrong_token(monkeypatch, tmp_path, fake_providers):
+    monkeypatch.setenv("MODEL", "fake")
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    monkeypatch.chdir(tmp_path)
+    session_id = "voice-known-wrong-token"
+    created = client.post("/api/chat", json={"session_id": session_id, "message": "첫 발화"})
+    assert created.status_code == 200
+
+    response = post_transcribe(session_id, make_wav(1000), token="not-the-session-token")
+
+    assert response.status_code == 401
+    assert response.json()["error_code"] == "session_auth_required"
+
+
+def test_voice_regression_does_not_weaken_chat_rate_limit_contract(monkeypatch, tmp_path):
+    monkeypatch.setenv("MODEL", "fake")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        main,
+        "_rate_limiter",
+        ratelimit.RateLimiter(path=str(tmp_path / "rate-limit.json"), max_per_window=0),
+    )
+
+    response = client.post(
+        "/api/chat", json={"session_id": "voice-rate-limited", "message": "첫 발화"}
+    )
+
+    assert response.status_code == 429
+    assert not chat.has_session("voice-rate-limited")
 
 
 def test_transcribe_rejects_empty_audio(monkeypatch, fake_providers):
@@ -352,4 +400,6 @@ def test_synthesize_returns_one_shot_audio_without_cache(monkeypatch, fake_provi
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["x-voice-duration-ms"] == "1000"
+    assert "set-cookie" not in response.headers
     assert response.content == b"RIFFfake-wav"

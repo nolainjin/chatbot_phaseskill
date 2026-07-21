@@ -1,6 +1,5 @@
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -8,9 +7,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PORT = 8794;
 const BASE = `http://127.0.0.1:${PORT}`;
-const EVIDENCE_DIR = path.join(ROOT, ".omo/evidence");
-const SCREENSHOT = path.join(EVIDENCE_DIR, "task-7-voice-local-demo.png");
-mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 const server = spawn("python3", ["-m", "http.server", String(PORT), "--directory", path.join(ROOT, "static")], { stdio: "ignore" });
 const browser = await chromium.launch({
@@ -31,10 +27,22 @@ async function waitForCount(page, getCount, expected) {
     return Function(`return (${getCountSource})`)()() >= expectedCount;
   }, { getCountSource: getCount.toString(), expectedCount: expected }, { timeout: 5000 });
 }
-async function makePage({ transcript = "로컬 음성 전사", chatFailure = false, ttsFailure = false, delayedTranscribe = false } = {}) {
+async function makePage({
+  transcript = "로컬 음성 전사",
+  chatFailure = false,
+  chatFailureStatus = 500,
+  chatFailureCode = "provider_unavailable",
+  ttsFailure = false,
+  transcribeFailureStatus = 0,
+  transcribeFailureCode = "provider_unavailable",
+  networkDenied = false,
+  delayedTranscribe = false,
+} = {}) {
   const context = await browser.newContext({ permissions: ["microphone"] });
   const page = await context.newPage();
   const counts = { transcribe: 0, chat: [], synthesize: 0 };
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.addInitScript(() => {
     window.__revokedUrls = [];
     const originalRevoke = URL.revokeObjectURL.bind(URL);
@@ -52,13 +60,29 @@ async function makePage({ transcript = "로컬 음성 전사", chatFailure = fal
   }));
   await page.route("**/api/voice/transcribe", async (route) => {
     counts.transcribe += 1;
+    if (networkDenied) {
+      await route.abort("failed");
+      return;
+    }
+    if (transcribeFailureStatus) {
+      await route.fulfill({
+        status: transcribeFailureStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ error_code: transcribeFailureCode }),
+      });
+      return;
+    }
     if (delayedTranscribe) await sleep(300);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: transcript }) });
   });
   await page.route("**/api/chat", async (route) => {
     counts.chat.push(JSON.parse(route.request().postData() || "{}"));
     if (chatFailure && counts.chat.length === 1) {
-      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "fake chat failure" }) });
+      await route.fulfill({
+        status: chatFailureStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ error_code: chatFailureCode, detail: "fake chat failure" }),
+      });
       return;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: "확인된 응답입니다.", turn: 1, session_token: "fake-session-token", intake: null }) });
@@ -73,7 +97,7 @@ async function makePage({ transcript = "로컬 음성 전사", chatFailure = fal
   });
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#voice-controls:not([hidden])", { timeout: 5000 });
-  return { page, context, counts };
+  return { page, context, counts, pageErrors };
 }
 async function record(page) {
   await page.locator("#voice-toggle").click();
@@ -90,7 +114,6 @@ try {
   if (success.counts.chat.length !== 0) throw new Error("/api/chat called before transcript confirmation");
   if (await success.page.locator("#message-input").inputValue() !== "미리 입력한 텍스트") throw new Error("typed input was not preserved");
   pass("zero chat before confirmation", { chat_calls: 0 });
-  await success.page.screenshot({ path: SCREENSHOT, fullPage: true });
   await success.page.locator("#voice-edit").click();
   await success.page.locator("#voice-transcript").fill("수정한 음성 내용");
   await success.page.locator("#voice-send").click();
@@ -123,6 +146,26 @@ try {
   pass("chat error preserves confirmed transcript", { chat_calls: retry.counts.chat.length });
   await retry.context.close();
 
+  for (const failure of [
+    { name: "chat-429", status: 429, code: "provider_unavailable" },
+    { name: "chat-401", status: 401, code: "session_auth_required" },
+  ]) {
+    const page = await makePage({
+      chatFailure: true,
+      chatFailureStatus: failure.status,
+      chatFailureCode: failure.code,
+    });
+    await record(page.page);
+    const confirmed = await page.page.locator("#voice-transcript").inputValue();
+    await page.page.locator("#voice-send").click();
+    await page.page.waitForFunction(() => document.querySelector("#voice-review-status").textContent.includes("전송에 실패"), null, { timeout: 5000 });
+    if (await page.page.locator("#voice-transcript").inputValue() !== confirmed) throw new Error(`${failure.name} dropped transcript`);
+    if (page.counts.chat.length !== 1) throw new Error(`${failure.name} duplicated chat request`);
+    if (page.pageErrors.length) throw new Error(`${failure.name} uncaught page error: ${page.pageErrors.join(" | ")}`);
+    pass(`${failure.name} preserves review and avoids duplicate chat`, { status: failure.status, chat_calls: page.counts.chat.length });
+    await page.context.close();
+  }
+
   const ttsError = await makePage({ ttsFailure: true });
   await record(ttsError.page);
   await ttsError.page.locator("#voice-send").click();
@@ -133,6 +176,22 @@ try {
   pass("tts error keeps assistant text", { synthesize_calls: ttsError.counts.synthesize });
   await ttsError.context.close();
 
+  for (const failure of [
+    { name: "sidecar-absent", options: { transcribeFailureStatus: 503, transcribeFailureCode: "provider_unavailable" } },
+    { name: "network-denied", options: { networkDenied: true } },
+  ]) {
+    const page = await makePage(failure.options);
+    await page.page.locator("#voice-toggle").click();
+    await page.page.waitForFunction(() => document.querySelector("#voice-toggle").getAttribute("aria-pressed") === "true", null, { timeout: 5000 });
+    await sleep(950);
+    await page.page.locator("#voice-toggle").click();
+    await page.page.waitForFunction(() => document.querySelector("#voice-status").textContent.includes("사용할 수 없") || document.querySelector("#voice-status").textContent.includes("연결하지 못"), null, { timeout: 7000 });
+    if (page.counts.chat.length !== 0) throw new Error(`${failure.name} called /api/chat`);
+    if (page.pageErrors.length) throw new Error(`${failure.name} uncaught page error: ${page.pageErrors.join(" | ")}`);
+    pass(`${failure.name} fails closed with text path intact`, { transcribe_calls: page.counts.transcribe, chat_calls: 0 });
+    await page.context.close();
+  }
+
   const stale = await makePage({ delayedTranscribe: true });
   await stale.page.locator("#voice-toggle").click();
   await stale.page.waitForFunction(() => document.querySelector("#voice-toggle").getAttribute("aria-pressed") === "true", null, { timeout: 5000 });
@@ -142,9 +201,13 @@ try {
   await stale.page.locator("#reset-session").click();
   await sleep(450);
   if (!(await stale.page.locator("#voice-review").isHidden())) throw new Error("stale callback restored review after reset");
+  if (stale.pageErrors.length) throw new Error(`stale reset uncaught page error: ${stale.pageErrors.join(" | ")}`);
   pass("reset blocks stale transcription callback");
   await stale.context.close();
-  console.log(JSON.stringify({ task: "T7", result: "pass", screenshot: SCREENSHOT, scenarios: results }));
+  for (const item of [success, overlong, retry, ttsError]) {
+    if (item.pageErrors.length) throw new Error(`uncaught page error: ${item.pageErrors.join(" | ")}`);
+  }
+  console.log(JSON.stringify({ task: "T8", result: "pass", scenarios: results, generated_artifacts: [] }));
 } finally {
   await browser.close().catch(() => {});
   server.kill("SIGTERM");

@@ -4,6 +4,9 @@ import { performance } from "node:perf_hooks";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../static/voice.js", import.meta.url), "utf8");
+const scenarioIndex = process.argv.indexOf("--scenario");
+const requestedScenario = scenarioIndex === -1 ? "all" : process.argv[scenarioIndex + 1];
+assert.ok(["all", "hostile-events"].includes(requestedScenario), `unknown scenario: ${requestedScenario}`);
 
 class FakeTrack {
   constructor() {
@@ -135,7 +138,7 @@ function loadVoiceApi() {
   return sandbox.createVoiceApi;
 }
 
-function createFixture({ transcribe, document, getUserMedia, stream: suppliedStream } = {}) {
+function createFixture({ transcribe, document, getUserMedia, stream: suppliedStream, onTranscriptReady } = {}) {
   let clock = 0;
   const stream = suppliedStream || new FakeStream();
   const events = [];
@@ -159,6 +162,7 @@ function createFixture({ transcribe, document, getUserMedia, stream: suppliedStr
       events.push("recording-ready");
       transcriptions.push(blob);
     },
+    onTranscriptReady,
     transcribe: transcribe || (async () => {
       events.push("transcribe");
       return { text: "테스트 전사" };
@@ -220,6 +224,28 @@ results.push(await runScenario("permission-denied-and-no-device", async () => {
   assert.equal(missing.controller.getState(), "error");
 }));
 
+results.push(await runScenario("starting-stop-race", async () => {
+  FakeRecorder.instances.length = 0;
+  let resolvePermission;
+  const permission = new Promise((resolve) => { resolvePermission = resolve; });
+  const lateStream = new FakeStream();
+  const fixture = createFixture({
+    getUserMedia: () => permission,
+    stream: lateStream,
+  });
+  const starting = fixture.controller.start();
+  await flush();
+  assert.equal(fixture.controller.getState(), "requesting_permission");
+  assert.equal(fixture.controller.stop(), false);
+  fixture.controller.reset();
+  resolvePermission(lateStream);
+  assert.equal(await starting, false);
+  assert.equal(fixture.controller.getState(), "idle");
+  assert.equal(lateStream.track.stopped, true);
+  assert.equal(FakeRecorder.instances.length, 0);
+  assert.deepEqual(fixture.events, []);
+}));
+
 results.push(await runScenario("data-before-stop", async () => {
   const fixture = createFixture({
     transcribe: async () => {
@@ -254,8 +280,10 @@ results.push(await runScenario("track-ended-during-recording", async () => {
 
 results.push(await runScenario("reset-during-transcribe", async () => {
   let resolveTranscribe;
+  let transcriptCallbacks = 0;
   const fixture = createFixture({
     transcribe: () => new Promise((resolve) => { resolveTranscribe = resolve; }),
+    onTranscriptReady: () => { transcriptCallbacks += 1; },
   });
   const recorder = await begin(fixture);
   fixture.clock.advance(900);
@@ -268,6 +296,7 @@ results.push(await runScenario("reset-during-transcribe", async () => {
   resolveTranscribe({ text: "late" });
   await flush();
   assert.equal(fixture.controller.getState(), "idle");
+  assert.equal(transcriptCallbacks, 0);
   assert.equal(fixture.stream.track.stopped, true);
 }));
 
@@ -388,11 +417,13 @@ assert.match(html, /id="voice-review"[^>]+hidden/);
 assert.match(html, /<button type="button" id="voice-send"/);
 assert.match(html, /<script src="voice\.js\?v=1"><\/script>/);
 assert.doesNotMatch(source, /\/api\/chat/);
+assert.doesNotMatch(source, /SpeechRecognition/);
 assert.doesNotMatch(source, /pointerdown|pointerup|silence/i);
 assert.match(app, /requestPending/);
 assert.match(app, /voiceController\.setEnabled\(true\)/);
 
 console.log(JSON.stringify({
+  scenario: requestedScenario,
   scenarios: results,
   stateMachine: loadFactory()({
     AbortController,
@@ -407,6 +438,7 @@ console.log(JSON.stringify({
     "final dataavailable precedes transcribe seam",
     "empty and metadata-only audio rejected",
     "reset invalidates late transcribe callbacks",
+    "permission resolution after reset stops the late stream without creating a recorder",
     "pagehide stops microphone tracks",
     "voice controller never calls /api/chat",
     "accessible button/status/review controls present",
