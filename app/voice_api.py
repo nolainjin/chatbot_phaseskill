@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Final
 
-from fastapi import APIRouter, File, Form, UploadFile
+import anyio
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
+from starlette.datastructures import UploadFile
 
 from app import chat, storage
 from app.config import Settings
+from app.voice_boundary import (
+    declared_body_too_large,
+    is_loopback_client,
+    prepare_transcription_audio,
+)
 from app.voice_contracts import (
     MAX_AUDIO_BYTES,
     MAX_AUDIO_DURATION_MS,
@@ -25,7 +33,6 @@ from app.voice_contracts import (
     VoiceErrorCode,
     VoiceErrorResponse,
     VoiceProviderError,
-    decode_wav_duration_ms,
     validate_synthesized_audio,
 )
 
@@ -43,6 +50,17 @@ def _error(code: VoiceErrorCode, status_code: int, detail: str) -> JSONResponse:
 
 def _voice_enabled() -> bool:
     return Settings.from_env().voice_enabled
+
+
+def _require_local(request: Request) -> JSONResponse | None:
+    host = request.client.host if request.client is not None else None
+    if is_loopback_client(host):
+        return None
+    return _error(
+        VoiceErrorCode.LOCAL_ONLY_VIOLATION,
+        403,
+        "음성 API는 로컬 요청만 허용합니다.",
+    )
 
 
 def _validate_session_metadata(
@@ -83,27 +101,44 @@ def _validate_session_metadata(
 
 @router.post("/transcribe", response_model=None)
 async def transcribe(
-    session_id: str | None = Form(default=None),
-    session_token: str | None = Form(default=None),
-    participant_id: str | None = Form(default=None),
-    audio: UploadFile | None = File(default=None),
+    request: Request,
 ) -> Response | TranscriptionResponse:
+    local_error = _require_local(request)
+    if local_error is not None:
+        return local_error
     if not _voice_enabled():
         return _error(
             VoiceErrorCode.VOICE_DISABLED,
             VOICE_HTTP_STATUS,
             "음성 기능이 비활성화되어 있습니다.",
         )
-    if session_id is None or audio is None:
+    if declared_body_too_large(request.headers.get("content-length")):
         return _error(
-            VoiceErrorCode.INVALID_REQUEST,
-            400,
-            "session_id와 audio가 필요합니다.",
+            VoiceErrorCode.AUDIO_TOO_LARGE, 413, "오디오가 10 MiB를 초과합니다."
         )
-    metadata_error = _validate_session_metadata(session_id, session_token, participant_id)
-    if metadata_error is not None:
-        return metadata_error
+    form = await request.form()
     try:
+        session_id_value = form.get("session_id")
+        session_token_value = form.get("session_token")
+        participant_id_value = form.get("participant_id")
+        audio_value = form.get("audio")
+        session_id = session_id_value if isinstance(session_id_value, str) else None
+        session_token = session_token_value if isinstance(session_token_value, str) else None
+        participant_id = (
+            participant_id_value if isinstance(participant_id_value, str) else None
+        )
+        audio = audio_value if isinstance(audio_value, UploadFile) else None
+        if session_id is None or audio is None:
+            return _error(
+                VoiceErrorCode.INVALID_REQUEST,
+                400,
+                "session_id와 audio가 필요합니다.",
+            )
+        metadata_error = _validate_session_metadata(
+            session_id, session_token, participant_id
+        )
+        if metadata_error is not None:
+            return metadata_error
         payload = await audio.read(MAX_AUDIO_BYTES + 1)
         if len(payload) > MAX_AUDIO_BYTES:
             return _error(
@@ -112,22 +147,31 @@ async def transcribe(
         if not payload:
             return _error(VoiceErrorCode.INVALID_AUDIO, 400, "오디오가 비어 있습니다.")
         try:
-            duration_ms = decode_wav_duration_ms(payload)
+            prepared = await anyio.to_thread.run_sync(
+                prepare_transcription_audio,
+                payload,
+                audio.content_type,
+                os.getenv("VOICE_FFMPEG_BIN", "ffmpeg"),
+            )
         except AudioDecodeError:
             return _error(
                 VoiceErrorCode.INVALID_AUDIO, 400, "지원하지 않는 오디오 형식입니다."
             )
-        if duration_ms < MIN_AUDIO_DURATION_MS:
+        if prepared.duration_ms < MIN_AUDIO_DURATION_MS:
             return _error(
                 VoiceErrorCode.AUDIO_TOO_SHORT, 400, "오디오는 800ms 이상이어야 합니다."
             )
-        if duration_ms > MAX_AUDIO_DURATION_MS:
+        if prepared.duration_ms > MAX_AUDIO_DURATION_MS:
             return _error(
                 VoiceErrorCode.AUDIO_TOO_LONG, 400, "오디오는 60초 이하여야 합니다."
             )
         started = time.perf_counter()
         try:
-            raw_provider_output = transcription_provider.transcribe(payload, audio.content_type)
+            raw_provider_output = await anyio.to_thread.run_sync(
+                transcription_provider.transcribe,
+                prepared.content,
+                prepared.content_type,
+            )
         except AudioDecodeError:
             return _error(
                 VoiceErrorCode.INVALID_AUDIO,
@@ -148,7 +192,7 @@ async def transcribe(
             result = TranscriptionResponse(
                 text=provider_output.text,
                 language=provider_output.language,
-                duration_ms=duration_ms,
+                duration_ms=prepared.duration_ms,
                 model=provider_output.model,
                 provider=provider_output.provider,
                 latency_ms=round((time.perf_counter() - started) * 1000),
@@ -161,11 +205,14 @@ async def transcribe(
             )
         return result
     finally:
-        await audio.close()
+        await form.close()
 
 
 @router.post("/synthesize", response_model=None)
-def synthesize(payload: SynthesizeRequest) -> Response:
+def synthesize(request: Request, payload: SynthesizeRequest) -> Response:
+    local_error = _require_local(request)
+    if local_error is not None:
+        return local_error
     if not _voice_enabled():
         return _error(
             VoiceErrorCode.VOICE_DISABLED,

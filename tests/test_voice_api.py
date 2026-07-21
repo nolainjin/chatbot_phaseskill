@@ -1,20 +1,26 @@
 import io
+import math
+import struct
+import subprocess
 import sys
 import wave
 from pathlib import Path
 
 import pytest
+import sniffio
 from fastapi.testclient import TestClient
 
 from app import chat, ratelimit, voice_api
 import app.main as main
 from app.main import app
 from app.voice_contracts import (
+    MAX_AUDIO_BYTES,
     SynthesizedAudio,
     TranscriptionProviderOutput,
     VoiceLocalOnlyViolation,
     VoiceProviderTimeout,
     VoiceProviderUnavailable,
+    decode_wav_duration_ms,
 )
 from app.voice_provider import SidecarVoiceProvider
 from voice_runtime.sidecar import SidecarConfig, SidecarManager
@@ -34,6 +40,54 @@ def make_wav(duration_ms: int, sample_rate: int = 16_000) -> bytes:
     return buffer.getvalue()
 
 
+def make_non_silent_wav(duration_ms: int, sample_rate: int = 16_000) -> bytes:
+    frames = round(sample_rate * duration_ms / 1000)
+    samples = b"".join(
+        struct.pack("<h", round(8_000 * math.sin(2 * math.pi * 440 * index / sample_rate)))
+        for index in range(frames)
+    )
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(samples)
+    return buffer.getvalue()
+
+
+def transcode_browser_audio(wav: bytes, media_type: str) -> bytes:
+    output_args = {
+        "audio/webm": ["-c:a", "libopus", "-f", "webm"],
+        "audio/mp4": [
+            "-c:a",
+            "aac",
+            "-movflags",
+            "frag_keyframe+empty_moov",
+            "-f",
+            "mp4",
+        ],
+    }[media_type]
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-f",
+            "wav",
+            "-i",
+            "pipe:0",
+            "-vn",
+            *output_args,
+            "pipe:1",
+        ],
+        input=wav,
+        check=True,
+        capture_output=True,
+    )
+    return completed.stdout
+
+
 class FakeTranscriber:
     def __init__(
         self,
@@ -44,8 +98,19 @@ class FakeTranscriber:
             text="첫 음성 전사", language="ko", model="fake-stt", provider="fake-local"
         )
         self.error = error
+        self.received_audio: bytes | None = None
+        self.received_content_type: str | None = None
+        self.ran_in_async_context: bool | None = None
 
     def transcribe(self, audio: bytes, content_type: str | None) -> TranscriptionProviderOutput:
+        self.received_audio = audio
+        self.received_content_type = content_type
+        try:
+            sniffio.current_async_library()
+        except sniffio.AsyncLibraryNotFoundError:
+            self.ran_in_async_context = False
+        else:
+            self.ran_in_async_context = True
         if self.error is not None:
             raise self.error
         return self.result
@@ -82,14 +147,21 @@ def fake_providers(monkeypatch):
     monkeypatch.setattr(voice_api, "synthesis_provider", FakeSynthesizer())
 
 
-def post_transcribe(session_id: str, audio: bytes, token: str | None = None):
+def post_transcribe(
+    session_id: str,
+    audio: bytes,
+    token: str | None = None,
+    *,
+    media_type: str = "audio/wav",
+    test_client: TestClient = client,
+):
     data = {"session_id": session_id}
     if token is not None:
         data["session_token"] = token
-    return client.post(
+    return test_client.post(
         "/api/voice/transcribe",
         data=data,
-        files={"audio": ("sample.wav", audio, "audio/wav")},
+        files={"audio": ("sample.audio", audio, media_type)},
     )
 
 
@@ -215,6 +287,125 @@ def test_transcribe_rejects_empty_audio(monkeypatch, fake_providers):
 
     assert response.status_code == 400
     assert response.json()["error_code"] == "invalid_audio"
+
+
+@pytest.mark.parametrize("media_type", ["audio/webm", "audio/mp4"])
+def test_transcribe_accepts_real_browser_mediarecorder_containers(
+    monkeypatch, media_type
+):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    fake = FakeTranscriber()
+    monkeypatch.setattr(voice_api, "transcription_provider", fake)
+    browser_audio = transcode_browser_audio(make_non_silent_wav(1000), media_type)
+
+    response = post_transcribe(
+        f"voice-browser-{media_type.removeprefix('audio/')}",
+        browser_audio,
+        media_type=media_type,
+    )
+
+    assert response.status_code == 200
+    assert fake.received_audio is not None
+    assert fake.received_audio.startswith(b"RIFF")
+    assert fake.received_content_type == "audio/wav"
+    assert response.json()["duration_ms"] == decode_wav_duration_ms(fake.received_audio)
+
+
+def test_transcribe_runs_blocking_provider_outside_async_context(monkeypatch):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    fake = FakeTranscriber()
+    monkeypatch.setattr(voice_api, "transcription_provider", fake)
+
+    response = post_transcribe("voice-worker-thread", make_wav(1000))
+
+    assert response.status_code == 200
+    assert fake.ran_in_async_context is False
+
+
+@pytest.mark.parametrize("path", ["/api/voice/transcribe", "/api/voice/synthesize"])
+def test_voice_endpoints_reject_non_loopback_peer_even_with_forwarded_loopback(
+    monkeypatch, fake_providers, path
+):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    remote_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        client=("203.0.113.10", 50000),
+    )
+    headers = {"X-Forwarded-For": "127.0.0.1"}
+
+    if path.endswith("transcribe"):
+        response = remote_client.post(
+            path,
+            data={"session_id": "voice-remote"},
+            files={"audio": ("sample.wav", make_wav(1000), "audio/wav")},
+            headers=headers,
+        )
+    else:
+        response = remote_client.post(path, json={"text": "원격 요청"}, headers=headers)
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "local_only_violation"
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "testclient"])
+def test_synthesize_permits_ipv4_ipv6_and_testclient_loopback(
+    monkeypatch, fake_providers, host
+):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    local_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        client=(host, 50000),
+    )
+
+    response = local_client.post(
+        "/api/voice/synthesize",
+        json={"text": "로컬 요청"},
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_transcribe_rejects_declared_oversize_before_multipart_parse(monkeypatch):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+
+    response = client.post(
+        "/api/voice/transcribe",
+        content=b"this is intentionally not a parsed multipart body",
+        headers={
+            "Content-Type": "multipart/form-data; boundary=voice-boundary",
+            "Content-Length": str(MAX_AUDIO_BYTES + 1),
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error_code"] == "audio_too_large"
+
+
+def test_transcribe_keeps_post_read_cap_without_content_length(monkeypatch):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    boundary = b"voice-chunked-boundary"
+    prefix = (
+        b"--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="session_id"\r\n\r\n'
+        + b"voice-chunked\r\n--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="audio"; filename="sample.wav"\r\n'
+        + b"Content-Type: audio/wav\r\n\r\n"
+    )
+    suffix = b"\r\n--" + boundary + b"--\r\n"
+
+    response = client.post(
+        "/api/voice/transcribe",
+        content=iter([prefix, b"x" * (MAX_AUDIO_BYTES + 1), suffix]),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode()}"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error_code"] == "audio_too_large"
 
 
 def test_real_sidecar_transcribe_maps_silent_audio_to_invalid_audio_and_cleans_temp(
