@@ -286,6 +286,8 @@ def _handle_addiction_route(
     assessment: addiction.AddictionAssessment,
     schema: intake.Schema,
     participant_id: str,
+    *,
+    include_user_in_model_context: bool = True,
 ) -> dict:
     """일반 상담 대신 결정론적 전문기관 안내를 저장하고 반환한다."""
     followup = session.slots.get("track") == "중독"
@@ -296,7 +298,10 @@ def _handle_addiction_route(
     ):
         severity = previous_severity
 
-    normalized_message = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+    model_context_message = message if include_user_in_model_context else "중독 관련 도움 요청"
+    normalized_message = " ".join(model_context_message.split())[
+        : intake._MAX_SLOT_VALUE_LEN
+    ]
     session.slots.update(
         {
             "track": "중독",
@@ -314,7 +319,8 @@ def _handle_addiction_route(
     reply = addiction.build_reply(routed_assessment, followup=followup)
     storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
     storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
-    session.history.append({"role": "user", "content": message})
+    if include_user_in_model_context:
+        session.history.append({"role": "user", "content": message})
     session.history.append({"role": "assistant", "content": reply})
     session.turns += 1
     session.last_question_slot_id = None
@@ -388,6 +394,7 @@ def handle_message(
                     assessment,
                     schema,
                     effective_participant_id,
+                    include_user_in_model_context=False,
                 )
             else:
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
