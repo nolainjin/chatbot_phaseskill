@@ -9,7 +9,7 @@ VOICE_TTS_VOICE: Final = "Yuna"
 VOICE_TTS_MODEL: Final = f"macos-say:{VOICE_TTS_VOICE}"
 VOICE_MIN_RECORDING_MS: Final = 800
 VOICE_MAX_RECORDING_MS: Final = 60000
-VOICE_SILENCE_AUTO_STOP: Final = False
+VOICE_SILENCE_AUTO_STOP: Final = True
 
 
 def _parse_env_bool(raw_value: str | None) -> bool:

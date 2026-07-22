@@ -45,8 +45,8 @@ def _assert_interaction_mode_radios(document: ET.Element) -> None:
     radio_label_ids = [label.attrib.get("for") for label in mode_switch.iter("label")]
 
     assert mode_switch.attrib.get("role") == "radiogroup"
-    assert "hidden" in mode_switch.attrib
-    assert "inert" in mode_switch.attrib
+    assert "hidden" not in mode_switch.attrib
+    assert "inert" not in mode_switch.attrib
     assert label_id and "".join(_element_by_id(document, label_id).itertext()).strip()
     assert radio_ids == ["interaction-mode-chat", "interaction-mode-voice"]
     assert radio_label_ids == radio_ids
@@ -54,6 +54,8 @@ def _assert_interaction_mode_radios(document: ET.Element) -> None:
     assert [radio.attrib.get("id") for radio in radios if "checked" in radio.attrib] == [
         "interaction-mode-chat"
     ]
+    labels = ["".join(label.itertext()).strip() for label in mode_switch.iter("label")]
+    assert labels == ["채팅 모드", "음성 모드"]
 
 
 def _assert_interaction_surfaces(document: ET.Element) -> None:
@@ -86,6 +88,8 @@ def _assert_interaction_surfaces(document: ET.Element) -> None:
             "voice-controls",
             "voice-toggle",
             "voice-review",
+            "voice-live-panel",
+            "voice-live-bars",
             "voice-transcript",
             "voice-send",
         )
@@ -108,7 +112,7 @@ def test_root_serves_app_js():
     assert "sendMessage" in response.text
 
 
-def test_root_serves_hidden_labeled_interaction_mode_radios():
+def test_root_serves_labeled_interaction_mode_radios():
     # Given: the server-rendered application shell.
     response = client.get("/")
 
@@ -159,10 +163,12 @@ def test_dual_mode_css_has_accessible_states_and_mobile_overflow_guards():
     assert ".interaction-mode-option:focus-within" in source
     assert ".interaction-mode-input:checked" in source
     assert ".interaction-mode-input:disabled" in source
+    assert ".interaction-mode-switch[data-voice-available=\"false\"]" in source
     assert all(
         f'[data-voice-state="{state}"]' in source
         for state in ("recording", "review", "ready", "error")
     )
+    assert ".voice-live-bars" in source
     assert "max-width: 100%;" in source
     assert ".interaction-mode-option" in mobile_source
     assert "min-width: 0;" in mobile_source

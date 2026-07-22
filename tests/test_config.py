@@ -118,7 +118,7 @@ def test_config_reports_exact_default_profiles_without_provider_calls(
         "tts": "macos-say:Yuna",
         "min_recording_ms": 800,
         "max_recording_ms": 60000,
-        "silence_auto_stop": False,
+        "silence_auto_stop": True,
     }
 
 

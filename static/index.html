@@ -91,8 +91,6 @@
         id="interaction-mode-switch"
         role="radiogroup"
         aria-labelledby="interaction-mode-label"
-        hidden
-        inert
       >
         <legend class="sr-only" id="interaction-mode-label">대화 방식</legend>
         <div class="interaction-mode-options">
@@ -105,7 +103,7 @@
               value="chat"
               checked
             />
-            <span class="interaction-mode-label">채팅</span>
+            <span class="interaction-mode-label">채팅 모드</span>
           </label>
           <label class="interaction-mode-option" for="interaction-mode-voice">
             <input
@@ -115,7 +113,7 @@
               name="interaction-mode"
               value="voice"
             />
-            <span class="interaction-mode-label">음성</span>
+            <span class="interaction-mode-label">음성 모드</span>
           </label>
         </div>
       </fieldset>
@@ -162,6 +160,23 @@
               <span id="voice-elapsed" class="voice-elapsed" aria-live="off">00:00</span>
             </div>
           </div>
+          <div class="voice-live-panel" id="voice-live-panel" aria-hidden="true" hidden>
+            <div class="voice-live-bars" id="voice-live-bars">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <p class="voice-live-hint" id="voice-live-hint">듣는 중 · 말이 멈추면 자동으로 전사합니다</p>
+          </div>
           <div class="voice-review" id="voice-review" aria-labelledby="voice-review-title" hidden>
             <h3 id="voice-review-title">전사 확인</h3>
             <p id="voice-review-status" class="voice-review-status" aria-live="polite">전사 결과를 확인해 주세요.</p>
@@ -194,9 +209,9 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="voice.js?v=2"></script>
+  <script src="voice.js?v=3"></script>
   <script src="interaction-mode.js?v=1"></script>
   <script src="tts.js?v=1"></script>
-  <script src="app.js?v=14"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

@@ -129,6 +129,9 @@
   var voiceToggleLabelEl = document.getElementById("voice-toggle-label");
   var voiceStatusEl = document.getElementById("voice-status");
   var voiceElapsedEl = document.getElementById("voice-elapsed");
+  var voiceLivePanelEl = document.getElementById("voice-live-panel");
+  var voiceLiveBarsEl = document.getElementById("voice-live-bars");
+  var voiceLiveHintEl = document.getElementById("voice-live-hint");
   var voiceReviewEl = document.getElementById("voice-review");
   var voiceReviewStatusEl = document.getElementById("voice-review-status");
   var voiceTranscriptEl = document.getElementById("voice-transcript");
@@ -238,17 +241,20 @@
     var voiceAvailable = snapshot.voiceCapability === true;
     var voiceActive = voiceAvailable && snapshot.interactionMode === "voice";
     if (interactionModeSwitchEl) {
-      interactionModeSwitchEl.hidden = !voiceAvailable;
-      setElementInert(interactionModeSwitchEl, !voiceAvailable);
+      interactionModeSwitchEl.hidden = false;
+      setElementInert(interactionModeSwitchEl, false);
       interactionModeSwitchEl.dataset.state = snapshot.voicePhase;
+      interactionModeSwitchEl.dataset.voiceAvailable = voiceAvailable ? "true" : "false";
     }
     if (interactionModeChatEl) {
       interactionModeChatEl.checked = !voiceActive;
-      interactionModeChatEl.disabled = !voiceAvailable;
+      interactionModeChatEl.disabled = false;
+      interactionModeChatEl.title = "";
     }
     if (interactionModeVoiceEl) {
       interactionModeVoiceEl.checked = voiceActive;
       interactionModeVoiceEl.disabled = !voiceAvailable;
+      interactionModeVoiceEl.title = voiceAvailable ? "" : "로컬 음성 서버가 준비되면 사용할 수 있습니다.";
     }
     if (chatSurfaceEl) {
       chatSurfaceEl.hidden = voiceActive;
@@ -259,6 +265,7 @@
       setElementInert(voiceSurfaceEl, !voiceActive);
       voiceSurfaceEl.dataset.voiceState = snapshot.voicePhase === "idle" ? "ready" : snapshot.voicePhase;
     }
+    if (!voiceActive && voiceLivePanelEl) voiceLivePanelEl.hidden = true;
     if (!shouldFocus) return;
     if (voiceActive && voiceToggleEl) voiceToggleEl.focus();
     if (!voiceActive && inputEl) inputEl.focus();
@@ -344,6 +351,42 @@
     return "idle";
   }
 
+  function renderVoiceLevel(snapshot) {
+    if (!voiceLivePanelEl) return;
+    var state = snapshot && snapshot.state;
+    var liveVisible = state === "recording" || state === "stopping" || state === "transcribing";
+    voiceLivePanelEl.hidden = !liveVisible;
+    if (!liveVisible) return;
+
+    var rawLevel = Number(snapshot.level);
+    var level = Number.isFinite(rawLevel) ? Math.max(0, Math.min(1, rawLevel)) : 0;
+    voiceLivePanelEl.style.setProperty("--voice-level", level.toFixed(2));
+
+    if (voiceLiveBarsEl) {
+      var bars = voiceLiveBarsEl.children;
+      var activeBars = Math.ceil(level * bars.length);
+      for (var index = 0; index < bars.length; index += 1) {
+        var bar = bars[index];
+        var active = state === "recording" && index < activeBars;
+        var scale = active ? Math.max(0.3, level + (index % 4) * 0.07) : 0.22;
+        bar.dataset.active = active ? "true" : "false";
+        bar.style.transform = "scaleY(" + Math.min(1, scale).toFixed(2) + ")";
+      }
+    }
+
+    if (voiceLiveHintEl) {
+      if (state === "recording") {
+        voiceLiveHintEl.textContent = snapshot.silenceAutoStop
+          ? "듣는 중 · 말이 멈추면 자동으로 전사합니다"
+          : "듣는 중 · 녹음 종료를 누르면 전사합니다";
+      } else if (state === "transcribing") {
+        voiceLiveHintEl.textContent = "전사 중 · 잠시만 기다려 주세요";
+      } else {
+        voiceLiveHintEl.textContent = "녹음을 마무리하고 있습니다";
+      }
+    }
+  }
+
   function renderVoiceState(snapshot) {
     if (!voiceToggleEl || !snapshot) return;
     if (interactionModeController && !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
@@ -352,7 +395,7 @@
       idle: "새 음성 입력을 시작할 수 있습니다.",
       requesting_permission: "마이크 권한을 요청하고 있습니다…",
       starting: "녹음 준비 중입니다…",
-      recording: "녹음 중입니다. 말씀을 마친 뒤 녹음 종료를 눌러 주세요.",
+      recording: "듣고 있어요. 말이 멈추면 자동으로 전사합니다.",
       stopping: "녹음 마무리 중입니다…",
       transcribing: "전사를 준비하고 있어요…",
       transcript_review: "전사 내용을 확인해 주세요.",
@@ -362,6 +405,7 @@
     };
     voiceStatusEl.textContent = snapshot.status || statusLabels[snapshot.state] || "";
     voiceElapsedEl.textContent = formatVoiceElapsed(snapshot.elapsedMs);
+    renderVoiceLevel(snapshot);
     syncVoiceToggleAvailability(snapshot);
     voiceToggleEl.setAttribute("aria-pressed", recording ? "true" : "false");
     voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
@@ -398,6 +442,9 @@
     }
     voiceController = window.createVoiceController({
       enabled: false,
+      silenceAutoStop: true,
+      silenceAfterMs: 1600,
+      silenceGraceMs: 1200,
       document: document,
       transcribe: function (blob, metadata) {
         if (!voiceApi) return Promise.reject(new Error("음성 API가 준비되지 않았습니다."));

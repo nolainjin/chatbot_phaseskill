@@ -311,9 +311,11 @@ try {
   await restored.context.close();
 
   const unsupported = await makePage({ supportVoice: false, storedMode: "voice" });
-  assert(await unsupported.page.locator("#interaction-mode-switch").isHidden(), "unsupported mode selector remained visible");
+  assert(await unsupported.page.locator("#interaction-mode-switch").isVisible(), "unsupported mode selector was hidden");
+  assert(await unsupported.page.locator("#interaction-mode-chat").isEnabled(), "chat mode was disabled in unsupported browser");
+  assert(await unsupported.page.locator("#interaction-mode-voice").isDisabled(), "unsupported browser left Voice mode enabled");
   assert(await unsupported.page.locator("#interaction-mode-chat").isChecked(), "unsupported browser did not fall back to Chat");
-  pass("capability-browser-unsupported-chat-fallback", { active_mode: "chat", selector_hidden: true });
+  pass("capability-browser-unsupported-chat-fallback", { active_mode: "chat", selector_visible: true, voice_disabled: true });
   await unsupported.context.close();
 
   const success = await makePage({});

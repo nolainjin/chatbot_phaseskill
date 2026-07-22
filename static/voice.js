@@ -17,6 +17,10 @@
   var DEFAULT_MAX_RECORDING_MS = 60 * 1000;
   var DEFAULT_MIN_AUDIO_BYTES = 256;
   var DEFAULT_CLICK_DEBOUNCE_MS = 220;
+  var DEFAULT_SILENCE_THRESHOLD = 0.035;
+  var DEFAULT_SILENCE_AFTER_MS = 1600;
+  var DEFAULT_SILENCE_GRACE_MS = 1200;
+  var DEFAULT_METER_INTERVAL_MS = 80;
 
   function listen(target, eventName, handler) {
     if (!target) return;
@@ -250,6 +254,20 @@
     var clickDebounceMs = Number.isFinite(options.clickDebounceMs)
       ? options.clickDebounceMs
       : DEFAULT_CLICK_DEBOUNCE_MS;
+    var AudioContextCtor = options.AudioContext || root.AudioContext || root.webkitAudioContext;
+    var silenceAutoStop = options.silenceAutoStop === true;
+    var silenceThreshold = Number.isFinite(options.silenceThreshold)
+      ? options.silenceThreshold
+      : DEFAULT_SILENCE_THRESHOLD;
+    var silenceAfterMs = Number.isFinite(options.silenceAfterMs)
+      ? options.silenceAfterMs
+      : DEFAULT_SILENCE_AFTER_MS;
+    var silenceGraceMs = Number.isFinite(options.silenceGraceMs)
+      ? options.silenceGraceMs
+      : DEFAULT_SILENCE_GRACE_MS;
+    var meterIntervalMs = Number.isFinite(options.meterIntervalMs)
+      ? options.meterIntervalMs
+      : DEFAULT_METER_INTERVAL_MS;
 
     var state = "idle";
     var enabled = options.enabled !== false;
@@ -268,6 +286,9 @@
         elapsedMs: activeAttempt ? activeAttempt.elapsedMs : 0,
         minRecordingMs: minRecordingMs,
         maxRecordingMs: maxRecordingMs,
+        level: activeAttempt ? activeAttempt.level : 0,
+        silenceMs: activeAttempt ? activeAttempt.silenceMs : 0,
+        silenceAutoStop: silenceAutoStop,
       });
     }
 
@@ -288,12 +309,34 @@
       if (attempt.safetyTimerId !== null) clearTimeoutFn(attempt.safetyTimerId);
       attempt.timerId = null;
       attempt.safetyTimerId = null;
+      if (attempt.meterTimerId !== null) clearIntervalFn(attempt.meterTimerId);
+      attempt.meterTimerId = null;
+    }
+
+    function cleanupAudioMeter(attempt) {
+      if (!attempt) return;
+      if (attempt.sourceNode && typeof attempt.sourceNode.disconnect === "function") {
+        try {
+          attempt.sourceNode.disconnect();
+        } catch (error) {}
+      }
+      if (attempt.audioContext && typeof attempt.audioContext.close === "function") {
+        try {
+          var closed = attempt.audioContext.close();
+          if (closed && typeof closed.catch === "function") closed.catch(function () {});
+        } catch (error) {}
+      }
+      attempt.audioContext = null;
+      attempt.analyser = null;
+      attempt.audioBuffer = null;
+      attempt.sourceNode = null;
     }
 
     function cleanupAttempt(attempt) {
       if (!attempt || attempt.cleaned) return;
       attempt.cleaned = true;
       clearTimers(attempt);
+      cleanupAudioMeter(attempt);
       stopTracks(attempt.stream);
       attempt.stream = null;
       attempt.recorder = null;
@@ -326,6 +369,64 @@
       emit();
     }
 
+    function readAudioLevel(attempt) {
+      if (!attempt || !attempt.analyser || !attempt.audioBuffer) return 0;
+      try {
+        attempt.analyser.getByteTimeDomainData(attempt.audioBuffer);
+      } catch (error) {
+        return 0;
+      }
+      var sum = 0;
+      for (var index = 0; index < attempt.audioBuffer.length; index += 1) {
+        var sample = (attempt.audioBuffer[index] - 128) / 128;
+        sum += sample * sample;
+      }
+      return Math.min(1, Math.sqrt(sum / attempt.audioBuffer.length) * 2.4);
+    }
+
+    function beginAudioMeter(attempt) {
+      attempt.level = 0;
+      attempt.silenceMs = 0;
+      attempt.lastAudibleAt = now();
+      if (!AudioContextCtor || !attempt.stream) return;
+      try {
+        attempt.audioContext = new AudioContextCtor();
+        attempt.analyser = attempt.audioContext.createAnalyser();
+        attempt.analyser.fftSize = 256;
+        attempt.analyser.smoothingTimeConstant = 0.65;
+        attempt.audioBuffer = new Uint8Array(attempt.analyser.fftSize);
+        attempt.sourceNode = attempt.audioContext.createMediaStreamSource(attempt.stream);
+        attempt.sourceNode.connect(attempt.analyser);
+        if (attempt.audioContext.state === "suspended" && typeof attempt.audioContext.resume === "function") {
+          var resumed = attempt.audioContext.resume();
+          if (resumed && typeof resumed.catch === "function") resumed.catch(function () {});
+        }
+      } catch (error) {
+        cleanupAudioMeter(attempt);
+        return;
+      }
+      attempt.meterTimerId = setIntervalFn(function () {
+        if (!isCurrent(attempt) || state !== "recording") return;
+        var currentTime = now();
+        var level = readAudioLevel(attempt);
+        attempt.level = level;
+        if (level >= silenceThreshold) {
+          attempt.lastAudibleAt = currentTime;
+          attempt.silenceMs = 0;
+        } else {
+          attempt.silenceMs = Math.max(0, currentTime - attempt.lastAudibleAt);
+        }
+        emit();
+        if (
+          silenceAutoStop &&
+          attempt.elapsedMs >= minRecordingMs + silenceGraceMs &&
+          attempt.silenceMs >= silenceAfterMs
+        ) {
+          stop({ force: true, reason: "silence" });
+        }
+      }, meterIntervalMs);
+    }
+
     function beginTimer(attempt) {
       attempt.startedAt = now();
       attempt.elapsedMs = 0;
@@ -335,6 +436,7 @@
       attempt.safetyTimerId = setTimeoutFn(function () {
         if (isCurrent(attempt) && state === "recording") stop({ force: true });
       }, maxRecordingMs);
+      beginAudioMeter(attempt);
     }
 
     function handleData(attempt, event) {
@@ -461,9 +563,17 @@
         elapsedMs: 0,
         timerId: null,
         safetyTimerId: null,
+        meterTimerId: null,
         stopRequested: false,
         finalized: false,
         cleaned: false,
+        level: 0,
+        silenceMs: 0,
+        lastAudibleAt: null,
+        audioContext: null,
+        analyser: null,
+        audioBuffer: null,
+        sourceNode: null,
       };
       activeAttempt = attempt;
       transition("requesting_permission", "마이크 권한을 요청하고 있습니다…");
@@ -513,7 +623,7 @@
         return false;
       }
       attempt.stopRequested = true;
-      transition("stopping", "녹음 마무리 중입니다…");
+      transition("stopping", config.reason === "silence" ? "말이 멈춘 것으로 감지해 녹음을 마무리합니다." : "녹음 마무리 중입니다…");
       if (!attempt.recorder || attempt.recorder.state !== "recording") {
         finishError(attempt, "녹음을 마무리하지 못했습니다. 다시 시도해 주세요.");
         return false;
@@ -573,6 +683,9 @@
           enabled: enabled,
           attemptId: activeAttempt ? activeAttempt.id : null,
           elapsedMs: activeAttempt ? activeAttempt.elapsedMs : 0,
+          level: activeAttempt ? activeAttempt.level : 0,
+          silenceMs: activeAttempt ? activeAttempt.silenceMs : 0,
+          silenceAutoStop: silenceAutoStop,
         };
       },
       isSupported: isSupported,

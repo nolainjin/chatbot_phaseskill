@@ -109,6 +109,62 @@ class FakeDocument {
   }
 }
 
+class FakeAnalyser {
+  constructor(levels) {
+    this.levels = levels;
+    this.fftSize = 8;
+    this.smoothingTimeConstant = 0;
+  }
+
+  getByteTimeDomainData(buffer) {
+    const level = this.levels.length ? this.levels.shift() : 0;
+    const amplitude = Math.round(Math.max(0, Math.min(1, level)) * 64);
+    for (let index = 0; index < buffer.length; index += 1) {
+      buffer[index] = 128 + (index % 2 === 0 ? amplitude : -amplitude);
+    }
+  }
+}
+
+class FakeAudioSource {
+  constructor() {
+    this.disconnected = false;
+  }
+
+  connect() {}
+
+  disconnect() {
+    this.disconnected = true;
+  }
+}
+
+class FakeAudioContext {
+  constructor() {
+    this.state = "running";
+    this.closed = false;
+    FakeAudioContext.instances.push(this);
+  }
+
+  createAnalyser() {
+    return new FakeAnalyser(FakeAudioContext.levels);
+  }
+
+  createMediaStreamSource() {
+    return new FakeAudioSource();
+  }
+
+  resume() {
+    return Promise.resolve();
+  }
+
+  close() {
+    this.closed = true;
+    return Promise.resolve();
+  }
+}
+
+FakeAudioContext.instances = [];
+FakeAudioContext.levels = [];
+
 function loadFactory() {
   const sandbox = {
     AbortController,
@@ -138,7 +194,56 @@ function loadVoiceApi() {
   return sandbox.createVoiceApi;
 }
 
-function createFixture({ transcribe, document, getUserMedia, stream: suppliedStream, onTranscriptReady } = {}) {
+function createTimerHarness() {
+  let nextId = 1;
+  const intervals = new Map();
+  const timeouts = new Map();
+
+  return {
+    setInterval(fn) {
+      const id = nextId;
+      nextId += 1;
+      intervals.set(id, fn);
+      return id;
+    },
+    clearInterval(id) {
+      intervals.delete(id);
+    },
+    setTimeout(fn) {
+      const id = nextId;
+      nextId += 1;
+      timeouts.set(id, fn);
+      return id;
+    },
+    clearTimeout(id) {
+      timeouts.delete(id);
+    },
+    tickIntervals() {
+      for (const fn of Array.from(intervals.values())) fn();
+    },
+    runTimeouts() {
+      for (const [id, fn] of Array.from(timeouts.entries())) {
+        timeouts.delete(id);
+        fn();
+      }
+    },
+  };
+}
+
+function createFixture({
+  transcribe,
+  document,
+  getUserMedia,
+  stream: suppliedStream,
+  onTranscriptReady,
+  onStateChange,
+  AudioContext,
+  silenceAutoStop,
+  silenceAfterMs,
+  silenceGraceMs,
+  meterIntervalMs,
+  timers,
+} = {}) {
   let clock = 0;
   const stream = suppliedStream || new FakeStream();
   const events = [];
@@ -157,7 +262,19 @@ function createFixture({ transcribe, document, getUserMedia, stream: suppliedStr
     minAudioBytes: 256,
     clickDebounceMs: 0,
     now: () => clock,
-    onStateChange: (snapshot) => states.push(snapshot.state),
+    setInterval: timers ? timers.setInterval : setInterval,
+    clearInterval: timers ? timers.clearInterval : clearInterval,
+    setTimeout: timers ? timers.setTimeout : setTimeout,
+    clearTimeout: timers ? timers.clearTimeout : clearTimeout,
+    AudioContext,
+    silenceAutoStop,
+    silenceAfterMs,
+    silenceGraceMs,
+    meterIntervalMs,
+    onStateChange: (snapshot) => {
+      states.push(snapshot.state);
+      onStateChange?.(snapshot);
+    },
     onRecordingReady: (blob) => {
       events.push("recording-ready");
       transcriptions.push(blob);
@@ -312,6 +429,42 @@ results.push(await runScenario("stop-twice", async () => {
   await flush();
   assert.equal(fixture.events.filter((event) => event === "transcribe").length, 1);
 }));
+results.push(await runScenario("silence-auto-stop-after-live-meter", async () => {
+  const timers = createTimerHarness();
+  const snapshots = [];
+  FakeAudioContext.instances.length = 0;
+  FakeAudioContext.levels = [0.45, 0, 0, 0];
+
+  const fixture = createFixture({
+    AudioContext: FakeAudioContext,
+    silenceAutoStop: true,
+    silenceAfterMs: 1000,
+    silenceGraceMs: 0,
+    meterIntervalMs: 80,
+    timers,
+    onStateChange: (snapshot) => snapshots.push(snapshot),
+  });
+  const recorder = await begin(fixture);
+
+  fixture.clock.advance(900);
+  timers.tickIntervals();
+  assert.equal(recorder.stopCalls, 0);
+  fixture.clock.advance(100);
+  timers.tickIntervals();
+  assert.equal(recorder.stopCalls, 0);
+  fixture.clock.advance(900);
+  timers.tickIntervals();
+
+  assert.equal(recorder.stopCalls, 1);
+  assert.equal(fixture.controller.getState(), "stopping");
+  assert.ok(snapshots.some((snapshot) => snapshot.level > 0), "live meter never emitted audio level");
+  recorder.emitData(512);
+  recorder.emitStop();
+  await flush();
+  assert.equal(fixture.controller.getState(), "transcript_review");
+  assert.equal(fixture.stream.track.stopped, true);
+  assert.equal(FakeAudioContext.instances[0].closed, true);
+}));
 
 results.push(await runScenario("early-stop-and-empty-audio", async () => {
   const early = createFixture();
@@ -418,12 +571,16 @@ assert.match(html, /id="voice-review"[^>]+hidden/);
 assert.match(html, /<button type="button" id="voice-send"/);
 assert.match(html, /<button type="button" id="voice-edit"/);
 assert.match(html, /id="voice-truncation-warning"/);
-assert.match(html, /<script src="voice\.js\?v=2"><\/script>/);
+assert.match(html, /<script src="voice\.js\?v=3"><\/script>/);
 assert.doesNotMatch(source, /\/api\/chat/);
 assert.doesNotMatch(source, /SpeechRecognition/);
-assert.doesNotMatch(source, /pointerdown|pointerup|silence/i);
+assert.doesNotMatch(source, /pointerdown|pointerup/);
+assert.match(source, /silenceAutoStop/);
+assert.match(html, /id="voice-live-panel"[^>]+hidden/);
+assert.match(html, /id="voice-live-bars"/);
 assert.match(app, /requestPending/);
 assert.match(app, /voiceController\.setEnabled\(true\)/);
+assert.match(app, /silenceAutoStop: true/);
 assert.match(app, /source: "voice"/);
 assert.match(app, /appendTtsControls/);
 

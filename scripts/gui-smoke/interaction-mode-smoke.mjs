@@ -365,12 +365,14 @@ async function scenarioVoiceEntryRestore() {
 async function scenarioUnsupportedReload() {
   const fixture = await createFixture({ supportVoice: false, storedMode: "voice" });
   try {
-    assert.equal(await fixture.page.locator("#interaction-mode-switch").isHidden(), true);
-    assert.equal(await fixture.page.locator("#interaction-mode-switch").getAttribute("inert"), "");
+    assert.equal(await fixture.page.locator("#interaction-mode-switch").isVisible(), true);
+    assert.equal(await fixture.page.locator("#interaction-mode-switch").getAttribute("inert"), null);
+    assert.equal(await fixture.page.locator("#interaction-mode-chat").isEnabled(), true);
+    assert.equal(await fixture.page.locator("#interaction-mode-voice").isDisabled(), true);
     assert.equal(await fixture.page.locator("#chat-surface").isVisible(), true);
     assert.equal(await fixture.page.locator("#voice-surface").isHidden(), true);
     assert.equal(await fixture.page.evaluate(() => sessionStorage.getItem("lmwiki_interaction_mode")), "chat");
-    pass("unsupported-reload", { forced_mode: "chat", selector_hidden: true });
+    pass("unsupported-reload", { forced_mode: "chat", selector_visible: true, voice_disabled: true });
     await assertNoPageErrors(fixture);
   } finally {
     await fixture.context.close();

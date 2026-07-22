@@ -609,6 +609,21 @@ details[open] > .privacy-summary::after {
   cursor: not-allowed;
 }
 
+.interaction-mode-switch[data-voice-available="false"] .interaction-mode-options {
+  border-style: dashed;
+}
+
+.interaction-mode-switch[data-voice-available="false"] .interaction-mode-input:disabled + .interaction-mode-label::after {
+  content: "준비 중";
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.28rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--accent-soft);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
 .interaction-mode-switch[data-state="error"] .interaction-mode-options {
   border-color: var(--error);
   box-shadow: 0 0 0 2px rgba(173, 101, 79, 0.14);
@@ -678,6 +693,63 @@ details[open] > .privacy-summary::after {
   border-left: 4px solid var(--accent);
   border-radius: 0.85rem;
   background: var(--accent-soft);
+}
+
+.voice-live-panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--input-border);
+  border-radius: 0.85rem;
+  background: var(--card-bg);
+}
+
+.voice-live-panel[hidden] {
+  display: none;
+}
+
+.voice-live-bars {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.18rem;
+  align-items: center;
+  min-height: 30px;
+}
+
+.voice-live-bars span {
+  display: block;
+  height: 100%;
+  min-height: 10px;
+  border-radius: 999px;
+  background: rgba(86, 102, 91, 0.2);
+  transform: scaleY(0.22);
+  transform-origin: center;
+  transition: transform 80ms linear, background 120ms ease, box-shadow 120ms ease;
+}
+
+.voice-live-bars span:nth-child(3n + 1) {
+  min-height: 18px;
+}
+
+.voice-live-bars span:nth-child(4n + 2) {
+  min-height: 24px;
+}
+
+.voice-live-bars span[data-active="true"] {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft), 0 0 14px rgba(104, 150, 113, 0.25);
+}
+
+.voice-surface[data-voice-state="recording"] .voice-live-bars span[data-active="true"] {
+  background: var(--error);
+  box-shadow: 0 0 0 1px rgba(173, 101, 79, 0.18), 0 0 14px rgba(173, 101, 79, 0.28);
+}
+
+.voice-live-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
 }
 
 .voice-surface[data-voice-state="recording"] .voice-toolbar {
