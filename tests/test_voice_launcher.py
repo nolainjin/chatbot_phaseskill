@@ -20,7 +20,8 @@ LAUNCHER_ENV_KEYS = (
     "VOICE_PROVIDER_PYTHON",
     "VOICE_SIDECAR_SCRIPT",
     "VOICE_STT_PROVIDER",
-    "VOICE_TTS_VOICE",
+    "VOICE_TTS_GENDER",
+    "VOICE_SUPERTONIC_VOICE",
     "VOICE_TEMP_ROOT",
     "VOICE_MODEL_PATH",
     "VOICE_WHISPER_CPP_MODEL",
@@ -360,7 +361,7 @@ def test_profile_environment_is_forwarded_without_override(
         "VOICE_SIDECAR_SCRIPT": "/custom/voice-sidecar.py",
         "VOICE_STT_PROVIDER": "whisper.cpp",
         "VOICE_WHISPER_CPP_MODEL": "/custom/model.ggml",
-        "VOICE_TTS_VOICE": "Kyoko",
+        "VOICE_TTS_GENDER": "male",
         "VOICE_TEMP_ROOT": "/custom/voice-temp",
     }
     for key, value in expected.items():

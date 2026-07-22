@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from typing import Final
 
 VOICE_STT_MODEL: Final = "qwen3-asr-0.6b-8bit"
-VOICE_TTS_VOICE: Final = "Yuna"
-VOICE_TTS_MODEL: Final = f"macos-say:{VOICE_TTS_VOICE}"
+VOICE_TTS_MODEL: Final = "supertonic-3:F1"
 VOICE_MIN_RECORDING_MS: Final = 800
 VOICE_MAX_RECORDING_MS: Final = 60000
 VOICE_SILENCE_AUTO_STOP: Final = True
@@ -23,6 +22,15 @@ def _parse_env_profile(
     if not value or len(value) > 128 or not value.isprintable():
         return None
     return f"{prefix}{value}"
+
+
+def _tts_model_label() -> str | None:
+    """Supertonic 화자 표기. 성별 스위치(VOICE_TTS_GENDER)로 여성 F1 / 남성 M4."""
+    explicit = os.getenv("VOICE_SUPERTONIC_VOICE")
+    if explicit is not None:
+        return _parse_env_profile(explicit, "F1", prefix="supertonic-3:")
+    gender = os.getenv("VOICE_TTS_GENDER", "female").strip().lower()
+    return _parse_env_profile(None, "M4" if gender == "male" else "F1", prefix="supertonic-3:")
 
 
 @dataclass  # noqa: MUTABLE_OK  # noqa: SLOTS_OK - evaluators switch model in place
@@ -54,7 +62,5 @@ class Settings:
             voice_stt_model=_parse_env_profile(
                 os.getenv("VOICE_STT_PROVIDER"), VOICE_STT_MODEL
             ),
-            voice_tts_model=_parse_env_profile(
-                os.getenv("VOICE_TTS_VOICE"), VOICE_TTS_VOICE, prefix="macos-say:"
-            ),
+            voice_tts_model=_tts_model_label(),
         )

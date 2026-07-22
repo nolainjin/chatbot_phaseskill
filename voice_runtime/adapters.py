@@ -75,55 +75,43 @@ class WhisperCppBackend:
         return text
 
 
-class MacSayBackend:
-    def __init__(self, voice: str = "Yuna", ffmpeg_bin: str = "ffmpeg") -> None:
-        self.voice = voice
-        self.ffmpeg_bin = ffmpeg_bin
+class SupertonicTtsBackend:
+    """Supertonic 3 온디바이스 TTS. 여성 F1 / 남성 M4 화자를 사용한다."""
+
+    def __init__(self, voice_name: str = "F1") -> None:
+        self.voice_name = voice_name
+        self._tts = None
+        self._style = None
 
     def synthesize(self, text: str) -> bytes:
+        if self._tts is None:
+            try:
+                from supertonic import TTS
+
+                self._tts = TTS(auto_download=False)
+                self._style = self._tts.get_voice_style(voice_name=self.voice_name)
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                raise RuntimeProviderUnavailable from exc
         try:
             with tempfile.TemporaryDirectory(prefix="voice-tts-") as directory:
-                aiff = Path(directory) / "speech.aiff"
-                wav = Path(directory) / "speech.wav"
-                subprocess.run(
-                    ["/usr/bin/say", "-v", self.voice, "-o", str(aiff), text],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30.0,
-                )
-                subprocess.run(
-                    [
-                        self.ffmpeg_bin,
-                        "-nostdin",
-                        "-v",
-                        "error",
-                        "-i",
-                        str(aiff),
-                        "-ac",
-                        "1",
-                        "-ar",
-                        "22050",
-                        "-c:a",
-                        "pcm_s16le",
-                        "-f",
-                        "wav",
-                        "-y",
-                        str(wav),
-                    ],
-                    check=True,
-                    capture_output=True,
-                    timeout=30.0,
-                )
-                content = wav.read_bytes()
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeProviderTimeout from exc
-        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as exc:
+                wav_path = Path(directory) / "speech.wav"
+                wav, _ = self._tts.synthesize(text, voice_style=self._style, lang="ko")
+                self._tts.save_audio(wav, str(wav_path))
+                content = wav_path.read_bytes()
+        except (OSError, RuntimeError, ValueError) as exc:
             raise RuntimeProviderUnavailable from exc
         try:
             return validate_wav_bytes(content).content
         except RuntimeAudioError as exc:
             raise RuntimeProviderUnavailable from exc
+
+
+def supertonic_voice_name() -> str:
+    """성별 스위치(VOICE_TTS_GENDER: female|male)로 화자를 고른다. 여성=F1, 남성=M4."""
+    explicit = os.getenv("VOICE_SUPERTONIC_VOICE")
+    if explicit:
+        return explicit
+    return "M4" if os.getenv("VOICE_TTS_GENDER", "female").strip().lower() == "male" else "F1"
 
 
 def _model_path_from_env() -> Path | None:
@@ -146,15 +134,8 @@ def build_backends(stt_provider: str, *, model_path: Path | None = None) -> tupl
             model = "whisper.cpp"
         case _:
             raise RuntimeProviderUnavailable
-    return (
-        stt,
-        MacSayBackend(
-            os.getenv("VOICE_TTS_VOICE", "Yuna"),
-            ffmpeg_bin=os.getenv("VOICE_FFMPEG_BIN", "ffmpeg"),
-        ),
-        model,
-        "macos-say",
-    )
+    voice = supertonic_voice_name()
+    return stt, SupertonicTtsBackend(voice), model, f"supertonic-3:{voice}"
 
 
 def fake_wav() -> bytes:
