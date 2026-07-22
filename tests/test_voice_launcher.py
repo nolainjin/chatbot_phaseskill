@@ -160,6 +160,7 @@ def test_preflight_classifies_missing_local_runtime(
 
 def test_provider_is_built_installed_closed_and_restored_once(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     launcher = _launcher()
     from app import voice_api, voice_provider
@@ -182,13 +183,14 @@ def test_provider_is_built_installed_closed_and_restored_once(
     monkeypatch.setattr(voice_api, "transcription_provider", transcription_sentinel)
     monkeypatch.setattr(voice_api, "synthesis_provider", synthesis_sentinel)
     monkeypatch.setattr(launcher, "_preflight_local_runtime", lambda: None)
+    monkeypatch.chdir(tmp_path)
     build_calls: list[None] = []
 
     def build_provider() -> FakeProvider:
         build_calls.append(None)
         return provider
 
-    observed: list[tuple[bool, bool, str, int]] = []
+    observed: list[tuple[bool, bool, str, int, Path]] = []
 
     def run_uvicorn(app_object, *, host: str, port: int) -> None:
         observed.append(
@@ -197,6 +199,7 @@ def test_provider_is_built_installed_closed_and_restored_once(
                 voice_api.transcription_provider is voice_api.synthesis_provider is provider,
                 host,
                 port,
+                Path.cwd(),
             )
         )
 
@@ -210,7 +213,7 @@ def test_provider_is_built_installed_closed_and_restored_once(
     # Then: one provider served both APIs, closed once, and exact sentinels returned.
     assert result == 0
     assert build_calls == [None]
-    assert observed == [(True, True, "127.0.0.1", 8767)]
+    assert observed == [(True, True, "127.0.0.1", 8767, REPO_ROOT)]
     assert provider.close_calls == 1
     assert voice_api.transcription_provider is transcription_sentinel
     assert voice_api.synthesis_provider is synthesis_sentinel

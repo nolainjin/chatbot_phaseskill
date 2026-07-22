@@ -140,6 +140,7 @@ def _run_server(host: str, port: int) -> None:
     _preflight_local_runtime()
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
+    os.chdir(REPO_ROOT)
 
     import uvicorn
 
