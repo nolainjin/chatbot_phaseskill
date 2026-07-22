@@ -26,8 +26,11 @@ from app.voice_provider import SidecarVoiceProvider
 from voice_runtime.sidecar import SidecarConfig, SidecarManager
 
 
+VOICE_HEADERS = {voice_api.VOICE_REQUEST_HEADER: voice_api.VOICE_REQUEST_HEADER_VALUE}
 client = TestClient(app, raise_server_exceptions=False)
+client.headers.update(VOICE_HEADERS)
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
 
 
 def make_wav(duration_ms: int, sample_rate: int = 16_000) -> bytes:
@@ -163,6 +166,7 @@ def post_transcribe(
         "/api/voice/transcribe",
         data=data,
         files={"audio": ("sample.audio", audio, media_type)},
+        headers=VOICE_HEADERS,
     )
 
 
@@ -363,10 +367,49 @@ def test_synthesize_permits_ipv4_ipv6_and_testclient_loopback(
     response = local_client.post(
         "/api/voice/synthesize",
         json={"text": "로컬 요청"},
-        headers={"X-Forwarded-For": "203.0.113.10"},
+        headers={
+            "X-Forwarded-For": "203.0.113.10",
+            **VOICE_HEADERS,
+        },
     )
 
     assert response.status_code == 200
+
+
+def test_voice_loopback_requires_browser_boundary_header(monkeypatch, fake_providers):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    local_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        client=("127.0.0.1", 50000),
+    )
+
+    response = local_client.post("/api/voice/synthesize", json={"text": "로컬 요청"})
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "invalid_request"
+
+
+def test_voice_loopback_rejects_cross_site_fetch_metadata(monkeypatch, fake_providers):
+    monkeypatch.setenv("VOICE_ENABLED", "true")
+    local_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+        client=("127.0.0.1", 50000),
+    )
+
+    response = local_client.post(
+        "/api/voice/synthesize",
+        json={"text": "로컬 요청"},
+        headers={
+            **VOICE_HEADERS,
+            "Sec-Fetch-Site": "cross-site",
+            "Origin": "https://evil.example",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "invalid_request"
 
 
 def test_transcribe_allows_exact_file_limit_with_multipart_overhead(monkeypatch):

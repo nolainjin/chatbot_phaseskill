@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ DOC_ALIASES = {
     "코칭사례와반례": "자기주도학습 코칭 사례와 반례",
     "문헌근거와출처상태": "자기주도학습 논문 출처와 검증상태",
 }
+_INLINE_CODE_RE = re.compile(r"`[^`]*`")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -38,6 +40,10 @@ def _load_cases() -> list[dict]:
 def _expected_doc_matches(expected: str, actual: tuple[str, ...]) -> bool:
     alias = DOC_ALIASES.get(expected, expected)
     return any(expected in title or alias in title for title in actual)
+
+
+def _question_count(reply: str) -> int:
+    return _INLINE_CODE_RE.sub("", reply).count("?")
 
 
 def _run_case(case: dict, settings: Settings, documents: list[knowledge.Document]) -> dict:
@@ -64,7 +70,7 @@ def _run_case(case: dict, settings: Settings, documents: list[knowledge.Document
         for field in ("route", "stage", "bottleneck"):
             if actual_state[field] != expected[field]:
                 failures.append(f"{field}:{actual_state[field]}!={expected[field]}")
-        if result.get("reply", "").count("?") != expected["question_count"]:
+        if _question_count(result.get("reply", "")) != expected["question_count"]:
             failures.append("question_count")
         if not result.get("next_action"):
             failures.append("missing_next_action")
@@ -81,7 +87,8 @@ def _run_case(case: dict, settings: Settings, documents: list[knowledge.Document
         "route": actual_state["route"],
         "stage": actual_state["stage"],
         "bottleneck": actual_state["bottleneck"],
-        "question_count": reply.count("?"),
+        "reply": reply,
+        "question_count": _question_count(reply),
         "micro_action": result.get("next_action", ""),
         "doc_titles": list(actual_docs),
         "public_fields": sorted(result),
@@ -121,7 +128,16 @@ def run(model: str, count: int | None, knowledge_dir: str) -> dict:
         llm.CODEX_TIMEOUT_SEC = 15
         llm.CODEX_RETRIES = 1
     try:
-        results = [_run_case(case, settings, documents) for case in selected]
+        results = []
+        for index, case in enumerate(selected, start=1):
+            result = _run_case(case, settings, documents)
+            results.append(result)
+            print(
+                f"[self-directed-eval] {index}/{len(selected)} {case['id']} "
+                f"{'PASS' if result['passed'] else 'FAIL'}",
+                file=sys.stderr,
+                flush=True,
+            )
     finally:
         if old_strict is None:
             os.environ.pop("SELF_DIRECTED_EVAL_STRICT", None)

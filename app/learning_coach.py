@@ -308,7 +308,12 @@ def public_fields(turn: CoachingTurn) -> dict[str, str]:
     return {"coach_stage": turn.state.stage, "next_action": turn.micro_action}
 
 
+def user_facing_reply(turn: CoachingTurn) -> str:
+    source = turn.doc_titles[0] if turn.doc_titles else ""
+    cycle_hint = " 학습 계획·모니터링·성찰의 연결도 직접 확인해 보세요." if "순환모델" in source else ""
+    return f"{turn.question} {turn.micro_action}{cycle_hint}"
+
+
 def fake_reply(turn: CoachingTurn) -> str:
     source = turn.doc_titles[0] if turn.doc_titles else "학습장면진단루브릭"
-    cycle_hint = " 학습 계획·모니터링·성찰의 연결도 직접 확인해 보세요." if "순환모델" in source else ""
-    return f"[fake] 학습 코칭 근거: {source}\n{turn.question} {turn.micro_action}{cycle_hint}"
+    return f"[fake] 학습 코칭 근거: {source}\n{user_facing_reply(turn)}"

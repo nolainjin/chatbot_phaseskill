@@ -8,6 +8,7 @@ from pathlib import Path
 
 import subprocess
 import types
+import signal
 
 import pytest
 
@@ -34,6 +35,27 @@ def _capture(monkeypatch, returncode=0, stdout="응답", stderr=""):
         return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    return seen
+
+
+def _capture_popen(monkeypatch, returncode=0, stdout="응답", stderr=""):
+    seen = {}
+
+    class FakeProcess:
+        pid = 1234
+
+        def __init__(self):
+            self.returncode = returncode
+
+        def communicate(self, timeout=None):
+            return stdout, stderr
+
+    def fake_popen(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     return seen
 
 
@@ -67,6 +89,9 @@ def test_cli_backend_isolates_parent_claude_session(monkeypatch):
     """부모 Claude Code 세션 상속 차단 — 뚫리면 슬롯이 조용히 {}로 빈다."""
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent-session")
     monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sentinel-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "sentinel-openai")
+    monkeypatch.setenv("STATS_API_TOKEN", "sentinel-stats")
     monkeypatch.setenv("PATH", "/usr/bin")
     seen = _capture(monkeypatch)
 
@@ -80,7 +105,10 @@ def test_cli_backend_isolates_parent_claude_session(monkeypatch):
 
     kwargs = seen["kwargs"]
     assert not [k for k in kwargs["env"] if k.startswith("CLAUDE")]
-    assert kwargs["env"]["PATH"] == "/usr/bin"  # 나머지 환경은 살아 있어야 인증이 된다
+    assert "ANTHROPIC_API_KEY" not in kwargs["env"]
+    assert "OPENAI_API_KEY" not in kwargs["env"]
+    assert "STATS_API_TOKEN" not in kwargs["env"]
+    assert kwargs["env"]["PATH"] == "/usr/bin"
     assert kwargs["stdin"] is subprocess.DEVNULL
     assert kwargs["cwd"]  # 리포 밖 중립 디렉터리 — CLAUDE.md를 읽지 않게
     assert "--exclude-dynamic-system-prompt-sections" in seen["argv"]
@@ -116,7 +144,7 @@ def test_cli_backend_retries_then_raises_with_stdout(monkeypatch):
 
 
 def test_codex_backend_does_not_inherit_secret_environment(monkeypatch):
-    seen = _capture(monkeypatch)
+    seen = _capture_popen(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sentinel-anthropic")
     monkeypatch.setenv("OPENAI_API_KEY", "sentinel-openai")
     monkeypatch.setenv("SERVICE_TOKEN", "sentinel-service")
@@ -138,7 +166,7 @@ def test_codex_backend_does_not_inherit_secret_environment(monkeypatch):
 
 
 def test_codex_backend_uses_strict_agent_environment_allowlist(monkeypatch):
-    seen = _capture(monkeypatch)
+    seen = _capture_popen(monkeypatch)
     for key in (
         "DATABASE_URL",
         "KUBECONFIG",
@@ -202,14 +230,18 @@ def test_fake_backend_still_bypasses_cli(monkeypatch):
 def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
     seen = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_popen(argv, **kwargs):
         seen["argv"] = argv
         seen["kwargs"] = kwargs
         output_path = Path(argv[argv.index("-o") + 1])
         output_path.write_text("자연스럽게 받되 한 가지만 확인할게요.\n```slots\n{}\n```", encoding="utf-8")
-        return types.SimpleNamespace(returncode=0, stdout="codex log", stderr="")
+        return types.SimpleNamespace(
+            pid=1234,
+            returncode=0,
+            communicate=lambda timeout=None: ("codex log", ""),
+        )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     reply = llm.ask(
         system="너는 접수면담 챗봇이다.",
@@ -234,6 +266,32 @@ def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
     assert "사용자: 안녕" in prompt
     assert "상담사: 네" in prompt
     assert prompt.endswith("위 시스템 지시를 우선하여 상담사 최종 응답만 출력하라.")
+
+
+def test_codex_timeout_terminates_the_entire_process_group(monkeypatch):
+    killed: list[tuple[int, int]] = []
+
+    class HangingProcess:
+        pid = 4321
+
+        def communicate(self, timeout=None):
+            raise subprocess.TimeoutExpired("codex", timeout)
+
+    def fake_popen(*_args, **_kwargs):
+        return HangingProcess()
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("codex", 1)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(llm.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+    monkeypatch.setattr(llm, "CODEX_RETRIES", 1)
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        llm.run_codex_cli("prompt", "gpt-test", timeout=1)
+
+    assert killed == [(4321, signal.SIGKILL)]
 
 
 def test_auto_backend_tries_codex_first_then_claude(monkeypatch):
@@ -293,13 +351,17 @@ def test_auto_backend_uses_fake_only_after_configured_chain_fails(monkeypatch):
 def test_codex_backend_accepts_inline_model_name(monkeypatch):
     seen = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_popen(argv, **kwargs):
         seen["argv"] = argv
         output_path = Path(argv[argv.index("-o") + 1])
         output_path.write_text("응답", encoding="utf-8")
-        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        return types.SimpleNamespace(
+            pid=1234,
+            returncode=0,
+            communicate=lambda timeout=None: ("", ""),
+        )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     llm.ask(
         system="s",

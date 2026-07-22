@@ -101,8 +101,9 @@ def _handle_self_directed_message(
 ) -> dict:
     turn = learning_coach.build_turn(session.learning_state, message, docs)
     session.learning_state = turn.state
+    safe_reply = learning_coach.user_facing_reply(turn)
     if blocked:
-        reply = learning_coach.fake_reply(turn)
+        reply = safe_reply
     elif settings.model == "fake":
         reply = learning_coach.fake_reply(turn)
     else:
@@ -118,8 +119,8 @@ def _handle_self_directed_message(
         except (llm.ModelOutputTooLarge, RuntimeError):
             if os.getenv("SELF_DIRECTED_EVAL_STRICT") == "1":
                 raise
-            reply = learning_coach.fake_reply(turn)
-        reply = safety.sanitize_model_reply(reply, learning_coach.fake_reply(turn))
+            reply = safe_reply
+        reply = safety.sanitize_model_reply(reply, safe_reply)
 
     if not blocked:
         storage.append_turn(session.session_id, "user", message, participant_id=participant_id)

@@ -82,12 +82,25 @@
     var setTimeoutFn = options.setTimeout || root.setTimeout;
     var clearTimeoutFn = options.clearTimeout || root.clearTimeout;
     var defaultTimeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 45000;
+    function addVoiceRequestHeader(requestOptions) {
+      var next = Object.assign({}, requestOptions || {});
+      var headers = next.headers || {};
+      if (typeof Headers !== "undefined" && headers instanceof Headers) {
+        headers = new Headers(headers);
+        headers.set("X-Lmwiki-Voice-Request", "1");
+      } else {
+        headers = Object.assign({}, headers, { "X-Lmwiki-Voice-Request": "1" });
+      }
+      next.headers = headers;
+      return next;
+    }
+
 
     function request(path, requestOptions, timeoutMs) {
       if (typeof fetchImpl !== "function" || !FormDataCtor || !AbortCtor) {
         return Promise.reject(createVoiceError("provider_unavailable", 503, "브라우저 음성 API를 사용할 수 없습니다."));
       }
-      requestOptions = requestOptions || {};
+      requestOptions = addVoiceRequestHeader(requestOptions);
       var externalSignal = requestOptions.signal;
       return new Promise(function (resolve, reject) {
         var controller = new AbortCtor();

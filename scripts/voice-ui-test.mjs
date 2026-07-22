@@ -368,6 +368,7 @@ results.push(await runScenario("voice-fetch-wrapper-upload-and-errors", async ()
   assert.equal(calls[0].options.method, "POST");
   assert.equal(calls[0].options.body.get("session_id"), "voice-browser");
   assert.equal(calls[0].options.body.get("audio").type, "audio/webm");
+  assert.equal(calls[0].options.headers["X-Lmwiki-Voice-Request"], "1");
 
   const failingApi = loadVoiceApi()({
     fetch: async () => new Response(JSON.stringify({ error_code: "audio_too_large" }), {

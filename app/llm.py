@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -52,14 +53,14 @@ def _cli_prompt(history: list[dict[str, str]], user: str) -> str:
 
 
 def _clean_env() -> dict[str, str]:
-    """CLAUDE* 환경변수를 걷어낸 사본.
+    """Deny-by-default environment for the Claude CLI child process.
 
-    Claude Code 세션 안에서 이 앱을 띄우면 CLAUDE_CODE_SESSION_ID 등이 상속된다.
-    그대로 두면 자식 `claude`가 자신을 부모 세션의 하위 세션으로 인식해 부모의
-    대화 컨텍스트를 끌고 온다 — 상담 응답에 코딩 얘기가 섞이고 슬롯이 {}로 빈다(실측).
-    배포 환경엔 이 변수들이 없으므로 이 필터는 무해하다.
+    Claude Code session variables must not leak into the child because they make
+    the CLI inherit the parent coding context. App secrets such as API keys,
+    stats tokens, or database URLs must not leak either. Claude CLI auth is read
+    through the user's normal config under HOME/XDG paths.
     """
-    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    return _clean_agent_env()
 
 
 def _clean_agent_env() -> dict[str, str]:
@@ -170,6 +171,29 @@ def _codex_prompt(system: str, history: list[dict[str, str]], user: str) -> str:
     )
 
 
+def _run_codex_process(argv: list[str], timeout: int, cwd: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        raise
+    return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+
+
 def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> str:
     """Codex CLI 호출 공통 경로. 중립 cwd + read-only sandbox로 리포 오염을 차단한다."""
     last = ""
@@ -177,31 +201,23 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
         try:
             with tempfile.TemporaryDirectory(prefix="codex-cli-") as neutral_cwd:
                 output_path = Path(neutral_cwd) / "response.txt"
-                proc = subprocess.run(
-                    [
-                        "codex",
-                        "exec",
-                        "--ephemeral",
-                        "--skip-git-repo-check",
-                        "--ignore-rules",
-                        "--sandbox",
-                        "read-only",
-                        "-C",
-                        neutral_cwd,
-                        "-m",
-                        model,
-                        "-o",
-                        str(output_path),
-                        prompt,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                    cwd=neutral_cwd,
-                    env=_clean_agent_env(),
-                    stdin=subprocess.DEVNULL,
-                )
+                argv = [
+                    "codex",
+                    "exec",
+                    "--ephemeral",
+                    "--skip-git-repo-check",
+                    "--ignore-rules",
+                    "--sandbox",
+                    "read-only",
+                    "-C",
+                    neutral_cwd,
+                    "-m",
+                    model,
+                    "-o",
+                    str(output_path),
+                    prompt,
+                ]
+                proc = _run_codex_process(argv, timeout, neutral_cwd, _clean_agent_env())
                 if proc.returncode == 0:
                     raw = output_path.read_text(encoding="utf-8") if output_path.is_file() else proc.stdout
                     cleaned = _bounded_output(raw)

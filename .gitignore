@@ -6,9 +6,11 @@ __pycache__/
 .pytest_cache/
 .phase/
 .omc/
+.omx/
 .DS_Store
 scripts/gui-smoke/node_modules/
 scripts/gui-smoke/screenshots/
+screenshots/
 .voice-venv/
 .voice-model-cache/
 .voice-tmp/

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Final
+from urllib.parse import urlsplit
 
 import anyio
 from fastapi import APIRouter, Request
@@ -38,6 +39,9 @@ from app.voice_contracts import (
 )
 
 VOICE_HTTP_STATUS: Final = 503
+VOICE_REQUEST_HEADER: Final = "X-Lmwiki-Voice-Request"
+VOICE_REQUEST_HEADER_VALUE: Final = "1"
+_ALLOWED_FETCH_SITES: Final = frozenset({"same-origin", "same-site", "none"})
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 transcription_provider: TranscriptionProvider = UnavailableTranscriptionProvider()
@@ -68,6 +72,40 @@ def _require_local(request: Request) -> JSONResponse | None:
         403,
         "음성 API는 로컬 요청만 허용합니다.",
     )
+
+
+def _origin_is_loopback(origin: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return is_loopback_client(parsed.hostname)
+
+
+def _require_browser_boundary(request: Request) -> JSONResponse | None:
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site and fetch_site.lower() not in _ALLOWED_FETCH_SITES:
+        return _error(
+            VoiceErrorCode.INVALID_REQUEST,
+            403,
+            "음성 요청 출처를 확인할 수 없습니다.",
+        )
+    origin = request.headers.get("origin")
+    if origin and not _origin_is_loopback(origin):
+        return _error(
+            VoiceErrorCode.INVALID_REQUEST,
+            403,
+            "음성 요청 출처를 확인할 수 없습니다.",
+        )
+    if request.headers.get(VOICE_REQUEST_HEADER) != VOICE_REQUEST_HEADER_VALUE:
+        return _error(
+            VoiceErrorCode.INVALID_REQUEST,
+            403,
+            "음성 요청 확인 헤더가 필요합니다.",
+        )
+    return None
 
 
 def _validate_session_metadata(
@@ -111,6 +149,9 @@ async def transcribe(request: Request) -> Response | TranscriptionResponse:
     local_error = _require_local(request)
     if local_error is not None:
         return local_error
+    browser_error = _require_browser_boundary(request)
+    if browser_error is not None:
+        return browser_error
     if not _voice_enabled():
         return _error(
             VoiceErrorCode.VOICE_DISABLED,
@@ -220,6 +261,9 @@ def synthesize(request: Request, payload: SynthesizeRequest) -> Response:
     local_error = _require_local(request)
     if local_error is not None:
         return local_error
+    browser_error = _require_browser_boundary(request)
+    if browser_error is not None:
+        return browser_error
     if not _voice_enabled():
         return _error(
             VoiceErrorCode.VOICE_DISABLED,
