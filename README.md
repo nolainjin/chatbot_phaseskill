@@ -108,6 +108,30 @@ MODEL=fake KNOWLEDGE_DIR=knowledge \
 - 챗봇: http://127.0.0.1:8000/
 - 관리자 통계: http://127.0.0.1:8000/stats.html
 
+### 로컬 음성 모드로 실행 (선택)
+
+기존 text-only 실행과 별개로 local voice launcher를 사용하면 같은 화면에서
+`Chat Mode`와 `Voice Mode`를 고를 수 있습니다. 두 항목은 입력 방식을 고르는
+클라이언트 `interactionMode`(`interaction mode`)이고, 지식팩이 정하는
+coaching/intake는 대화 내용의 서버 `contentMode`(`content mode`)입니다. 어느 입력
+방식을 쓰더라도 같은 session/history와 기존 `/api/chat`을 공유합니다.
+
+로컬 음성 런타임과 모델 캐시를 준비한 뒤 도움말을 확인하고 launcher를 실행합니다.
+
+```bash
+.venv/bin/python scripts/run_local_voice.py --help
+.venv/bin/python scripts/run_local_voice.py --host 127.0.0.1 --port 8767
+```
+
+브라우저에서 localhost URL http://127.0.0.1:8767/ 을 엽니다. launcher는
+loopback에만 bind하고 network deny를 강제하며, 로컬 캐시의 STT
+`qwen3-asr-0.6b-8bit`와 TTS config `macos-say:Yuna`를 사용합니다. 캐시나
+provider가 준비되지 않으면 음성 기능을 성공으로 광고하지 않습니다. 이때는 위의
+text-only 명령으로 돌아가 `Chat Mode`를 계속 사용할 수 있습니다.
+
+녹음·전사 확인·자동 TTS와 권한/실패 복구 절차는
+[`docs/voice-local-demo.md`](docs/voice-local-demo.md)를 따르세요.
+
 관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
 관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로 설정한
 뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는 fail-closed로 503을
