@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -66,6 +67,34 @@ def test_import_is_side_effect_free() -> None:
     # Then: no application, provider, sidecar, or server module was imported.
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGTERM"), reason="SIGTERM is unavailable")
+def test_sigterm_is_classified_instead_of_killing_cleanup_path() -> None:
+    # Given: uvicorn re-raises SIGTERM after its graceful shutdown phase.
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    probe = (
+        "import os, signal; import scripts.run_local_voice as launcher; "
+        "launcher._apply_environment_defaults = lambda: None; "
+        "launcher._run_server = lambda _host, _port: os.kill(os.getpid(), signal.SIGTERM); "
+        "print(launcher.main([]), flush=True)"
+    )
+
+    # When: the launcher receives the termination signal in a child process.
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    # Then: main regains control so provider cleanup can finish and classifies 143.
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "143"
 
 
 def test_non_loopback_host_is_rejected_before_runtime(monkeypatch: pytest.MonkeyPatch) -> None:

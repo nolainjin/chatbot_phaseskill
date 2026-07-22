@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import shutil
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import FrameType
 from typing import Final, Protocol, Sequence, assert_never
 
 
@@ -38,6 +40,11 @@ class LauncherPreflightError(RuntimeError):
 
     def __str__(self) -> str:
         return f"missing local voice component: {self.component} ({self.location})"
+
+
+@dataclass(frozen=True, slots=True)
+class _LauncherTermination(BaseException):
+    signum: int
 
 
 def _loopback_host(value: str) -> str:
@@ -158,16 +165,28 @@ def _run_server(host: str, port: int) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     _apply_environment_defaults()
+    original_handlers: dict[int, signal.Handlers] = {}
+
+    def terminate(signum: int, _frame: FrameType | None) -> None:
+        raise _LauncherTermination(signum)
+
     try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            original_handlers[signum] = signal.signal(signum, terminate)
         _run_server(args.host, args.port)
     except LauncherPreflightError as exc:
         print(f"voice launcher preflight failed: {exc}", file=sys.stderr)
         return 3
+    except _LauncherTermination as exc:
+        return 128 + exc.signum
     except KeyboardInterrupt:
         return 130
     except (ImportError, OSError, RuntimeError) as exc:
         print(f"voice launcher failed: {type(exc).__name__}", file=sys.stderr)
         return 1
+    finally:
+        for signum, handler in original_handlers.items():
+            signal.signal(signum, handler)
     return 0
 
 
