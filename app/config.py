@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Final
 
 VOICE_STT_MODEL: Final = "qwen3-asr-0.6b-8bit"
-VOICE_TTS_MODEL: Final = "supertonic-3"
+VOICE_TTS_VOICE: Final = "Yuna"
+VOICE_TTS_MODEL: Final = f"macos-say:{VOICE_TTS_VOICE}"
 VOICE_MIN_RECORDING_MS: Final = 800
 VOICE_MAX_RECORDING_MS: Final = 60000
 VOICE_SILENCE_AUTO_STOP: Final = False
@@ -15,8 +16,19 @@ def _parse_env_bool(raw_value: str | None) -> bool:
     return raw_value is not None and raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-@dataclass
+def _parse_env_profile(
+    raw_value: str | None, default: str, *, prefix: str = ""
+) -> str | None:
+    value = default if raw_value is None else raw_value.strip()
+    if not value or len(value) > 128 or not value.isprintable():
+        return None
+    return f"{prefix}{value}"
+
+
+@dataclass  # noqa: MUTABLE_OK  # noqa: SLOTS_OK - evaluators switch model in place
 class Settings:
+    """Process settings kept mutable for adversarial evaluator model switching."""
+
     anthropic_api_key: str
     knowledge_dir: str
     model: str
@@ -25,6 +37,8 @@ class Settings:
     stats_api_token: str = ""
     voice_enabled: bool = False
     provider_bin: str = ""
+    voice_stt_model: str | None = VOICE_STT_MODEL
+    voice_tts_model: str | None = VOICE_TTS_MODEL
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -37,4 +51,10 @@ class Settings:
             stats_api_token=os.getenv("STATS_API_TOKEN", ""),
             voice_enabled=_parse_env_bool(os.getenv("VOICE_ENABLED")),
             provider_bin=os.getenv("PROVIDER_BIN", ""),
+            voice_stt_model=_parse_env_profile(
+                os.getenv("VOICE_STT_PROVIDER"), VOICE_STT_MODEL
+            ),
+            voice_tts_model=_parse_env_profile(
+                os.getenv("VOICE_TTS_VOICE"), VOICE_TTS_VOICE, prefix="macos-say:"
+            ),
         )

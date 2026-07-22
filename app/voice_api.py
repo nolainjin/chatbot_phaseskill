@@ -44,6 +44,12 @@ transcription_provider: TranscriptionProvider = UnavailableTranscriptionProvider
 synthesis_provider: SynthesisProvider = UnavailableSynthesisProvider()
 
 
+def providers_configured() -> bool:
+    transcription_unavailable = isinstance(transcription_provider, UnavailableTranscriptionProvider)
+    synthesis_unavailable = isinstance(synthesis_provider, UnavailableSynthesisProvider)
+    return not transcription_unavailable and not synthesis_unavailable
+
+
 def _error(code: VoiceErrorCode, status_code: int, detail: str) -> JSONResponse:
     body = VoiceErrorResponse(error_code=code, detail=detail)
     return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
@@ -101,9 +107,7 @@ def _validate_session_metadata(
 
 
 @router.post("/transcribe", response_model=None)
-async def transcribe(
-    request: Request,
-) -> Response | TranscriptionResponse:
+async def transcribe(request: Request) -> Response | TranscriptionResponse:
     local_error = _require_local(request)
     if local_error is not None:
         return local_error
@@ -139,9 +143,7 @@ async def transcribe(
                 400,
                 "session_id와 audio가 필요합니다.",
             )
-        metadata_error = _validate_session_metadata(
-            session_id, session_token, participant_id
-        )
+        metadata_error = _validate_session_metadata(session_id, session_token, participant_id)
         if metadata_error is not None:
             return metadata_error
         payload = await audio.read(MAX_AUDIO_BYTES + 1)

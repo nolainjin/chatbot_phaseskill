@@ -11,11 +11,9 @@ from app.config import (
     VOICE_MAX_RECORDING_MS,
     VOICE_MIN_RECORDING_MS,
     VOICE_SILENCE_AUTO_STOP,
-    VOICE_STT_MODEL,
-    VOICE_TTS_MODEL,
     Settings,
 )
-from app.voice_api import router as voice_router
+from app.voice_api import providers_configured, router as voice_router
 
 MAX_MESSAGE_LEN = 2000
 STATIC_DIR = "static"
@@ -79,12 +77,17 @@ def get_config():
         "intake_schema": schema is not None,
         "ui": schema.ui if schema is not None else {},
     }
-    if settings.voice_enabled:
+    if (
+        settings.voice_enabled
+        and settings.voice_stt_model is not None
+        and settings.voice_tts_model is not None
+        and providers_configured()
+    ):
         config["voice"] = {
             "enabled": True,
             "local_only": True,
-            "stt": VOICE_STT_MODEL,
-            "tts": VOICE_TTS_MODEL,
+            "stt": settings.voice_stt_model,
+            "tts": settings.voice_tts_model,
             "min_recording_ms": VOICE_MIN_RECORDING_MS,
             "max_recording_ms": VOICE_MAX_RECORDING_MS,
             "silence_auto_stop": VOICE_SILENCE_AUTO_STOP,
