@@ -5,6 +5,7 @@
   var SESSION_KEY = "lmwiki_session_id";
   var SESSION_TOKEN_KEY = "lmwiki_session_token";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
+  var INTERACTION_MODE_KEY = "lmwiki_interaction_mode";
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
   var CONTEXTUAL_REPLIES = {
@@ -118,6 +119,11 @@
   var coachingStatusEl = document.getElementById("coaching-status");
   var coachingStageEl = document.getElementById("coaching-stage");
   var coachingNextActionEl = document.getElementById("coaching-next-action");
+  var interactionModeSwitchEl = document.getElementById("interaction-mode-switch");
+  var interactionModeChatEl = document.getElementById("interaction-mode-chat");
+  var interactionModeVoiceEl = document.getElementById("interaction-mode-voice");
+  var chatSurfaceEl = document.getElementById("chat-surface");
+  var voiceSurfaceEl = document.getElementById("voice-surface");
   var voiceControlsEl = document.getElementById("voice-controls");
   var voiceToggleEl = document.getElementById("voice-toggle");
   var voiceToggleLabelEl = document.getElementById("voice-toggle-label");
@@ -132,11 +138,12 @@
   var voiceSendEl = document.getElementById("voice-send");
   var voiceTextFallbackEl = document.getElementById("voice-text-fallback");
   var voiceApi = null;
+  var voiceController = null;
+  var interactionModeController = null;
+  var ttsPlayer = null;
+  var activeTtsControls = null;
+  var voiceAttemptEpoch = 0;
   var voiceConfirmedTranscript = "";
-  var ttsAbortController = null;
-  var ttsAudio = null;
-  var ttsObjectUrl = "";
-  var ttsSerial = 0;
 
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
@@ -149,26 +156,15 @@
     return String(value || "").replace(/\s+/g, " ").trim();
   }
 
-  function revokeTtsObjectUrl() {
-    if (!ttsObjectUrl) return;
-    if (window.URL && typeof window.URL.revokeObjectURL === "function") {
-      window.URL.revokeObjectURL(ttsObjectUrl);
-    }
-    ttsObjectUrl = "";
-  }
-
-  function stopTtsPlayback() {
-    ttsSerial += 1;
-    if (ttsAbortController) {
-      ttsAbortController.abort();
-      ttsAbortController = null;
-    }
-    if (ttsAudio) {
-      ttsAudio.pause();
-      ttsAudio.removeAttribute("src");
-      ttsAudio = null;
-    }
-    revokeTtsObjectUrl();
+  function stopTtsPlayback(message) {
+    var controls = activeTtsControls;
+    activeTtsControls = null;
+    if (ttsPlayer) ttsPlayer.stop();
+    if (!controls) return;
+    controls.button.disabled = false;
+    controls.button.textContent = "응답 다시 듣기";
+    controls.button.setAttribute("aria-label", "응답 다시 듣기");
+    controls.status.textContent = message || "재생을 멈췄습니다.";
   }
 
   function resetVoiceReview(options) {
@@ -232,12 +228,113 @@
     return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
   }
 
+  function setElementInert(element, inert) {
+    if (!element) return;
+    element.inert = inert;
+  }
+
+  function renderInteractionMode(snapshot, shouldFocus) {
+    if (!snapshot) return;
+    var voiceAvailable = snapshot.voiceCapability === true;
+    var voiceActive = voiceAvailable && snapshot.interactionMode === "voice";
+    if (interactionModeSwitchEl) {
+      interactionModeSwitchEl.hidden = !voiceAvailable;
+      setElementInert(interactionModeSwitchEl, !voiceAvailable);
+      interactionModeSwitchEl.dataset.state = snapshot.voicePhase;
+    }
+    if (interactionModeChatEl) {
+      interactionModeChatEl.checked = !voiceActive;
+      interactionModeChatEl.disabled = !voiceAvailable;
+    }
+    if (interactionModeVoiceEl) {
+      interactionModeVoiceEl.checked = voiceActive;
+      interactionModeVoiceEl.disabled = !voiceAvailable;
+    }
+    if (chatSurfaceEl) {
+      chatSurfaceEl.hidden = voiceActive;
+      setElementInert(chatSurfaceEl, voiceActive);
+    }
+    if (voiceSurfaceEl) {
+      voiceSurfaceEl.hidden = !voiceActive;
+      setElementInert(voiceSurfaceEl, !voiceActive);
+      voiceSurfaceEl.dataset.voiceState = snapshot.voicePhase === "idle" ? "ready" : snapshot.voicePhase;
+    }
+    if (!shouldFocus) return;
+    if (voiceActive && voiceToggleEl) voiceToggleEl.focus();
+    if (!voiceActive && inputEl) inputEl.focus();
+  }
+
+  function currentInteractionSnapshot() {
+    return interactionModeController ? interactionModeController.getSnapshot() : null;
+  }
+
+  function isCurrentVoiceEpoch(epoch) {
+    var snapshot = currentInteractionSnapshot();
+    return Boolean(
+      snapshot &&
+      snapshot.interactionMode === "voice" &&
+      interactionModeController.isCurrentEpoch(epoch)
+    );
+  }
+
+  function setInteractionVoicePhase(phase, epoch) {
+    if (!interactionModeController || !interactionModeController.setVoicePhase(phase, epoch)) return false;
+    renderInteractionMode(interactionModeController.getSnapshot(), false);
+    return true;
+  }
+
+  function leaveVoiceMode() {
+    stopTtsPlayback("채팅 모드로 전환해 재생을 멈췄습니다.");
+    if (voiceController) voiceController.reset();
+    resetVoiceReview();
+  }
+
+  function switchInteractionMode(mode, shouldFocus) {
+    if (!interactionModeController) return null;
+    var snapshot = interactionModeController.switchMode(mode);
+    sessionStorage.setItem(INTERACTION_MODE_KEY, snapshot.interactionMode);
+    renderInteractionMode(snapshot, shouldFocus !== false);
+    return snapshot;
+  }
+
+  function configureVoiceCapability(enabled) {
+    var supported = Boolean(
+      enabled &&
+      interactionModeController &&
+      voiceController &&
+      voiceController.isSupported()
+    );
+    if (!interactionModeController) return;
+    var snapshot = interactionModeController.setCapability(supported);
+    if (voiceController && supported) voiceController.setEnabled(true);
+    if (voiceController && !supported) voiceController.setEnabled(false);
+    if (!supported) {
+      sessionStorage.setItem(INTERACTION_MODE_KEY, "chat");
+      renderInteractionMode(snapshot, true);
+      return;
+    }
+    var storedMode = sessionStorage.getItem(INTERACTION_MODE_KEY) === "voice" ? "voice" : "chat";
+    switchInteractionMode(storedMode, true);
+  }
+
+  function voicePhaseForRecorderState(state) {
+    if (state === "requesting_permission" || state === "starting") return "requesting_permission";
+    if (state === "recording" || state === "stopping") return "recording";
+    if (state === "transcribing") return "transcribing";
+    if (state === "transcript_review") return "review";
+    if (state === "sending") return "sending";
+    if (state === "ready") return "ready";
+    if (state === "error") return "error";
+    return "idle";
+  }
+
   function renderVoiceState(snapshot) {
     if (!voiceToggleEl || !snapshot) return;
+    if (interactionModeController && !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
     var recording = snapshot.state === "recording";
     var busy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
     var statusLabels = {
-      idle: "텍스트 입력을 사용할 수 있습니다.",
+      idle: "새 음성 입력을 시작할 수 있습니다.",
       requesting_permission: "마이크 권한을 요청하고 있습니다…",
       starting: "녹음 준비 중입니다…",
       recording: "녹음 중입니다. 말씀을 마친 뒤 녹음 종료를 눌러 주세요.",
@@ -254,19 +351,35 @@
     voiceToggleEl.setAttribute("aria-pressed", recording ? "true" : "false");
     voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
     voiceToggleLabelEl.textContent = recording ? "녹음 종료" : "말하기";
+    setInteractionVoicePhase(voicePhaseForRecorderState(snapshot.state), voiceAttemptEpoch);
     if (voiceReviewEl && snapshot.state === "transcript_review") voiceReviewEl.hidden = false;
     if (voiceReviewEl && snapshot.state === "error" && !voiceConfirmedTranscript) {
       if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = snapshot.status || "음성 입력을 다시 시도해 주세요.";
     }
   }
 
-  var voiceController = null;
+  if (typeof window.createInteractionModeController === "function") {
+    interactionModeController = window.createInteractionModeController({ onVoiceExit: leaveVoiceMode });
+    window.lmwikiInteractionModeController = interactionModeController;
+    renderInteractionMode(interactionModeController.getSnapshot(), false);
+  }
+
   if (voiceControlsEl && typeof window.createVoiceController === "function") {
     if (typeof window.createVoiceApi === "function") {
       voiceApi = window.createVoiceApi({
         transcribeTimeoutMs: 45000,
         synthesizeTimeoutMs: 30000,
       });
+    }
+    if (voiceApi && typeof window.createTtsPlayer === "function") {
+      ttsPlayer = window.createTtsPlayer({
+        voiceApi: voiceApi,
+        getMetadata: function () {
+          return { sessionId: getSessionId(), sessionToken: getSessionToken() || "" };
+        },
+        onStateChange: renderTtsState,
+      });
+      window.lmwikiTtsPlayer = ttsPlayer;
     }
     voiceController = window.createVoiceController({
       enabled: false,
@@ -287,15 +400,16 @@
       },
       onStateChange: renderVoiceState,
       onTranscriptReady: function (result) {
+        if (!isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
         renderTranscriptReview(result);
       },
       onRecordingReady: function () {
+        if (!isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
         if (voiceReviewEl) voiceReviewEl.hidden = false;
         if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "녹음이 준비되었습니다. 전사 연결을 기다리고 있습니다.";
       },
     });
     window.lmwikiVoiceController = voiceController;
-    renderVoiceState(voiceController.getSnapshot());
   }
 
   function getSessionId() {
@@ -324,8 +438,52 @@
     return date.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
   }
 
-  function appendTtsControls(rendered, text) {
-    if (!rendered || !rendered.col || !voiceApi) return;
+  function renderTtsState(snapshot) {
+    var controls = activeTtsControls;
+    if (!controls || !snapshot || !isCurrentVoiceEpoch(controls.epoch)) return;
+    if (snapshot.state === "synthesizing") {
+      controls.button.disabled = true;
+      controls.button.textContent = "응답 준비 중…";
+      controls.button.setAttribute("aria-label", "응답 준비 중");
+      controls.status.textContent = snapshot.truncated
+        ? "응답이 길어 앞의 1200자만 읽습니다. 전체 내용은 텍스트로 확인해 주세요."
+        : "응답을 준비하고 있습니다…";
+      setInteractionVoicePhase("synthesizing", controls.epoch);
+      return;
+    }
+    if (snapshot.state === "playing") {
+      controls.button.disabled = false;
+      controls.button.textContent = "응답 중지";
+      controls.button.setAttribute("aria-label", "응답 재생 중지");
+      controls.status.textContent = "응답을 재생하고 있습니다.";
+      setInteractionVoicePhase("speaking", controls.epoch);
+      return;
+    }
+    controls.button.disabled = false;
+    controls.button.textContent = snapshot.state === "blocked" ? "재생 다시 시작" : "응답 다시 듣기";
+    controls.button.setAttribute(
+      "aria-label",
+      snapshot.state === "blocked" ? "응답 재생 다시 시작" : "응답 다시 듣기"
+    );
+    if (snapshot.state === "blocked") {
+      controls.status.textContent = "자동 재생이 차단되었습니다. 버튼을 눌러 응답을 들을 수 있습니다.";
+    } else if (snapshot.state === "error") {
+      controls.status.textContent = "응답을 들려드리지 못했습니다. 텍스트로 계속 확인할 수 있습니다.";
+    } else {
+      controls.status.textContent = "재생이 끝났습니다.";
+    }
+    if (voiceStatusEl) {
+      voiceStatusEl.textContent = snapshot.state === "blocked"
+        ? "자동 재생이 차단되었습니다. 새 음성 입력을 시작할 수 있습니다."
+        : snapshot.state === "error"
+          ? "음성 재생에 실패했습니다. 새 음성 입력을 시작할 수 있습니다."
+          : "새 음성 입력을 시작할 수 있습니다.";
+    }
+    setInteractionVoicePhase("ready", controls.epoch);
+  }
+
+  function appendTtsControls(rendered, text, epoch) {
+    if (!rendered || !rendered.col || !ttsPlayer) return null;
     var controls = document.createElement("div");
     controls.className = "tts-controls";
     var button = document.createElement("button");
@@ -340,78 +498,36 @@
     controls.appendChild(status);
     rendered.col.appendChild(controls);
 
+    var controlState = { button: button, status: status, text: text, epoch: epoch };
+
     button.addEventListener("click", function () {
-      if (ttsAudio) {
+      if (!isCurrentVoiceEpoch(epoch)) return;
+      var snapshot = ttsPlayer.getSnapshot();
+      if (activeTtsControls === controlState && (snapshot.state === "playing" || snapshot.state === "synthesizing")) {
         stopTtsPlayback();
-        button.textContent = "응답 듣기";
-        button.setAttribute("aria-label", "응답 듣기");
-        status.textContent = "재생을 멈췄습니다.";
+        setInteractionVoicePhase("ready", epoch);
         return;
       }
-      stopTtsPlayback();
-      var requestId = ++ttsSerial;
-      var ttsText = String(text || "").slice(0, 1200);
-      if (!ttsText.trim()) {
-        status.textContent = "읽을 응답이 없습니다. 텍스트로 확인해 주세요.";
+      if (activeTtsControls === controlState && snapshot.state === "blocked") {
+        ttsPlayer.resume();
         return;
       }
-      if (String(text || "").length > 1200) {
-        status.textContent = "응답이 길어 앞의 1200자만 읽습니다. 전체 내용은 텍스트로 확인해 주세요.";
-      } else {
-        status.textContent = "응답을 준비하고 있습니다…";
-      }
-      button.disabled = true;
-      button.textContent = "응답 준비 중…";
-      ttsAbortController = new AbortController();
-      voiceApi.synthesize(
-        ttsText,
-        { sessionId: getSessionId(), sessionToken: getSessionToken() || "" },
-        { signal: ttsAbortController.signal }
-      )
-        .then(function (blob) {
-          if (requestId !== ttsSerial) return;
-          if (!blob || !blob.size || !window.URL || typeof window.URL.createObjectURL !== "function") {
-            throw new Error("응답 오디오를 준비하지 못했습니다.");
-          }
-          ttsObjectUrl = window.URL.createObjectURL(blob);
-          ttsAudio = new Audio(ttsObjectUrl);
-          ttsAudio.onended = function () {
-            if (requestId !== ttsSerial) return;
-            stopTtsPlayback();
-            button.disabled = false;
-            button.textContent = "응답 듣기";
-            button.setAttribute("aria-label", "응답 듣기");
-            status.textContent = "재생이 끝났습니다.";
-          };
-          ttsAudio.onerror = function () {
-            if (requestId !== ttsSerial) return;
-            stopTtsPlayback();
-            button.disabled = false;
-            button.textContent = "응답 다시 듣기";
-            button.setAttribute("aria-label", "응답 다시 듣기");
-            status.textContent = "오디오 재생에 실패했습니다. 텍스트로 계속 확인할 수 있습니다.";
-          };
-          button.disabled = false;
-          button.textContent = "응답 중지";
-          button.setAttribute("aria-label", "응답 재생 중지");
-          status.textContent = "응답을 재생하고 있습니다.";
-          var playResult = ttsAudio.play();
-          if (playResult && typeof playResult.catch === "function") {
-            playResult.catch(function () {
-              if (requestId !== ttsSerial) return;
-              ttsAudio.onerror();
-            });
-          }
-        })
-        .catch(function (error) {
-          if (requestId !== ttsSerial || (error && error.name === "AbortError")) return;
-          stopTtsPlayback();
-          button.disabled = false;
-          button.textContent = "응답 다시 듣기";
-          button.setAttribute("aria-label", "응답 다시 듣기");
-          status.textContent = "응답을 들려드리지 못했습니다. 텍스트로 계속 확인할 수 있습니다.";
-        });
+      stopTtsPlayback("다른 응답 재생을 멈췄습니다.");
+      activeTtsControls = controlState;
+      ttsPlayer.play(text, { automatic: false, epoch: epoch });
     });
+    return controlState;
+  }
+
+  function playAssistantTts(rendered, text, epoch) {
+    if (!isCurrentVoiceEpoch(epoch) || !ttsPlayer) return;
+    stopTtsPlayback("새 응답 재생을 준비합니다.");
+    activeTtsControls = appendTtsControls(rendered, text, epoch);
+    if (!activeTtsControls) {
+      setInteractionVoicePhase("ready", epoch);
+      return;
+    }
+    ttsPlayer.play(text, { automatic: true, epoch: epoch });
   }
 
   function addMessage(role, text) {
@@ -665,7 +781,7 @@
 
   function resetSession() {
     if (requestPending) return;
-    stopTtsPlayback();
+    stopTtsPlayback("새 대화를 시작해 재생을 멈췄습니다.");
     if (voiceController) voiceController.reset();
     resetVoiceReview();
     sessionStorage.removeItem(SESSION_KEY);
@@ -687,12 +803,15 @@
     addMessage("assistant", greetingText);
     maybeShowChips();
     updateInputState();
-    inputEl.focus();
+    renderInteractionMode(currentInteractionSnapshot(), true);
   }
 
   function sendMessage(message, options) {
     options = options || {};
     if (requestPending) return;
+    var dispatchSnapshot = currentInteractionSnapshot();
+    var dispatchEpoch = dispatchSnapshot ? dispatchSnapshot.interactionEpoch : 0;
+    var autoTts = Boolean(dispatchSnapshot && dispatchSnapshot.interactionMode === "voice");
     var voiceMessage = options.source === "voice";
     var normalizedMessage = voiceMessage ? normalizeVoiceTranscript(message) : String(message || "").trim();
     message = normalizedMessage.slice(0, MAX_MESSAGE_LEN);
@@ -704,6 +823,7 @@
       if (voiceSendEl) voiceSendEl.disabled = true;
       if (voiceRerecordEl) voiceRerecordEl.disabled = true;
       if (voiceEditEl) voiceEditEl.disabled = true;
+      setInteractionVoicePhase("sending", dispatchEpoch);
     }
 
     requestPending = true;
@@ -736,7 +856,10 @@
             ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
             : "오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
         );
-        if (voiceMessage) setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
+        if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
+          setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
+          setInteractionVoicePhase("review", dispatchEpoch);
+        }
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -750,10 +873,12 @@
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("답변을 작성하고 있어요…");
-          typeAssistantMessage(replyText).then(function (rendered) {
-          if (voiceMessage) {
-            appendTtsControls(rendered, replyText);
+        typeAssistantMessage(replyText).then(function (rendered) {
+          if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
             resetVoiceReview();
+          }
+          if (autoTts && isCurrentVoiceEpoch(dispatchEpoch)) {
+            playAssistantTts(rendered, replyText, dispatchEpoch);
           }
           setStatus("");
           updateTurnCounter(data.turn);
@@ -771,13 +896,21 @@
           }
 
           updateInputState();
-          inputEl.focus();
+          var completionSnapshot = currentInteractionSnapshot();
+          if (completionSnapshot && completionSnapshot.interactionMode === "voice") {
+            if (interactionModeController.isCurrentEpoch(dispatchEpoch) && voiceToggleEl) voiceToggleEl.focus();
+          } else {
+            inputEl.focus();
+          }
         });
       })
       .catch(function () {
         hideTyping();
         setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-        if (voiceMessage) setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
+        if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
+          setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
+          setInteractionVoicePhase("review", dispatchEpoch);
+        }
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -803,18 +936,29 @@
     resetSessionEl.addEventListener("click", resetSession);
   }
 
+  if (interactionModeChatEl) {
+    interactionModeChatEl.addEventListener("change", function () {
+      if (interactionModeChatEl.checked) switchInteractionMode("chat", true);
+    });
+  }
+
+  if (interactionModeVoiceEl) {
+    interactionModeVoiceEl.addEventListener("change", function () {
+      if (interactionModeVoiceEl.checked) switchInteractionMode("voice", true);
+    });
+  }
+
   if (voiceToggleEl && voiceController) {
     voiceToggleEl.addEventListener("click", function () {
+      if (!interactionModeController || currentInteractionSnapshot().interactionMode !== "voice") return;
+      voiceAttemptEpoch = interactionModeController.captureEpoch();
       voiceController.toggle();
     });
   }
 
   if (voiceTextFallbackEl && voiceController) {
     voiceTextFallbackEl.addEventListener("click", function () {
-      stopTtsPlayback();
-      voiceController.reset();
-      resetVoiceReview();
-      inputEl.focus();
+      switchInteractionMode("chat", true);
     });
   }
 
@@ -822,6 +966,7 @@
     voiceRerecordEl.addEventListener("click", function () {
       voiceController.reset();
       resetVoiceReview();
+      voiceAttemptEpoch = interactionModeController.captureEpoch();
       voiceController.start();
     });
   }
@@ -851,7 +996,7 @@
 
   if (voiceSendEl && voiceController) {
     voiceSendEl.addEventListener("click", function () {
-      if (!voiceTranscriptEl || requestPending) return;
+      if (!voiceTranscriptEl || requestPending || !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
       var transcript = normalizeVoiceTranscript(voiceTranscriptEl.value);
       if (!transcript) {
         if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "보낼 전사 내용이 없습니다. 다시 녹음해 주세요.";
@@ -868,6 +1013,13 @@
       });
     });
   }
+
+  window.addEventListener("pagehide", function () {
+    stopTtsPlayback("페이지를 떠나 재생을 멈췄습니다.");
+  });
+  window.addEventListener("beforeunload", function () {
+    stopTtsPlayback("페이지를 떠나 재생을 멈췄습니다.");
+  });
 
   function setTextIf(selector, value) {
     if (!value) return;
@@ -969,10 +1121,7 @@
       if (data && data.mode === "coaching") applyCoachingMode();
       if (data && data.mode === "intake") applyIntakeMode();
       applyUiConfig(data && data.ui);
-      if (data && data.voice && data.voice.enabled === true && voiceController && voiceController.isSupported()) {
-        voiceControlsEl.hidden = false;
-        voiceController.setEnabled(true);
-      }
+      configureVoiceCapability(Boolean(data && data.voice && data.voice.enabled === true));
       if (data && data.mode === "intake" && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
@@ -981,6 +1130,7 @@
       }
     })
     .catch(function (err) {
+      configureVoiceCapability(false);
       console.warn("intake config probe failed; stepper stays hidden", err);
     })
     .finally(function () {
