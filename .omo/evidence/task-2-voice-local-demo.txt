@@ -1,0 +1,41 @@
+T2 provider feasibility evidence
+
+Host/runtime
+- Host: Apple M4, 16 GiB, arm64, macOS 26.6.
+- Python: 3.13.4 selected because available; Python 3.14 compatibility was not selected.
+- Install: uv pip install --python .voice-venv/bin/python mlx-audio==0.4.5 mlx-whisper==0.4.3
+- Qwen feasibility download: HF_HOME=<repo>/.voice-model-cache HF_HUB_CACHE=<repo>/.voice-model-cache/hub .voice-venv/bin/python -c 'from mlx_audio.stt import load; load("mlx-community/Qwen3-ASR-0.6B-8bit")'
+- Cached model paths: $HOME/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo/snapshots/a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb; <repo>/.voice-model-cache/hub/models--mlx-community--Qwen3-ASR-0.6B-8bit/snapshots/89e96d92ba34aca20b3e29fb10cc284097d1219f
+
+Fixture contract
+- Command: ./scripts/generate_voice_fixtures.sh --out tests/fixtures/voice-ko --voice Yuna
+- Exactly 10 fixed, non-personal Korean utterances; manifest has exact expected text and generated duration for each.
+- WAV format verified with ffprobe: pcm_s16le, 16000 Hz, mono.
+- Label: deterministic compatibility coverage only; not natural-speaker quality evidence.
+
+Selection gate
+- Rule: lowest CER among local-only candidates with 10/10 non-empty, warm RTF <= 1.0, RSS <= 8 GiB, and network-deny success; ties break by warm RTF then warm latency.
+- Selected profile: Qwen3-ASR 0.6B 8-bit via MLX-Audio STT + macOS say -v Yuna TTS.
+- Explicit fallback: whisper.cpp STT + macOS say TTS. whisper.cpp requires a separately provisioned GGML model.
+
+Benchmark command and results
+- Command: VOICE_NETWORK_DENY=1 .voice-venv/bin/python scripts/voice_provider_benchmark.py --fixtures tests/fixtures/voice-ko --out .omo/evidence/task-2-voice-local-demo.json
+- Network-deny proof: both runnable MLX candidates and macOS say completed with VOICE_NETWORK_DENY=1, HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, and blocked Python socket connects.
+- mlx-whisper large-v3-turbo: PASS; cold 7553.0 ms / RTF 8.5836; warm 903.5 ms / RTF 0.5011; peak RSS 1.722 GiB; non-empty 10/10; CER 0.0000. License: mlx-whisper MIT; checkpoint follows upstream model-card terms; weights not redistributed.
+- Qwen3-ASR 0.6B 8-bit: PASS; cold 7163.4 ms / RTF 8.1408; warm 154.1 ms / RTF 0.0855; peak RSS 1.722 GiB; non-empty 10/10; CER 0.0000. License: mlx-audio MIT; Qwen3-ASR checkpoint Apache-2.0 upstream; weights not redistributed.
+- macOS say Yuna: PASS; cold 985.3 ms; warm 567.3 ms / RTF 0.3146; non-empty 10/10. License: macOS system component; no model redistribution. This is a deterministic execution check, not subjective quality evidence.
+- whisper.cpp: UNAVAILABLE — Homebrew whisper-cli is installed, but no GGML model is cached or bundled.
+- Supertonic 3: UNAVAILABLE — runtime and Korean model weights are not installed or cached. License note: upstream code MIT; model weights OpenRAIL-M.
+
+Baseline and failure-first proof
+- Before T2 edits: .venv/bin/python -m pytest -q tests/test_chat.py tests/test_config.py => 20 passed, 1 existing Starlette deprecation warning.
+- Before generator existed: ./scripts/generate_voice_fixtures.sh ... => exit 127, command not found.
+- Final invalid model path: provider mlx-whisper => exit 2, FileNotFoundError, no report; provider qwen-asr => exit 2, FileNotFoundError, no report.
+- Retained temp audio probe after failures: no /tmp/*.aiff or /tmp/*.wav found.
+- After T2 edits: .venv/bin/python -m pytest -q tests/test_chat.py tests/test_config.py => 20 passed, 1 existing Starlette deprecation warning.
+
+Scope/cache/cleanup
+- git status --short --ignored confirms .voice-venv/ and .voice-model-cache/ are ignored; model weights are not tracked. Existing dirty product files remain untouched.
+- Cache sizes: .voice-venv 1.1G; .voice-model-cache 971M; existing cached MLX Whisper 1.5G.
+- Temporary fixture staging and benchmark TTS audio use temporary directories and are removed on success/failure; no raw personal audio or secrets are in this evidence.
+- UltraQA applicability: stale_state, dirty_worktree, hung_long_command, flaky_tests, malformed_input, misleading_success_output applicable and probed; prompt_injection and cancel_resume not observed/non-applicable.

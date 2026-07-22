@@ -1,0 +1,94 @@
+{
+  "task": "T5",
+  "plan": ".omo/plans/voice-local-demo.md",
+  "status": "verified_pending_scoped_commit",
+  "baseline": {
+    "static_sha1": {
+      "static/index.html": "ab858f940e75bea5bcd95961273b01f642480089",
+      "static/app.js": "01bec665c868fd7f3b8e12bb17576623e8b8f328",
+      "static/style.css": "e906a4029524df1b767055ead9333e6a963cc969"
+    },
+    "failing_first_fake": {
+      "command": "node --input-type=module < naive MediaRecorder sequence",
+      "result": "expected_failure_captured",
+      "status": 1,
+      "finding": "naive stop initiated transcription before final dataavailable"
+    },
+    "text_gui_smoke": {
+      "command": "node scripts/gui-smoke/gui-smoke.mjs",
+      "baseline_result": "stalled_then_timeout",
+      "finding": "initial UI assertions passed; existing /api/chat path did not complete waitForFunction before the 30s harness timeout"
+    },
+    "dirty_worktree": "pre-existing tracked and untracked paths were recorded and preserved"
+  },
+  "implementation": {
+    "files": [
+      "static/index.html",
+      "static/app.js",
+      "static/style.css",
+      "static/voice.js",
+      "scripts/voice-ui-test.mjs"
+    ],
+    "state_machine": [
+      "idle",
+      "requesting_permission",
+      "starting",
+      "recording",
+      "stopping",
+      "transcribing",
+      "transcript_review",
+      "sending",
+      "ready",
+      "error"
+    ],
+    "chat_boundary": "controller exposes recording/transcription seams and never calls /api/chat"
+  },
+  "verification": [
+    {
+      "command": "node --check static/voice.js && node --check static/app.js && git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "node scripts/voice-ui-test.mjs --scenario hostile-events",
+      "result": "pass",
+      "scenarios": [
+        "error-before-data",
+        "permission-denied-and-no-device",
+        "data-before-stop",
+        "track-ended-during-recording",
+        "reset-during-transcribe",
+        "stop-twice",
+        "early-stop-and-empty-audio",
+        "pagehide-stops-tracks"
+      ]
+    },
+    {
+      "command": "VOICE_ENABLED=false node scripts/gui-smoke/gui-smoke.mjs",
+      "result": "pass",
+      "evidence": "all existing knowledge, knowledge-alt, fallback, and final result assertions passed"
+    },
+    {
+      "command": "Chromium disabled-mode and positive-config fake-media interaction probe",
+      "result": "pass",
+      "assertions": [
+        "voice hidden when disabled/config is not positive",
+        "text composer enabled",
+        "fake click-to-start/click-to-stop reaches transcript_review",
+        "tracks stopped",
+        "no /api/chat request"
+      ]
+    }
+  ],
+  "adversarial_classes": {
+    "malformed_input": "pass: empty and metadata-only chunks rejected; permission/no-device errors surfaced",
+    "stale_callbacks": "pass: reset during transcribe invalidates late result and DOM state remains idle",
+    "dirty_worktree": "pass: unrelated dirty tracked/untracked files preserved; scoped staging only",
+    "hung_commands": "baseline GUI smoke timeout was bounded and its process group cleaned; later rerun completed",
+    "flaky_timing": "pass: monotonic injected clock and explicit 800ms guard; no chunk-count/timeslice timing",
+    "misleading_output": "pass: baseline timeout, harness JSON, browser assertions, and final smoke result read separately",
+    "repeated_interruption": "pass: duplicate stop guarded once; pagehide and reset stop tracks",
+    "prompt_injection": "not_applicable_no_prompt_boundary",
+    "cancel_resume": "not_applicable_no_resumable_job"
+  },
+  "cleanup": "no raw audio or model artifacts written; recorder tracks/timers are cleaned in terminal paths; no reset, checkout, stash, delete, push, PR, merge, or amend"
+}

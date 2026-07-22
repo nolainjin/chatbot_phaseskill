@@ -7,13 +7,20 @@ from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 
 from app import chat, intake, ratelimit, stats, storage
-from app.config import Settings
+from app.config import (
+    VOICE_MAX_RECORDING_MS,
+    VOICE_MIN_RECORDING_MS,
+    VOICE_SILENCE_AUTO_STOP,
+    Settings,
+)
+from app.voice_api import providers_configured, router as voice_router
 
 MAX_MESSAGE_LEN = 2000
 STATIC_DIR = "static"
 
 app = FastAPI()
 _rate_limiter = ratelimit.RateLimiter()
+app.include_router(voice_router)
 
 
 @app.post("/api/chat")
@@ -65,11 +72,27 @@ def get_config():
     """스키마 프로브 + 스키마 소유 UI 문구. ui가 비면 프론트는 기본 문구를 쓴다."""
     settings = Settings.from_env()
     schema = intake.load_schema(settings.knowledge_dir)
-    return {
+    config = {
         "mode": "intake" if schema is not None else "coaching",
         "intake_schema": schema is not None,
         "ui": schema.ui if schema is not None else {},
     }
+    if (
+        settings.voice_enabled
+        and settings.voice_stt_model is not None
+        and settings.voice_tts_model is not None
+        and providers_configured()
+    ):
+        config["voice"] = {
+            "enabled": True,
+            "local_only": True,
+            "stt": settings.voice_stt_model,
+            "tts": settings.voice_tts_model,
+            "min_recording_ms": VOICE_MIN_RECORDING_MS,
+            "max_recording_ms": VOICE_MAX_RECORDING_MS,
+            "silence_auto_stop": VOICE_SILENCE_AUTO_STOP,
+        }
+    return config
 
 
 @app.get("/api/stats")

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "task": "T4 voice-local-demo silent audio fix",
+  "finding": "T4-VRF-003",
+  "phase": "red_before_fix",
+  "command": "VOICE_ENABLED=true VOICE_NETWORK_DENY=1 VOICE_PROVIDER_TEST_MODE=1 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python - <<'PY' <real TestClient + SidecarVoiceProvider silent WAV probe> PY",
+  "result": {
+    "status_code": 500,
+    "body": "Internal Server Error",
+    "error_code": null,
+    "expected_status_code": 400,
+    "expected_error_code": "invalid_audio"
+  },
+  "path": "app.voice_api.transcribe -> SidecarVoiceProvider.transcribe -> voice_runtime.audio.normalize_audio",
+  "cause": "RuntimeAudioError is translated to AudioDecodeError by the provider, but the route only catches VoiceProviderError.",
+  "cleanup": {
+    "temp_entries_after_request": [],
+    "raw_audio_retained": false,
+    "unrelated_dirty_files_preserved": true
+  },
+  "green_after_fix": {
+    "focused_test": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py -k real_sidecar_transcribe_maps_silent_audio: 1 passed",
+    "provider_mapping_tests": "VOICE_NETWORK_DENY=1 .venv/bin/python -m pytest -q tests/test_voice_api.py -k 'real_sidecar_transcribe_maps_silent_audio or transcribe_maps_provider_failures or transcribe_rejects_empty_audio': 5 passed",
+    "direct_probe": {
+      "status_code": 400,
+      "error_code": "invalid_audio",
+      "temp_entries": []
+    },
+    "regression_test": "real TestClient route with SidecarVoiceProvider and silent WAV asserts 400/invalid_audio and empty temp root"
+  },
+  "verification": {
+    "provider_suite_twice": "13 passed; 13 passed",
+    "api_security_chat_config": "54 passed",
+    "compileall": "passed",
+    "git_diff_check": "passed",
+    "sidecar_kill_regression": "covered by provider suite; no replay and temp root empty",
+    "port_8700_and_voice_sidecar_cleanup": "no listener or voice_sidecar process after verification"
+  }
+}

@@ -29,7 +29,7 @@ evidence_ledger:
 - E03 Read static/style.css:1-399 — CSS 변수 테마(라이트/다크 @media), 말풍선 비대칭 라운딩 부분 존재(.message-user 147, .message-assistant 155), slot-* 패널 스타일(245-343), 미디어쿼리 860px(345)/520px.
 - E04 Read app/chat.py:107-125,207-213 — _intake_state: filled[]={id,label,value}, unfilled[]={id,label,red_flag}. schema is not None일 때만 result["intake"] additive — 기존 {reply,turn,limit_reached} 계약 무변경.
 - E05 Read app/main.py:1-46 — 라우트는 POST /api/chat(19) 뿐. static 마운트 html=True(46)는 파일 하단 — 그 위에 선언한 GET 라우트가 우선. 로드 시점 스키마 유무 프로브 없음.
-- E06 Read knowledge/_intake_schema.md:30-88 — 슬롯: track(p0, values 위기/관계/정서), chief_complaint(p1, **signals 없음**), coping(p2), support(p3), expectation(p4), symptom_context/relationship_context/crisis_attempt_history(p5, when 조건부), crisis_plan_means(p6, red_flag). 정서 신호어에 '불안','우울','잠'(43행), 관계 신호어에 '대인'(42행).
+- E06 Read knowledge/_intake_schema.md:30-88 — 슬롯: track(p0, values 위기/관계/정서), chief_complaint(p1, **signals 없음**), coping(p2), support(p3), expectation(p4), symptom_context/relationship_target/relationship_duration/crisis_attempt_history(p5, when 조건부), crisis_plan_means(p6, red_flag). 정서 신호어에 '불안','우울','잠'(43행), 관계 신호어에 '대인'(42행).
 - E07 Bash ls knowledge-alt/ — _intake_schema.md·_persona.md 없음(커피 문서 6종) → intake.load_schema None 폴백 → 응답에 intake 키 부재.
 - E08 Read docs/design/gui-reference.png — 딥틸 헤더 바, 3단 스테퍼(도움 필요 영역·상황 파악·상담 준비), 보호 카드(쉐브론 접기), 원형 봇 아바타, 비대칭 말풍선, 타임스탬프(오전 10:30), 칩 4종(불안·우울·수면·관계) 2×2, 둥근 입력창+원형 전송, 하단 자물쇠 문구.
 - E09 Bash tooling_readiness — sem=ready, engramx=missing(Read/Grep 폴백), ts_morph=missing(비차단), graph=missing, large_files=0.

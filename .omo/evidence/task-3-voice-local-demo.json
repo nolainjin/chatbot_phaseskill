@@ -1,0 +1,104 @@
+{
+  "task": "T3",
+  "plan": ".omo/plans/voice-local-demo.md",
+  "session_id": "redacted-t3-20260721",
+  "status": "verified",
+  "baseline": {
+    "t1_commit": "087b062",
+    "branch": "agent/contextual-reply-buttons...origin/agent/contextual-reply-buttons",
+    "protected_hashes": {
+      "app/chat.py": "ca71f754677fd99fc52776d33a6e2bf03a54819a556cd0bcec5abda4d52f884f",
+      "app/storage.py": "6cf92e145acf86bae70020f8bc91c3c1e66ed82a35522d291a7d6dbeef0c8b27",
+      "tests/test_security.py": "af5381c4c266acd255eba9d16f4f7e5580a6d5a06ab43fa6bd58b7bc6f9bc7c9",
+      "tests/test_chat.py": "0bfe2edfa01b9ac7161bf142d311901db44b395530456e7309ac560f83f43db4"
+    },
+    "pre_existing_dirty_paths_preserved": [
+      "app/chat.py",
+      ".omo/start-work/ledger.jsonl",
+      "app/learning_coach.py",
+      "app/llm.py",
+      "app/safety.py",
+      "docs/slides/chatbot_development_story_keynote.html",
+      "scripts/self_directed_coaching_eval.py",
+      "tests/test_llm_cli.py",
+      "tests/test_safety.py",
+      "tests/test_self_directed_coaching_eval.py"
+    ]
+  },
+  "failing_first": {
+    "command": ".venv/bin/python -m pytest -q tests/test_voice_api.py",
+    "result": "3 failed before route implementation; new paths returned 405 instead of the contract statuses"
+  },
+  "contracts": {
+    "transcribe": {
+      "input": "multipart session_id, optional session_token, optional participant_id, audio",
+      "limits": {"max_audio_bytes": 10485760, "min_duration_ms": 800, "max_duration_ms": 60000},
+      "first_turn": "unknown session without token is ephemeral and does not create chat state or storage",
+      "known_session": "chat.owns_session is required; missing or invalid token returns 401",
+      "provider_default": "unavailable and fail-closed without network"
+    },
+    "synthesize": {
+      "limits": {"max_text_chars": 1200, "max_predicted_duration_ms": 60000},
+      "known_session": "chat.owns_session is required when session_id identifies an existing session",
+      "response": "one-shot audio/wav with Cache-Control no-store",
+      "failure_behavior": "provider failure leaves existing chat response and turn state unchanged"
+    },
+    "stable_error_codes": [
+      "voice_disabled",
+      "invalid_audio",
+      "audio_too_large",
+      "audio_too_short",
+      "audio_too_long",
+      "provider_unavailable",
+      "provider_timeout",
+      "local_only_violation",
+      "session_auth_required"
+    ],
+    "boundary_codes": ["invalid_request", "invalid_text"]
+  },
+  "tests": [
+    {"command": ".venv/bin/python -m pytest -q tests/test_voice_api.py tests/test_security.py", "result": "30 passed"},
+    {"command": "VOICE_ENABLED=false .venv/bin/python -m pytest -q tests/test_voice_api.py -k disabled", "result": "2 passed, 19 deselected"},
+    {"command": ".venv/bin/python -m pytest -q tests/test_chat.py::test_api_self_directed_config_keeps_intake_hidden tests/test_chat.py::test_api_chat_endpoint_happy_path tests/test_security.py::test_api_chat_requires_session_token_after_session_creation", "result": "3 passed"},
+    {"command": ".venv/bin/python -m py_compile app/main.py app/voice_api.py app/voice_contracts.py tests/test_voice_api.py", "result": "passed"},
+    {"command": "git diff --check", "result": "passed"}
+  ],
+  "manual_qa": {
+    "surface": "FastAPI TestClient",
+    "transcribe_status": 200,
+    "transcribe_body": {"text": "수동 전사", "language": "ko", "duration_ms": 1000, "model": "manual-stt", "provider": "manual-local", "latency_ms": 0},
+    "synthesize_status": 200,
+    "synthesize_content_type": "audio/wav",
+    "cache_control": "no-store",
+    "temporary_directory_before_files": [],
+    "temporary_directory_after_files": [],
+    "conversation_or_audio_persistence": false
+  },
+  "adversarial_classes": {
+    "malformed_input": "covered: malformed ids, missing multipart fields, empty/corrupt audio, oversized audio, text limits",
+    "prompt_injection": "not_applicable: T3 provider output is validated and never sent to chat/LLM",
+    "cancel_resume": "not_applicable: no provider lifecycle or long-running job state in T3",
+    "hung_long_command": "not_applicable: no subprocess or provider lifecycle in T3",
+    "stale_state": "covered: ephemeral transcribe leaves no conversation/audio files",
+    "dirty_worktree": "covered: protected hashes and dirty paths captured; unrelated changes preserved",
+    "flaky_tests": "not_observed: deterministic local TestClient and generated WAV fixtures",
+    "misleading_success_output": "covered: assertions check HTTP status, stable body code, headers, and filesystem state",
+    "repeated_interruptions": "not_observed: no interruption occurred"
+  },
+  "cleanup": {
+    "temporary_audio": "request-scoped UploadFile closed in finally; manual temp directory auto-removed",
+    "conversation_storage": "no first-turn conversation file or chat session created",
+    "network": "no network provider call; default provider is unavailable",
+    "git": "no reset, checkout, stash, delete, push, PR, merge, or amend",
+    "verifier_gap": "ruff and basedpyright unavailable in the local environment"
+  },
+  "changed_files": [
+    "app/main.py",
+    "app/voice_api.py",
+    "app/voice_contracts.py",
+    "requirements.txt",
+    "requirements.lock",
+    "tests/test_voice_api.py",
+    ".omo/evidence/task-3-voice-local-demo.json"
+  ]
+}

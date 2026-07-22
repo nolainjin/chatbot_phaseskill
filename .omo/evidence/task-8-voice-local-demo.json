@@ -1,0 +1,100 @@
+{
+  "task": "T8 voice-local-demo",
+  "result": "pass",
+  "plan": ".omo/plans/voice-local-demo.md",
+  "baseline": {
+    "repo": "/Volumes/부부공용/worknote/lmwiki-chatbot",
+    "branch": "agent/contextual-reply-buttons",
+    "head": "eec82e46131d3f5f9ed0dc5ad599a13a54032afc",
+    "text_smoke": "pass",
+    "existing_voice_harness": "pass",
+    "existing_t7_voice_smoke": "pass",
+    "pre_edit_hashes": {
+      "tests/test_voice_api.py": "7520839c6c489a7cccd70055a6c173868df85fae",
+      "tests/test_voice_provider.py": "676922a336a9f16ef596859392dfffa21dd700f1",
+      "scripts/voice-ui-test.mjs": "fd9c1cb3ac16d4e4c59db48f59c3c6f5576564ab",
+      "scripts/gui-smoke/voice-local-smoke.mjs": "09b6f2a994e129f08d153ace06971ef1f0f1c0df"
+    },
+    "protected_t7_png": {
+      "path": ".omo/evidence/task-7-voice-local-demo.png",
+      "sha256_after": "3204fcba85f46c243f8ed942a81e225e30f3e214",
+      "worktree_diff": false,
+      "t8_output": false
+    }
+  },
+  "changed_files": [
+    "tests/test_voice_api.py",
+    "scripts/voice-ui-test.mjs",
+    "scripts/gui-smoke/voice-local-smoke.mjs",
+    ".omo/evidence/task-8-voice-local-demo.txt",
+    ".omo/evidence/task-8-voice-local-demo.json"
+  ],
+  "python_contracts": [
+    "multipart missing fields -> 400 invalid_request",
+    "known-session missing/wrong token -> 401 session_auth_required",
+    "canonical chat rate limit -> 429 without session creation",
+    "ephemeral no-persistence and temp cleanup",
+    "provider unavailable/timeout/local-only stable mappings",
+    "TTS audio/wav, no-store, duration header, no cookie"
+  ],
+  "fake_harness_scenarios": [
+    "permission-denied-and-no-device",
+    "starting-stop-race",
+    "data-before-stop",
+    "track-ended-during-recording",
+    "reset-during-transcribe",
+    "stop-twice",
+    "early-stop-and-empty-audio",
+    "pagehide-stops-tracks",
+    "voice-fetch-wrapper-upload-and-errors",
+    "voice-fetch-wrapper-timeout-and-cancel"
+  ],
+  "playwright_scenarios": [
+    "zero chat before confirmation",
+    "one canonical chat after confirmation",
+    "chat-429",
+    "chat-401",
+    "sidecar-absent",
+    "network-denied",
+    "tts synthesize then revoke",
+    "tts error keeps assistant text",
+    "reset blocks stale transcription callback"
+  ],
+  "verification": {
+    "full_pytest": {"status": "pass", "passed": 262, "failed": 0, "warnings": 1},
+    "focused_voice_pytest": {"status": "pass", "passed": 42, "failed": 0, "warnings": 1},
+    "text_gui_smoke": "pass",
+    "hostile_voice_harness": "pass",
+    "voice_playwright_smoke": "pass",
+    "node_syntax": "pass",
+    "repeat_hostile_runs": {"runs": 3, "passed": 3}
+  },
+  "ultraqa": {
+    "malformed_input": "pass",
+    "stale_state": "pass",
+    "dirty_worktree": "pass",
+    "hung_commands": "pass",
+    "flaky_timing": "pass",
+    "misleading_success_output": "pass",
+    "repeated_interruptions": "pass",
+    "prompt_injection": "not_applicable",
+    "cancel_resume": "not_applicable"
+  },
+  "scope": {
+    "product_behavior_changed": false,
+    "provider_test_changed": false,
+    "t7_png_staged": false,
+    "unrelated_dirty_files_preserved": true,
+    "cloud_speech_api_used": false,
+    "raw_audio_logged": false,
+    "generated_repo_artifacts": [],
+    "transient_external_artifacts": [
+      "/tmp/t8-hostile-1.json",
+      "/tmp/t8-hostile-2.json",
+      "/tmp/t8-hostile-3.json"
+    ]
+  },
+  "warnings": [
+    "pre-existing Starlette/httpx TestClient deprecation warning; no test failure"
+  ]
+}

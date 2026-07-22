@@ -137,7 +137,7 @@ def test_mixed_utterance_fills_two_slots_at_once():
         "상담 트랙": "관계",
         "호소 문제": "남편과 가족 문제로 너무 힘들어요",
     }
-    assert result["intake"]["unfilled"][0]["label"] == "관계 대상·기간"
+    assert result["intake"]["unfilled"][0]["label"] == "관계 대상"
 
 
 def test_fake_schema_reply_is_interview_like_not_doc_stub():
@@ -254,7 +254,7 @@ def test_later_relationship_signal_escalates_from_emotion_without_support_false_
     rel_result = chat.handle_message(rel_session, "남편과 갈등 때문에 힘들어요", _settings())
 
     assert chat._sessions[rel_session].slots["track"] == "관계"
-    assert rel_result["intake"]["unfilled"][0]["label"] == "관계 대상·기간"
+    assert rel_result["intake"]["unfilled"][0]["label"] == "관계 대상"
 
     support_session = "e2e-support-no-track-flip"
     chat.handle_message(support_session, "우울해서 잠을 못 자요", _settings())

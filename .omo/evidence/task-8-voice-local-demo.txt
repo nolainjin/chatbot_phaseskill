@@ -1,0 +1,79 @@
+T8 voice-local-demo evidence
+
+Result: PASS
+Plan: .omo/plans/voice-local-demo.md (T8)
+Scope: deterministic voice regressions and adversarial browser coverage only
+
+Baseline before T8 edits
+- Authoritative repo: /Volumes/부부공용/worknote/lmwiki-chatbot
+- Branch: agent/contextual-reply-buttons
+- HEAD: eec82e46131d3f5f9ed0dc5ad599a13a54032afc
+- Existing text smoke: node scripts/gui-smoke/gui-smoke.mjs -> PASS
+- Existing fake voice harness: node scripts/voice-ui-test.mjs -> PASS
+- Existing T7 voice Playwright smoke: node scripts/gui-smoke/voice-local-smoke.mjs -> PASS
+- Pre-edit hashes: tests/test_voice_api.py 7520839c6c489a7cccd70055a6c173868df85fae; tests/test_voice_provider.py 676922a336a9f16ef596859392dfffa21dd700f1; scripts/voice-ui-test.mjs fd9c1cb3ac16d4e4c59db48f59c3c6f5576564ab; scripts/gui-smoke/voice-local-smoke.mjs 09b6f2a994e129f08d153ace06971ef1f0f1c0df
+- Protected T7 PNG hash after verification: .omo/evidence/task-7-voice-local-demo.png 3204fcba85f46c243f8ed942a81e225e30f3e214; worktree diff clean; not a T8 output
+
+Python contract assertions
+- Missing multipart session_id/audio returns 400 invalid_request.
+- Known-session transcribe rejects both missing and wrong session tokens with 401 session_auth_required.
+- Existing canonical chat rate-limit boundary remains 429 and does not create a session.
+- First-turn transcription remains ephemeral with no conversation/audio residue.
+- Sidecar-backed decode failure removes temporary runtime files.
+- Provider unavailable, timeout, and local-only violation retain stable error codes.
+- One-shot TTS response is audio/wav, cache-control no-store, includes X-Voice-Duration-Ms, and has no cookie header.
+- Existing size, duration, empty audio, TTS limit, and TTS failure-preserves-chat assertions remain intact.
+
+Dependency-free hostile MediaRecorder assertions
+- permission denied and no microphone tracks fail closed
+- permission resolution after reset stops the late stream and creates no recorder
+- final dataavailable ordering precedes transcription
+- track ended and recorder error clean up without transcription
+- reset suppresses stale transcript callbacks
+- duplicate stop invokes recorder.stop exactly once
+- 799ms stop is rejected; 800ms stop is accepted
+- empty and metadata-only chunks are rejected
+- pagehide stops microphone tracks
+- fetch wrapper uploads multipart audio, maps errors, times out, and supports cancellation
+- voice controller contains no /api/chat call and no SpeechRecognition API
+
+Separate Playwright voice smoke assertions
+- fake media/fake API path keeps text input available and sends zero chat requests before confirmation
+- confirmation sends exactly one canonical chat request
+- chat 429 and 401 preserve the review transcript and do not duplicate requests
+- TTS success revokes its object URL; TTS failure preserves the assistant text
+- sidecar-absent and network-denied transcription fail closed with zero chat requests
+- reset suppresses delayed transcription updates
+- no uncaught page errors were observed in the added failure branches
+- no T7 screenshot is written; generated_artifacts is an empty list
+
+Required verification
+- .venv/bin/python -m pytest -q -> 262 passed, 1 pre-existing Starlette/httpx deprecation warning
+- .venv/bin/python -m pytest -q tests/test_voice_api.py tests/test_voice_provider.py -> 42 passed
+- node scripts/gui-smoke/gui-smoke.mjs -> PASS
+- node scripts/voice-ui-test.mjs --scenario hostile-events -> PASS
+- node scripts/gui-smoke/voice-local-smoke.mjs -> PASS
+- node --check scripts/voice-ui-test.mjs -> PASS
+- node --check scripts/gui-smoke/voice-local-smoke.mjs -> PASS
+- node --check scripts/gui-smoke/gui-smoke.mjs -> PASS
+- repeated hostile harness: 3/3 PASS; JSON output parsed and every scenario result was pass
+- focused timeout/no-sidecar/killed-sidecar/multipart/rate-limit probes: 6 passed
+
+UltraQA class probes
+- malformed input: PASS, missing multipart fields and existing malformed/oversized/decoded-duration cases
+- stale state: PASS, reset during STT plus late permission resolution
+- dirty worktree: PASS, unrelated dirty tracked/untracked files preserved; T7 PNG restored and unchanged
+- hung commands: PASS, bounded provider timeout and killed in-flight sidecar tests
+- flaky timing: PASS, deterministic fake clock plus three repeated hostile harness runs
+- misleading success output: PASS, machine-readable outputs parsed for task/result and all scenario results
+- repeated interruptions: PASS, reset/pagehide/cancel and killed in-flight sidecar coverage
+- prompt injection: N/A for this local test-only task
+- cancel-resume: N/A for this local test-only task
+
+Scope and cleanup
+- T8-owned changes are limited to tests/test_voice_api.py, scripts/voice-ui-test.mjs, scripts/gui-smoke/voice-local-smoke.mjs, and these two evidence files.
+- tests/test_voice_provider.py was not changed because existing provider coverage already proved local-only, timeout, no-sidecar, kill/restart, and cleanup behavior.
+- .omo/evidence/task-7-voice-local-demo.png was restored to its pre-run committed bytes and excluded from T8 staging.
+- No raw audio, provider body, model cache, credentials, or cloud SpeechRecognition API was used or logged.
+- Existing unrelated dirty files and pre-existing screenshots/ were preserved; no repository artifact was generated by T8.
+- Transient /tmp/t8-hostile-1.json, /tmp/t8-hostile-2.json, and /tmp/t8-hostile-3.json contain only redacted pass summaries and no audio; they are outside the repository.

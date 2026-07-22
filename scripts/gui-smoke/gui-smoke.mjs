@@ -204,6 +204,33 @@ async function scenarioKnowledge(browser) {
     );
   }
 
+  const periodMismatch = await page.evaluate(() =>
+    window.lmwikiChooseReplySlot(
+      { unfilled: [{ id: "coping", label: "대처 시도" }] },
+      "이 어려움은 언제부터 시작됐고 얼마나 오래되었나요?"
+    )
+  );
+  const periodMatch = await page.evaluate(() =>
+    window.lmwikiChooseReplySlot(
+      {
+        unfilled: [
+          { id: "symptom_context", label: "증상 시기·일상 영향" },
+          { id: "coping", label: "대처 시도" },
+        ],
+      },
+      "이 어려움은 언제부터 시작됐고 얼마나 오래되었나요?"
+    )
+  );
+  const copingMatch = await page.evaluate(() =>
+    window.lmwikiChooseReplySlot(
+      { unfilled: [{ id: "coping", label: "대처 시도" }] },
+      "지금까지 어떤 방법을 해보셨나요?"
+    )
+  );
+  assert(periodMismatch === null, "기간 질문과 대처 버튼 불일치 시 빠른 답변 숨김");
+  assert(periodMatch === "symptom_context", "기간 질문은 증상 시기 선택지로 연결");
+  assert(copingMatch === "coping", "대처 질문은 대처 선택지로 연결");
+
   await page.context().close();
 }
 

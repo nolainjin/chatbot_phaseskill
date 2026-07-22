@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
-from app import chat, knowledge_pack
+from app import chat
 from app.config import Settings
 
 
@@ -14,7 +14,9 @@ def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
             return {"ok": False, "path": "_validation_scenario.json", "message": "intake pack에는 scenario가 필요합니다."}
         return {"ok": True, "mode": "coaching", "messages": 0, "unfilled": []}
 
-    scenario = knowledge_pack._load_json_no_duplicates(scenario_path)
+    from app.knowledge_pack import _load_json_no_duplicates
+
+    scenario = _load_json_no_duplicates(scenario_path)
     if not isinstance(scenario, dict):
         return {"ok": False, "path": "scenario", "message": "scenario는 JSON object여야 합니다."}
     messages_obj = scenario.get("messages")
@@ -46,7 +48,7 @@ def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
                 if intake_mode and not isinstance(last.get("intake"), dict):
                     return {"ok": False, "path": f"messages[{index}]", "message": "응답에 intake 상태가 없습니다."}
             if not intake_mode:
-                return {"ok": True, "mode": "coaching", "messages": len(messages), "unfilled": []}
+                return {"ok": True, "mode": "knowledge", "messages": len(messages), "unfilled": []}
             intake_state = last.get("intake")
             unfilled = intake_state.get("unfilled") if isinstance(intake_state, dict) else None
             if expect_unfilled_empty and unfilled:

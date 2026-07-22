@@ -84,6 +84,10 @@ cd scripts/gui-smoke
 node gui-smoke.mjs
 ```
 
+`MODEL=fake`는 결정론 상태·안전 계약의 gate이지 모델 자연어 품질의 증명이 아니다.
+실제 모델은 12~20개 표본만 별도 실행하고, `knowledge-math` 150명 fake gate는 기존
+`scripts/math_student_eval.py --out` 명령을 그대로 사용한다.
+
 ## 5. 운영 경계
 
 이 repo의 기본 pack은 교육용이다. 실제 개인정보, 주문, 결제, 의료·법률 판단,

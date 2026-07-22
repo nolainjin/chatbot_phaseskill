@@ -59,8 +59,9 @@ export MODEL="${MODEL:-fake}"
 export KNOWLEDGE_DIR="$PACK_DIR"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+VALIDATION_JSON="$WORK_DIR/validation.json"
 if [ -f "$REPO_ROOT/scripts/validate_knowledge_pack.py" ] && [ -f "$PACK_DIR/_validation_scenario.json" ]; then
-  "$PYTHON" "$REPO_ROOT/scripts/validate_knowledge_pack.py" "$PACK_DIR" >/dev/null
+  "$PYTHON" "$REPO_ROOT/scripts/validate_knowledge_pack.py" "$PACK_DIR" --json --exercise >"$VALIDATION_JSON"
 fi
 
 cd "$WORK_DIR"

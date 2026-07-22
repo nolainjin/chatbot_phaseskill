@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "task": "T6 voice-local-demo",
+  "verdict": "confirmed",
+  "scope": {
+    "changed_files": [
+      "static/voice.js",
+      "scripts/voice-ui-test.mjs",
+      ".omo/evidence/task-6-voice-local-demo.json"
+    ],
+    "api_file": "app/voice_api.py",
+    "api_change": "none; existing T3 routes and no-store TTS contract were verified",
+    "protected": ["app/chat.py", "unrelated dirty tracked files", "unrelated untracked files"]
+  },
+  "red_first": {
+    "browser_probe": {
+      "result": "failed_as_expected",
+      "reason": "createVoiceApi/transcribe/mapError were absent before T6 wrapper work"
+    }
+  },
+  "implementation": {
+    "browser_wrapper": [
+      "multipart FormData upload to /api/voice/transcribe",
+      "one-shot JSON request to /api/voice/synthesize",
+      "per-request timeout and AbortSignal cancellation",
+      "stable error_code to Korean message mapping",
+      "recording metadata includes elapsed_ms and mime_type"
+    ],
+    "api_contract_verified": [
+      "Cache-Control: no-store on TTS response",
+      "voice_disabled stable response",
+      "transcript-only response shape",
+      "no /api/chat call in the voice controller"
+    ]
+  },
+  "validation": [
+    {
+      "command": "node --check static/voice.js",
+      "result": "pass"
+    },
+    {
+      "command": "node scripts/voice-ui-test.mjs",
+      "result": "pass",
+      "summary": "10/10 scenarios; upload shape, error mapping, timeout, cancellation, lifecycle races, and no-chat assertion"
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q tests/test_voice_api.py",
+      "result": "25 passed, 1 existing Starlette deprecation warning"
+    },
+    {
+      "command": "VOICE_ENABLED=false .venv/bin/python -m pytest -q tests/test_voice_api.py -k disabled",
+      "result": "2 passed, 23 deselected, 1 existing Starlette deprecation warning"
+    },
+    {
+      "command": "rg -n 'Cache-Control.*no-store|/api/voice/(transcribe|synthesize)|voice_disabled' app/voice_api.py tests/test_voice_api.py",
+      "result": "pass; route, disabled, and no-store contracts found"
+    }
+  ],
+  "adversarial_classes": {
+    "malformed_input": "covered by existing API tests and wrapper stable error test",
+    "stale_state": "covered by reset-during-transcribe and late-callback harness scenario",
+    "dirty_worktree": "covered; only scoped T6 paths staged, unrelated state preserved",
+    "hung_timeout": "covered; wrapper timeout aborts the internal request and returns provider_timeout",
+    "flaky_timing": "covered by deterministic fake timers and bounded focused runs",
+    "misleading_success_output": "covered by reading concrete JSON/status/error/header assertions and harness output",
+    "repeated_interruptions": "covered by cancellation, reset, pagehide, and duplicate-stop scenarios",
+    "prompt_injection": "not_applicable; no prompt construction boundary",
+    "cancel_resume": "not_applicable; no resumable voice job state"
+  },
+  "cleanup": {
+    "voice_ui_processes": "none remaining after exact process check",
+    "raw_audio": "not persisted by wrapper or API contract",
+    "network": "wrapper targets relative local API paths only",
+    "redacted_ledger_entry": "T6 confirmed: browser voice fetch wrapper/error mapping/no-store contract verified; app/voice_api.py unchanged because existing T3 route contract already satisfied"
+  },
+  "findings": []
+}

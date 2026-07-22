@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>학습 코칭 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=13" />
+  <link rel="stylesheet" href="style.css?v=15" />
 </head>
 <body>
   <div class="layout">
@@ -54,6 +54,11 @@
 
     <ul class="messages" id="messages" aria-live="polite"></ul>
     <p class="status" id="status" role="alert"></p>
+    <section class="coaching-status" id="coaching-status" aria-live="polite" hidden>
+      <h2>현재 코칭 단계</h2>
+      <p class="coaching-stage" id="coaching-stage"></p>
+      <p class="coaching-next-action" id="coaching-next-action"></p>
+    </section>
 
     <div class="chips" id="chips" hidden aria-label="빠른 선택">
       <button type="button" class="chip" data-send="요즘 마음이 자주 불안하고 걱정이 많아요.">
@@ -81,27 +86,112 @@
     <div class="contextual-replies" id="contextual-replies" hidden aria-label="현재 질문 빠른 답변"></div>
 
     <div class="composer">
-      <form id="chat-form" class="chat-form">
-        <label for="message-input" class="sr-only">메시지 입력</label>
-        <textarea
-          id="message-input"
-          name="message"
-          rows="1"
-          maxlength="2000"
-          autocomplete="off"
-          placeholder="메시지를 입력하세요"
-          required
-        ></textarea>
-        <button type="submit" id="send-button" aria-label="전송" disabled>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M2 21l21-9L2 3v7l15 2-15 2z"></path>
-          </svg>
-        </button>
-      </form>
-      <div class="composer-meta">
-        <span>Enter 전송 · Shift+Enter 줄바꿈</span>
-        <span id="character-count">0/2000</span>
-      </div>
+      <fieldset
+        class="interaction-mode-switch"
+        id="interaction-mode-switch"
+        role="radiogroup"
+        aria-labelledby="interaction-mode-label"
+      >
+        <legend class="sr-only" id="interaction-mode-label">대화 방식</legend>
+        <div class="interaction-mode-options">
+          <label class="interaction-mode-option" for="interaction-mode-chat">
+            <input
+              class="interaction-mode-input"
+              id="interaction-mode-chat"
+              type="radio"
+              name="interaction-mode"
+              value="chat"
+              checked
+            />
+            <span class="interaction-mode-label">채팅 모드</span>
+          </label>
+          <label class="interaction-mode-option" for="interaction-mode-voice">
+            <input
+              class="interaction-mode-input"
+              id="interaction-mode-voice"
+              type="radio"
+              name="interaction-mode"
+              value="voice"
+            />
+            <span class="interaction-mode-label">음성 모드</span>
+          </label>
+        </div>
+      </fieldset>
+      <section class="interaction-surface chat-surface" id="chat-surface" aria-label="채팅 입력">
+        <form id="chat-form" class="chat-form">
+          <label for="message-input" class="sr-only">메시지 입력</label>
+          <textarea
+            id="message-input"
+            name="message"
+            rows="1"
+            maxlength="2000"
+            autocomplete="off"
+            placeholder="메시지를 입력하세요"
+            required
+          ></textarea>
+          <button type="submit" id="send-button" aria-label="전송" disabled>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+              <path d="M2 21l21-9L2 3v7l15 2-15 2z"></path>
+            </svg>
+          </button>
+        </form>
+        <div class="composer-meta">
+          <span>Enter 전송 · Shift+Enter 줄바꿈</span>
+          <span id="character-count">0/2000</span>
+        </div>
+      </section>
+      <section
+        class="interaction-surface voice-surface"
+        id="voice-surface"
+        aria-labelledby="voice-title"
+        data-voice-state="ready"
+        hidden
+        inert
+      >
+        <div class="voice-controls" id="voice-controls">
+          <div class="voice-toolbar">
+            <button type="button" id="voice-toggle" class="voice-toggle" aria-label="말하기 시작" aria-pressed="false">
+              <span aria-hidden="true">●</span>
+              <span id="voice-toggle-label">말하기</span>
+            </button>
+            <div class="voice-readout">
+              <h2 id="voice-title">음성 입력</h2>
+              <p id="voice-status" class="voice-status" aria-live="polite">다음 음성 입력을 시작할 수 있습니다.</p>
+              <span id="voice-elapsed" class="voice-elapsed" aria-live="off">00:00</span>
+            </div>
+          </div>
+          <div class="voice-live-panel" id="voice-live-panel" aria-hidden="true" hidden>
+            <div class="voice-live-bars" id="voice-live-bars">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <p class="voice-live-hint" id="voice-live-hint">듣는 중 · 말이 멈추면 자동으로 전사합니다</p>
+          </div>
+          <div class="voice-review" id="voice-review" aria-labelledby="voice-review-title" hidden>
+            <h3 id="voice-review-title">전사 확인</h3>
+            <p id="voice-review-status" class="voice-review-status" aria-live="polite">전사 결과를 확인해 주세요.</p>
+            <label for="voice-transcript" class="sr-only">전사 내용 수정</label>
+            <textarea id="voice-transcript" rows="3" aria-describedby="voice-truncation-warning"></textarea>
+            <p id="voice-truncation-warning" class="voice-truncation-warning" role="status" aria-live="polite" hidden></p>
+            <div class="voice-review-actions">
+              <button type="button" id="voice-rerecord" disabled>다시 녹음</button>
+              <button type="button" id="voice-edit" disabled>전사 수정</button>
+              <button type="button" id="voice-send" disabled>이 내용으로 보내기</button>
+              <button type="button" id="voice-text-fallback">채팅 모드로 전환</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
     <p class="lock-notice">
       <span class="lock-icon" aria-hidden="true">
@@ -119,6 +209,9 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=12"></script>
+  <script src="voice.js?v=3"></script>
+  <script src="interaction-mode.js?v=1"></script>
+  <script src="tts.js?v=1"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

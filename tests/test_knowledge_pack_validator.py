@@ -129,3 +129,16 @@ def test_validator_exercise_reports_unfilled_slot(tmp_path):
     assert result.returncode == 1
     assert payload["errors"][0]["code"] == "EXERCISE_TERMINAL_STATE"
     assert "demo_boundary" in payload["errors"][0]["message"]
+
+
+def test_validator_preserves_schema_less_behavior_without_coaching_marker(tmp_path):
+    pack = tmp_path / "coaching"
+    pack.mkdir()
+    for name in ("_persona.md", "_tone.md", "_safety_protocol.md", "_future.md"):
+        (pack / name).write_text("# coaching\n", encoding="utf-8")
+    (pack / "lesson.md").write_text("---\ntype: concept\n---\n# Lesson\n\nKnowledge.\n", encoding="utf-8")
+
+    result = validate_pack(pack)
+
+    assert result.valid
+    assert any(issue.code == "PACK_UNKNOWN_RESERVED_FILE" and issue.path == "_future.md" for issue in result.warnings)
