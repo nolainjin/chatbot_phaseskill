@@ -8,9 +8,8 @@ import json
 import os
 import secrets
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from app import addiction, intake, knowledge, knowledge_pack, learning_coach, llm, prompting, safety, storage
+from app import addiction, intake, knowledge, llm, prompting, safety, storage
 from app.config import Settings
 
 MAX_TURNS = 10
@@ -53,7 +52,6 @@ class ChatSession:
     slots: dict[str, str] = field(default_factory=dict)
     last_question_slot_id: str | None = None
     participant_id: str | None = None
-    learning_state: learning_coach.LearningState | None = None
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -83,54 +81,6 @@ def _get_session(session_id: str) -> ChatSession:
         session = ChatSession(session_id=session_id)
         _sessions[session_id] = session
     return session
-
-
-def _is_self_directed_pack(settings: Settings) -> bool:
-    return (Path(settings.knowledge_dir) / knowledge_pack.COACHING_MARKER).is_file()
-
-
-def _handle_self_directed_message(
-    session: ChatSession,
-    message: str,
-    settings: Settings,
-    docs: list[knowledge.Document],
-    persona: str,
-    doc_section: str,
-    blocked: bool,
-    participant_id: str,
-) -> dict:
-    turn = learning_coach.build_turn(session.learning_state, message, docs)
-    session.learning_state = turn.state
-    safe_reply = learning_coach.user_facing_reply(turn)
-    if blocked:
-        reply = safe_reply
-    elif settings.model == "fake":
-        reply = learning_coach.fake_reply(turn)
-    else:
-        system = prompting.build_coaching_prompt(turn.state, persona, doc_section)
-        try:
-            reply = llm.ask(
-                system=system,
-                history=session.history,
-                user=message,
-                doc_titles=[doc.title for doc in docs],
-                settings=settings,
-            )
-        except (llm.ModelOutputTooLarge, RuntimeError):
-            if os.getenv("SELF_DIRECTED_EVAL_STRICT") == "1":
-                raise
-            reply = safe_reply
-        reply = safety.sanitize_model_reply(reply, safe_reply)
-
-    if not blocked:
-        storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
-        session.history.append({"role": "user", "content": message})
-    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
-    session.history.append({"role": "assistant", "content": reply})
-    session.turns += 1
-    result = {"reply": reply, "turn": session.turns, "limit_reached": False}
-    result.update(learning_coach.public_fields(turn))
-    return result
 
 
 _load_persona = prompting.load_persona
@@ -297,6 +247,8 @@ def _answer_to_previous_question(
         return {}
     if slot.capture != "full_message":
         return {}
+    if intake._is_rejected_by_signal_guard(message, slot):
+        return {}
     value = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
     if not value:
         return {}
@@ -412,17 +364,6 @@ def handle_message(
     unfilled: list[intake.Slot] = []
     red_flag_ids: set[str] = set()
     safety_assessment = safety.assess_prompt_injection(message)
-    if schema is None and _is_self_directed_pack(settings):
-        return _handle_self_directed_message(
-            session,
-            message,
-            settings,
-            docs,
-            persona,
-            doc_section,
-            safety_assessment.blocked,
-            effective_participant_id,
-        )
     if safety_assessment.blocked:
         # 인젝션성 발화는 LLM에 넘기지 않는다. 단, 자해·자살 신호가 함께 있으면
         # 접수 흐름보다 안전 확인을 우선한다.

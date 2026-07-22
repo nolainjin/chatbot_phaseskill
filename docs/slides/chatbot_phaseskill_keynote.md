@@ -33,7 +33,7 @@
 |---|---|---:|---|---|---|
 | `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:95-140`, `.env.example:7-15`, `app/llm.py:154-160,309-320` | `MODEL=fake`는 API 없이 결정론 테스트용이고, `MODEL=auto`/`MODEL_CHAIN=codex-cli:gpt-5.4,claude-cli,fake`는 Codex CLI → Claude CLI → fake 순서로 폴백한다. Codex/Claude CLI는 로컬 명령이지만 완전한 오프라인 로컬 모델이 아니다. | 높음 | 입문+실무 | 모델 모드, 비용/연결 Q&A | repo-public/no-PII |
 | `https://github.com/nolainjin/chatbot_phaseskill/issues/1` | GitHub issue #1은 “교육용 커스터마이징 프로토타입” 기준을 제시했고, 댓글에서 `knowledge-math` starter pack, UI schema extension, `pytest 147 passed`가 완료됐으며 guide/validator/smoke/dependency 항목은 남은 일로 기록됐다. | 높음 | 실무 | Phase-skill, GJC-team, 이슈 기반 개선 | public issue/no survey rows |
-| `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json:1-40` | 최종 품질 게이트는 PASS: pytest 209 passed, math 150/150, coaching fake 24/24, red_team 6/6, self-directed·legacy/fallback browser PASS, external gpt54 sample·Spark PASS. | 높음 | 실무+Q&A | 레드팀/한계, repair loop 증거 | repo evidence/no-PII |
+| `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json:1-40` | 최종 품질 게이트는 PASS: pytest 209 passed, math 150/150, legacy/fallback browser PASS, external gpt54 sample·Spark PASS. | 높음 | 실무+Q&A | 레드팀/한계, repair loop 증거 | repo evidence/no-PII |
 | `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/task-3-voice-local-demo-verifier.json:150-159,213-225`, `task-3-voice-local-demo-verifier-final.json:127-149,285-291,315-320` | verifier가 raw 500 provider prediction timeout을 잡았고, 이후 안정적인 503 `provider_timeout`으로 고쳤다. 발표에서는 “실수 → 검증자 → 수정” 한 장짜리 repair-loop 사례로만 쓴다. | 높음 | 실무 | 안전/tests/red-team repair loop | repo evidence/no audio/raw transcript |
 | `/Volumes/부부공용/worknote/직장/빅션/92_작업중/챗봇-비교/2026-07-19_챗봇-4종-비교평가.md:37-42,156-163,209-217`, `2026-07-20_빅션봇-대화품질-개선안.md:22-35,90-96` | ①이 발표 주력이다. ②는 386/386식 검증과 품질 개선이 있었지만 conversation-quality ceiling이 남아 appendix/Q&A 비교로 둔다. | 높음 | Q&A | comparison/limits/what to copy | internal comparison/no raw customer rows |
 | 사전 설문 CSV 집계(행 단위 비공개) | 집계 테마: 모델/API 비용과 연결, 안전·테스트·레드팀, 팀·피드백·이슈 기반 개선, 초보자 설명, 도메인·사업 적용. 행·연락처·이름은 사용하지 않는다. | 중간 | 입문+Q&A | 왜 이 챗봇인가, 질문 예상 | aggregate-only/no row-level |
@@ -307,7 +307,7 @@
 
 **발표자 bullet**
 - final gates: pytest 209 passed, math 150/150, coaching fake 24/24, red_team 6/6.
-- browser self-directed와 legacy/fallback PASS, external gpt54 sample과 Spark PASS.
+- browser legacy/fallback PASS, external gpt54 sample과 Spark PASS.
 - voice verifier 사례: 초록 테스트 뒤에도 raw 500이 숨어 있었고, verifier가 잡아서 503 `provider_timeout`으로 고쳤다.
 - 공개 서비스 전환 전에는 보존 기간, 삭제 요청, 암호화, provider 분리, 사람 보안 검토가 필요하다.
 - 상담·중독 라우팅은 임상 진단을 대체하지 않는다.

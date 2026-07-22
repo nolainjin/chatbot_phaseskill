@@ -59,6 +59,20 @@ def test_real_extraction_rejects_duration_only_value_for_coping():
     assert fills == {}
 
 
+def test_previous_question_fallback_rejects_relationship_target_as_duration(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    session_id = "relationship-duration-target-fallback"
+    settings = _settings()
+
+    chat.handle_message(session_id, "아내와의 관계 때문에 힘들어요", settings)
+    chat.handle_message(session_id, "아내", settings)
+    chat.handle_message(session_id, "아내", settings)
+
+    slots = chat._sessions[session_id].slots
+    assert slots["relationship_target"] == "아내"
+    assert "relationship_duration" not in slots
+
+
 def test_real_extraction_rejects_target_only_value_for_relationship_duration():
     schema = load_schema(KNOWLEDGE_DIR)
     assert schema is not None

@@ -80,6 +80,7 @@ def _latest_qwen_snapshot() -> Path | None:
 
 
 def _apply_environment_defaults() -> None:
+    os.environ.pop("VOICE_PROVIDER_TEST_MODE", None)
     os.environ["VOICE_ENABLED"] = "true"
     os.environ["VOICE_NETWORK_DENY"] = "1"
     os.environ["HF_HUB_OFFLINE"] = "1"
@@ -109,9 +110,6 @@ def _preflight_local_runtime() -> None:
     ffmpeg = os.environ.get("VOICE_FFMPEG_BIN", "ffmpeg")
     if shutil.which(ffmpeg) is None:
         raise LauncherPreflightError("ffmpeg", Path(ffmpeg))
-
-    if os.environ.get("VOICE_PROVIDER_TEST_MODE") == "1":
-        return
 
     raw_profile = os.environ.get("VOICE_STT_PROVIDER", SttProfile.QWEN)
     try:

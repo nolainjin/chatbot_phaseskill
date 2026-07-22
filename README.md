@@ -178,7 +178,6 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-alt \
 - `knowledge/`: 상담 초기면담 예시
 - `knowledge-alt/`: 커피 브루잉 지식으로 만든 비민감 교육용 starter pack
 - `knowledge-math/`: PNK 수학 학습 코칭 — 실제 지식 전달과 문제 풀이 지원을 위한 스키마 없는 코칭 예제
-- `knowledge-self-directed/`: 실제 학습 장면을 좁혀 한 질문·한 미니 행동·직접 재시도를 연결하는 self-directed 코칭 pack
 - `_intake_schema.md`: 수집할 항목, 분류값, 질문 의도, 조건부 슬롯, 화면 문구(`ui` 섹션)
 - `_persona.md`: 역할과 금지사항
 - `_tone.md`: 말투 규칙
@@ -219,26 +218,6 @@ MODEL=fake KNOWLEDGE_DIR=knowledge-math \
 - `/api/config`는 `mode=coaching`을 내려주고, 화면은 접수 스테퍼·칩 없이
   질문과 지식 문서 중심으로 표시합니다.
 - 관리자 통계 화면(`/stats.html`)의 문구는 아직 상담 도메인 고정입니다.
-
-### self-directed 코칭 검증
-
-`knowledge-self-directed/`는 `_intake_schema.md` 없이 `_coaching_contract.md`를
-표시하는 별도 코칭 모드입니다. 내부 상태는 메모리에만 두고 API에는
-`coach_stage`와 `next_action`만 공개합니다. `MODEL=fake`는 상태 전이·질문 수·문서
-라우팅·안전 경계의 결정론 계약만 검증하며 실제 자연어 코칭 품질을 증명하지
-않습니다.
-
-```bash
-.venv/bin/python scripts/validate_knowledge_pack.py knowledge-self-directed --json --exercise
-.venv/bin/python scripts/self_directed_coaching_eval.py --model fake --out /tmp/self-directed-fake.json
-.venv/bin/python scripts/self_directed_red_team.py --out /tmp/self-directed-red-team.json
-PORT=8962 bash scripts/smoke_local.sh --pack knowledge-self-directed
-node scripts/gui-smoke/self-directed-coaching-smoke.mjs
-```
-
-실제 모델은 최대 20개 표본만 별도 실행하며, 21개 이상 또는 150명 대량 호출은
-평가 CLI에서 차단합니다. 실제 모델 표본과 Spark reviewer 결과는 fake 결정론
-통과와 별개의 품질 증거입니다.
 
 ### 지식 문서 형식
 

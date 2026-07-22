@@ -25,6 +25,7 @@ LAUNCHER_ENV_KEYS = (
     "VOICE_MODEL_PATH",
     "VOICE_WHISPER_CPP_MODEL",
     "VOICE_WHISPER_CPP_BIN",
+    "VOICE_PROVIDER_TEST_MODE",
 )
 
 
@@ -67,6 +68,15 @@ def test_import_is_side_effect_free() -> None:
     # Then: no application, provider, sidecar, or server module was imported.
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
+
+
+def test_launcher_removes_inherited_provider_test_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _launcher()
+    monkeypatch.setenv("VOICE_PROVIDER_TEST_MODE", "1")
+
+    module._apply_environment_defaults()
+
+    assert "VOICE_PROVIDER_TEST_MODE" not in os.environ
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGTERM"), reason="SIGTERM is unavailable")
