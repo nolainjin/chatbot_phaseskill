@@ -38,7 +38,12 @@ const browser = await chromium.launch({
   ],
 });
 
-const context = await browser.newContext({ permissions: ["microphone"] });
+const context = await browser.newContext({
+  permissions: ["microphone"],
+  extraHTTPHeaders: process.env.VOICE_E2E_CLIENT_IP
+    ? { "X-Forwarded-For": process.env.VOICE_E2E_CLIENT_IP }
+    : {},
+});
 const page = await context.newPage();
 page.setDefaultTimeout(TIMEOUT_MS);
 
@@ -328,7 +333,11 @@ try {
     const body = new FormData();
     body.append("session_id", crypto.randomUUID());
     body.append("audio", new Blob([new Uint8Array([0, 1, 2, 3])], { type: "audio/webm" }), "malformed.webm");
-    const response = await fetch("/api/voice/transcribe", { method: "POST", body });
+    const response = await fetch("/api/voice/transcribe", {
+      method: "POST",
+      headers: { "X-Lmwiki-Voice-Request": "1" },
+      body,
+    });
     const payload = await response.json();
     return { status: response.status, error_code: payload.error_code || "missing_error_code" };
   });

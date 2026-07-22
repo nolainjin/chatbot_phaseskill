@@ -22,6 +22,7 @@ QWEN_SNAPSHOTS: Final = (
     / "models--mlx-community--Qwen3-ASR-0.6B-8bit"
     / "snapshots"
 )
+VOICE_PROBE_AUDIO: Final = REPO_ROOT / "tests" / "fixtures" / "voice-ko" / "01.wav"
 
 
 class SttProfile(StrEnum):
@@ -30,6 +31,14 @@ class SttProfile(StrEnum):
 
 
 class ClosableVoiceProvider(Protocol):
+    def transcribe(
+        self,
+        path_or_bytes: str | Path | bytes,
+        content_type: str | None = None,
+    ) -> object: ...
+
+    def synthesize(self, text: str) -> object: ...
+
     def close(self) -> None: ...
 
 
@@ -134,6 +143,19 @@ def _preflight_local_runtime() -> None:
             assert_never(unreachable)
 
 
+def _probe_local_provider(provider: ClosableVoiceProvider) -> None:
+    if not VOICE_PROBE_AUDIO.is_file():
+        raise LauncherPreflightError("probe_audio", VOICE_PROBE_AUDIO)
+    try:
+        provider.transcribe(VOICE_PROBE_AUDIO, "audio/wav")
+        provider.synthesize("음성 기능 준비 확인")
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise LauncherPreflightError(
+            "provider_readiness",
+            VOICE_PROBE_AUDIO,
+        ) from exc
+
+
 def _run_server(host: str, port: int) -> None:
     _preflight_local_runtime()
     if str(REPO_ROOT) not in sys.path:
@@ -150,6 +172,7 @@ def _run_server(host: str, port: int) -> None:
     unavailable_synthesis = voice_api.synthesis_provider
     provider: ClosableVoiceProvider = build_local_voice_provider()
     try:
+        _probe_local_provider(provider)
         voice_api.transcription_provider = provider
         voice_api.synthesis_provider = provider
         uvicorn.run(app, host=host, port=port)

@@ -340,6 +340,43 @@ try {
   const urlLifecycle = await success.page.evaluate(() => ({ created: window.__createdUrls, revoked: window.__revokedUrls }));
   assert(urlLifecycle.created.length === 1 && urlLifecycle.revoked.length === 1 && urlLifecycle.created[0] === urlLifecycle.revoked[0], "TTS object URL was not revoked exactly once");
   pass("tts synthesize then revoke", { synthesize_calls: success.counts.synthesize, created_urls: 1, revoked_urls: 1 });
+  await success.page.waitForFunction(
+    () => !document.querySelector("#voice-toggle")?.disabled,
+    null,
+    { timeout: 5000 },
+  );
+  await success.page.waitForTimeout(300);
+  const replayButton = success.page.locator(".tts-button").last();
+  await record(success.page);
+  assert(await replayButton.isDisabled(), "TTS replay remained enabled during transcript review");
+  const requestsBeforeRerecord = {
+    chat: success.counts.chat.length,
+    tts: success.counts.synthesize,
+  };
+  await success.page.waitForTimeout(300);
+  await success.page.locator("#voice-rerecord").click();
+  await success.page.waitForFunction(
+    () => document.querySelector("#voice-toggle")?.getAttribute("aria-pressed") === "true",
+    null,
+    { timeout: 5000 },
+  );
+  assert(await success.page.locator("#voice-review").isHidden(), "Rerecord left the stale transcript review visible");
+  assert(await success.page.locator("#voice-send").isDisabled(), "Rerecord left stale transcript submission enabled");
+  assert(await replayButton.isDisabled(), "TTS replay remained enabled while recording");
+  assert(
+    success.counts.chat.length === requestsBeforeRerecord.chat &&
+      success.counts.synthesize === requestsBeforeRerecord.tts,
+    "Rerecord issued a stale chat or TTS request",
+  );
+  await success.page.waitForTimeout(850);
+  await success.page.locator("#voice-toggle").click();
+  await success.page.waitForSelector("#voice-review:not([hidden])", { timeout: 7000 });
+  pass("rerecord-clears-review-and-blocks-tts", {
+    stale_chat_calls: 0,
+    stale_tts_calls: 0,
+    replay_disabled_during_review: true,
+    replay_disabled_during_recording: true,
+  });
   await success.context.close();
 
   const turnLock = await makePage({ delayedChat: true, delayedTts: true, audioMode: "deferred" });

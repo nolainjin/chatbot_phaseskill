@@ -76,8 +76,9 @@ class WhisperCppBackend:
 
 
 class MacSayBackend:
-    def __init__(self, voice: str = "Yuna") -> None:
+    def __init__(self, voice: str = "Yuna", ffmpeg_bin: str = "ffmpeg") -> None:
         self.voice = voice
+        self.ffmpeg_bin = ffmpeg_bin
 
     def synthesize(self, text: str) -> bytes:
         try:
@@ -92,7 +93,24 @@ class MacSayBackend:
                     timeout=30.0,
                 )
                 subprocess.run(
-                    ["ffmpeg", "-nostdin", "-v", "error", "-i", str(aiff), "-ac", "1", "-ar", "22050", "-c:a", "pcm_s16le", "-f", "wav", "-y", str(wav)],
+                    [
+                        self.ffmpeg_bin,
+                        "-nostdin",
+                        "-v",
+                        "error",
+                        "-i",
+                        str(aiff),
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "22050",
+                        "-c:a",
+                        "pcm_s16le",
+                        "-f",
+                        "wav",
+                        "-y",
+                        str(wav),
+                    ],
                     check=True,
                     capture_output=True,
                     timeout=30.0,
@@ -128,7 +146,15 @@ def build_backends(stt_provider: str, *, model_path: Path | None = None) -> tupl
             model = "whisper.cpp"
         case _:
             raise RuntimeProviderUnavailable
-    return stt, MacSayBackend(os.getenv("VOICE_TTS_VOICE", "Yuna")), model, "macos-say"
+    return (
+        stt,
+        MacSayBackend(
+            os.getenv("VOICE_TTS_VOICE", "Yuna"),
+            ffmpeg_bin=os.getenv("VOICE_FFMPEG_BIN", "ffmpeg"),
+        ),
+        model,
+        "macos-say",
+    )
 
 
 def fake_wav() -> bytes:

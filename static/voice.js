@@ -387,7 +387,8 @@
     function beginAudioMeter(attempt) {
       attempt.level = 0;
       attempt.silenceMs = 0;
-      attempt.lastAudibleAt = now();
+      attempt.lastAudibleAt = null;
+      attempt.heardSpeech = false;
       if (!AudioContextCtor || !attempt.stream) return;
       try {
         attempt.audioContext = new AudioContextCtor();
@@ -411,14 +412,18 @@
         var level = readAudioLevel(attempt);
         attempt.level = level;
         if (level >= silenceThreshold) {
+          attempt.heardSpeech = true;
           attempt.lastAudibleAt = currentTime;
           attempt.silenceMs = 0;
-        } else {
+        } else if (attempt.heardSpeech) {
           attempt.silenceMs = Math.max(0, currentTime - attempt.lastAudibleAt);
+        } else {
+          attempt.silenceMs = 0;
         }
         emit();
         if (
           silenceAutoStop &&
+          attempt.heardSpeech &&
           attempt.elapsedMs >= minRecordingMs + silenceGraceMs &&
           attempt.silenceMs >= silenceAfterMs
         ) {
@@ -487,7 +492,12 @@
       Promise.resolve()
         .then(function () {
           if (!isCurrent(attempt)) return null;
-          return transcribe(blob, { attemptId: attempt.id, signal: attempt.controller.signal });
+          return transcribe(blob, {
+            attemptId: attempt.id,
+            elapsedMs: attempt.elapsedMs,
+            mimeType: attempt.mimeType,
+            signal: attempt.controller.signal,
+          });
         })
         .then(function (result) {
           if (!isCurrent(attempt)) return;
@@ -570,6 +580,7 @@
         level: 0,
         silenceMs: 0,
         lastAudibleAt: null,
+        heardSpeech: false,
         audioContext: null,
         analyser: null,
         audioBuffer: null,

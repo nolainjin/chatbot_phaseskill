@@ -247,6 +247,8 @@ export VOICE_SIDECAR_SCRIPT="$REPO_ROOT/scripts/voice_sidecar.py"
 export VOICE_STT_PROVIDER="${VOICE_STT_PROVIDER:-qwen3-asr-0.6b-8bit}"
 export VOICE_TTS_VOICE="${VOICE_TTS_VOICE:-Yuna}"
 export VOICE_TEMP_ROOT
+export TRUST_PROXY_HOPS=1
+SMOKE_CLIENT_IP="127.0.0.$((($$ % 253) + 2))"
 if [ "$NETWORK_DENY" -eq 1 ]; then
   export VOICE_NETWORK_DENY=1
 else
@@ -275,11 +277,9 @@ jq -e '.voice.enabled == true and .voice.local_only == true and .voice.min_recor
 curl -fsS --max-time 10 "http://127.0.0.1:$PORT/app.js?v=14" > "$WORK_DIR/served-app.js"
 cmp -s "$REPO_ROOT/static/app.js" "$WORK_DIR/served-app.js" || fail "owned FastAPI server is not serving the current repo static/app.js"
 
-benchmark_env=(VOICE_NETWORK_DENY=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1)
-if [ "$NETWORK_DENY" -eq 0 ]; then
-  benchmark_env=()
-fi
-run_bounded 300 "local voice benchmark" env "${benchmark_env[@]}" "$VOICE_PYTHON" "$REPO_ROOT/scripts/voice_provider_benchmark.py" \
+run_bounded 300 "local voice benchmark" env \
+  VOICE_NETWORK_DENY=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  "$VOICE_PYTHON" "$REPO_ROOT/scripts/voice_provider_benchmark.py" \
   --fixtures "$REPO_ROOT/tests/fixtures/voice-ko" \
   --out "$BENCHMARK_JSON" >"$WORK_DIR/benchmark.log" 2>&1
 jq -e '.selected_profile.stt == "qwen3-asr-0.6b-8bit" and .selected_profile.tts == "macOS say (Yuna)" and ([.candidates[] | select(.name == "qwen3-asr-0.6b-8bit")][0].status == "PASS")' "$BENCHMARK_JSON" >/dev/null
@@ -301,7 +301,11 @@ for i in $(seq 1 "$CYCLES"); do
   if [ -n "$session_token" ]; then
     transcribe_args+=(-F "session_token=$session_token")
   fi
-  transcribe_status="$(curl -sS --max-time 60 -o "$transcribe_body" -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" "${transcribe_args[@]}")"
+  transcribe_status="$(curl -sS --max-time 60 -o "$transcribe_body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" \
+    -H "Origin: http://127.0.0.1:$PORT" \
+    -H "X-Lmwiki-Voice-Request: 1" \
+    "${transcribe_args[@]}")"
   t1="$(now_ms)"
   [ "$transcribe_status" = "200" ] || fail "local cycle $i transcription failed: HTTP $transcribe_status"
   jq -e '(.text // "") | length > 0' "$transcribe_body" >/dev/null || fail "local cycle $i returned empty transcript"
@@ -316,7 +320,11 @@ for i in $(seq 1 "$CYCLES"); do
       '{schema_version: 2, metadata: {voice_demo: true}, session_id: $session_id, message: $message}' > "$chat_request"
   fi
   t2="$(now_ms)"
-  chat_status="$(curl -sS --max-time 30 -o "$chat_body" -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/chat" -H 'Content-Type: application/json' --data-binary "@$chat_request")"
+  chat_status="$(curl -sS --max-time 30 -o "$chat_body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$PORT/api/chat" \
+    -H 'Content-Type: application/json' \
+    -H "X-Forwarded-For: $SMOKE_CLIENT_IP" \
+    --data-binary "@$chat_request")"
   t3="$(now_ms)"
   [ "$chat_status" = "200" ] || fail "local cycle $i chat failed: HTTP $chat_status"
   returned_session_token="$(jq -r '.session_token // empty' "$chat_body")"
@@ -328,7 +336,12 @@ for i in $(seq 1 "$CYCLES"); do
   jq -n --arg session_id "$session_id" --arg token "$session_token" \
     '{text: "로컬 음성 응답 확인", session_id: $session_id, session_token: $token}' > "$tts_request"
   t4="$(now_ms)"
-  tts_status="$(curl -sS --max-time 30 -o "$tts_wav" -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/voice/synthesize" -H 'Content-Type: application/json' --data-binary "@$tts_request")"
+  tts_status="$(curl -sS --max-time 30 -o "$tts_wav" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$PORT/api/voice/synthesize" \
+    -H 'Content-Type: application/json' \
+    -H "Origin: http://127.0.0.1:$PORT" \
+    -H "X-Lmwiki-Voice-Request: 1" \
+    --data-binary "@$tts_request")"
   t5="$(now_ms)"
   [ "$tts_status" = "200" ] || fail "local cycle $i synthesis failed: HTTP $tts_status"
   run_bounded 15 "TTS stream probe cycle $i" ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of json "$tts_wav" > "$WORK_DIR/tts-$i.ffprobe.json"
@@ -354,6 +367,7 @@ jq -e '.status == "pass" and (.scenarios | length == 5)' "$MOCKED_BROWSER_JSON" 
 mkdir -p "$REPO_ROOT/.omo/evidence"
 run_bounded 240 "real local browser voice/TTS E2E" env \
   VOICE_E2E_BASE_URL="http://127.0.0.1:$PORT" \
+  VOICE_E2E_CLIENT_IP="$SMOKE_CLIENT_IP" \
   VOICE_E2E_FIXTURE="$fixture" \
   VOICE_E2E_SCREENSHOT="$REPO_ROOT/.omo/evidence/task-7-chat-voice-dual-mode.png" \
   VOICE_E2E_TIMEOUT_MS=180000 \
@@ -394,7 +408,12 @@ jq -e '
 ' "$REAL_BROWSER_JSON" >/dev/null
 
 malformed_body="$WORK_DIR/malformed.json"
-malformed_status="$(curl -sS --max-time 10 -o "$malformed_body" -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" -F 'session_id=voice-demo-malformed' -F "audio=@$MALFORMED_AUDIO;type=application/octet-stream")"
+malformed_status="$(curl -sS --max-time 10 -o "$malformed_body" -w '%{http_code}' \
+  -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" \
+  -H "Origin: http://127.0.0.1:$PORT" \
+  -H "X-Lmwiki-Voice-Request: 1" \
+  -F 'session_id=voice-demo-malformed' \
+  -F "audio=@$MALFORMED_AUDIO;type=application/octet-stream")"
 malformed_code="$(jq -r '.error_code // "missing_error_code"' "$malformed_body")"
 [ "$malformed_status" = "400" ] && [ "$malformed_code" = "invalid_audio" ] || fail "malformed input was not classified: status=$malformed_status code=$malformed_code"
 
@@ -416,6 +435,7 @@ with TestClient(app) as client:
     assert config.status_code == 200 and "voice" not in config.json(), config.text
     voice = client.post(
         "/api/voice/transcribe",
+        headers={"X-Lmwiki-Voice-Request": "1"},
         data={"session_id": "text-only-voice-disabled"},
         files={"audio": ("disabled.wav", b"RIFF", "audio/wav")},
     )
@@ -444,7 +464,12 @@ failure_killed="false"
 if [ "$KILL_SIDECAR" -eq 1 ]; then
   sidecar_pid=""
   failure_body="$WORK_DIR/failure-body.json"
-  curl -sS --max-time 60 -o "$failure_body" -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" -F "session_id=voice-demo-failure" -F "audio=@$fixture;type=audio/wav" > "$WORK_DIR/failure-status" &
+  curl -sS --max-time 60 -o "$failure_body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$PORT/api/voice/transcribe" \
+    -H "Origin: http://127.0.0.1:$PORT" \
+    -H "X-Lmwiki-Voice-Request: 1" \
+    -F "session_id=voice-demo-failure" \
+    -F "audio=@$fixture;type=audio/wav" > "$WORK_DIR/failure-status" &
   failure_curl_pid=$!
   for _ in $(seq 1 200); do
     sidecar_pid="$(owned_sidecar_pids | head -1 || true)"

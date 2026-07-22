@@ -364,8 +364,10 @@ results.push(await runScenario("starting-stop-race", async () => {
 }));
 
 results.push(await runScenario("data-before-stop", async () => {
+  let transcriptMetadata;
   const fixture = createFixture({
-    transcribe: async () => {
+    transcribe: async (_blob, metadata) => {
+      transcriptMetadata = metadata;
       fixture.events.push("transcribe");
       return { text: "final" };
     },
@@ -381,6 +383,8 @@ results.push(await runScenario("data-before-stop", async () => {
   assert.deepEqual(fixture.events, ["final-chunk", "recording-ready", "transcribe"]);
   assert.equal(fixture.controller.getState(), "transcript_review");
   assert.equal(fixture.transcriptions[0].size, 576);
+  assert.equal(transcriptMetadata.elapsedMs, 900);
+  assert.equal(transcriptMetadata.mimeType, "audio/webm;codecs=opus");
 }));
 
 results.push(await runScenario("track-ended-during-recording", async () => {
@@ -463,6 +467,32 @@ results.push(await runScenario("silence-auto-stop-after-live-meter", async () =>
   await flush();
   assert.equal(fixture.controller.getState(), "transcript_review");
   assert.equal(fixture.stream.track.stopped, true);
+  assert.equal(FakeAudioContext.instances[0].closed, true);
+}));
+
+results.push(await runScenario("silence-does-not-stop-before-speech", async () => {
+  const timers = createTimerHarness();
+  FakeAudioContext.instances.length = 0;
+  FakeAudioContext.levels = [0, 0, 0, 0];
+
+  const fixture = createFixture({
+    AudioContext: FakeAudioContext,
+    silenceAutoStop: true,
+    silenceAfterMs: 1000,
+    silenceGraceMs: 0,
+    meterIntervalMs: 80,
+    timers,
+  });
+  const recorder = await begin(fixture);
+
+  fixture.clock.advance(5000);
+  timers.tickIntervals();
+  timers.tickIntervals();
+  timers.tickIntervals();
+
+  assert.equal(recorder.stopCalls, 0);
+  assert.equal(fixture.controller.getState(), "recording");
+  fixture.controller.reset();
   assert.equal(FakeAudioContext.instances[0].closed, true);
 }));
 

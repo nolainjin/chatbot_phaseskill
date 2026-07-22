@@ -145,6 +145,7 @@
   var interactionModeController = null;
   var ttsPlayer = null;
   var activeTtsControls = null;
+  var ttsControlStates = [];
   var voiceAttemptEpoch = 0;
   var voiceConfirmedTranscript = "";
 
@@ -157,6 +158,15 @@
 
   function normalizeVoiceTranscript(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function voiceRecordingFilename(mimeType) {
+    var normalized = String(mimeType || "").toLowerCase();
+    if (normalized.indexOf("mp4") !== -1 || normalized.indexOf("m4a") !== -1) {
+      return "recording.m4a";
+    }
+    if (normalized.indexOf("wav") !== -1) return "recording.wav";
+    return "recording.webm";
   }
 
   function stopTtsPlayback(message) {
@@ -192,6 +202,7 @@
     var text = result && typeof result.text === "string" ? result.text : "";
     if (!text.trim()) {
       resetVoiceReview({ hidden: false, status: "전사 결과가 비어 있습니다. 다시 녹음해 주세요." });
+      if (voiceRerecordEl) voiceRerecordEl.disabled = false;
       return;
     }
     if (voiceReviewEl) voiceReviewEl.hidden = false;
@@ -299,15 +310,63 @@
     );
   }
 
+  function recorderBlocksTts(recorderSnapshot) {
+    var snapshot = recorderSnapshot || (voiceController && voiceController.getSnapshot());
+    var state = snapshot && snapshot.state;
+    var recorderActive = [
+      "requesting_permission",
+      "starting",
+      "recording",
+      "stopping",
+      "transcribing",
+      "sending",
+    ].indexOf(state) !== -1;
+    var reviewVisible = Boolean(voiceReviewEl && !voiceReviewEl.hidden);
+    return requestPending || recorderActive || reviewVisible;
+  }
+
+  function syncTtsControlsAvailability(recorderSnapshot) {
+    var blocked = recorderBlocksTts(recorderSnapshot);
+    ttsControlStates.forEach(function (controls) {
+      if (controls.disabledForMode || controls === activeTtsControls) return;
+      controls.button.disabled = blocked;
+      if (blocked) {
+        controls.status.textContent = "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.";
+      } else if (controls.status.textContent === "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.") {
+        controls.status.textContent = "응답을 다시 들을 수 있습니다.";
+      }
+    });
+  }
+
+  function setTtsControlsForMode(voiceActive) {
+    ttsControlStates.forEach(function (controls) {
+      if (!voiceActive) {
+        controls.disabledForMode = true;
+        controls.button.disabled = true;
+        controls.status.textContent = "음성 모드에서 다시 들을 수 있습니다.";
+        return;
+      }
+      if (!controls.disabledForMode) return;
+      controls.disabledForMode = false;
+      controls.button.disabled = false;
+      controls.button.textContent = "응답 다시 듣기";
+      controls.button.setAttribute("aria-label", "응답 다시 듣기");
+      controls.status.textContent = "응답을 다시 들을 수 있습니다.";
+    });
+    if (voiceActive) syncTtsControlsAvailability();
+  }
+
   function syncVoiceToggleAvailability(recorderSnapshot) {
     if (!voiceToggleEl || !voiceController) return;
     var snapshot = recorderSnapshot || voiceController.getSnapshot();
     var recorderBusy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
     voiceToggleEl.disabled = !snapshot.enabled || recorderBusy || voiceTurnIsBusy();
+    syncTtsControlsAvailability(snapshot);
   }
 
   function leaveVoiceMode() {
     stopTtsPlayback("채팅 모드로 전환해 재생을 멈췄습니다.");
+    setTtsControlsForMode(false);
     if (voiceController) voiceController.reset();
     resetVoiceReview();
   }
@@ -317,6 +376,11 @@
     var snapshot = interactionModeController.switchMode(mode);
     sessionStorage.setItem(INTERACTION_MODE_KEY, snapshot.interactionMode);
     renderInteractionMode(snapshot, shouldFocus !== false);
+    if (snapshot.interactionMode === "voice" && voiceController) {
+      voiceAttemptEpoch = interactionModeController.captureEpoch();
+      setTtsControlsForMode(true);
+      renderVoiceState(voiceController.getSnapshot());
+    }
     return snapshot;
   }
 
@@ -455,7 +519,7 @@
             sessionToken: getSessionToken() || "",
             participantId: getParticipantId(),
             durationMs: metadata && metadata.elapsedMs,
-            filename: "recording.webm",
+            filename: voiceRecordingFilename(metadata && metadata.mimeType),
           },
           { signal: metadata && metadata.signal }
         );
@@ -560,23 +624,42 @@
     controls.appendChild(status);
     rendered.col.appendChild(controls);
 
-    var controlState = { button: button, status: status, text: text, epoch: epoch };
+    var controlState = {
+      button: button,
+      status: status,
+      text: text,
+      epoch: epoch,
+      disabledForMode: false,
+    };
+    ttsControlStates.push(controlState);
 
     button.addEventListener("click", function () {
-      if (!isCurrentVoiceEpoch(epoch)) return;
-      var snapshot = ttsPlayer.getSnapshot();
-      if (activeTtsControls === controlState && (snapshot.state === "playing" || snapshot.state === "synthesizing")) {
-        stopTtsPlayback();
-        setInteractionVoicePhase("ready", epoch);
+      var modeSnapshot = currentInteractionSnapshot();
+      if (!modeSnapshot || modeSnapshot.interactionMode !== "voice") {
+        status.textContent = "음성 모드에서 다시 들을 수 있습니다.";
         return;
       }
+      var snapshot = ttsPlayer.getSnapshot();
+      if (
+        activeTtsControls === controlState &&
+        (snapshot.state === "playing" || snapshot.state === "synthesizing")
+      ) {
+        stopTtsPlayback();
+        setInteractionVoicePhase("ready", controlState.epoch);
+        return;
+      }
+      if (recorderBlocksTts()) {
+        status.textContent = "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.";
+        return;
+      }
+      controlState.epoch = interactionModeController.captureEpoch();
       if (activeTtsControls === controlState && snapshot.state === "blocked") {
         ttsPlayer.resume();
         return;
       }
       stopTtsPlayback("다른 응답 재생을 멈췄습니다.");
       activeTtsControls = controlState;
-      ttsPlayer.play(text, { automatic: false, epoch: epoch });
+      ttsPlayer.play(text, { automatic: false, epoch: controlState.epoch });
     });
     return controlState;
   }
@@ -845,6 +928,7 @@
   function resetSession() {
     if (requestPending) return;
     stopTtsPlayback("새 대화를 시작해 재생을 멈췄습니다.");
+    ttsControlStates = [];
     if (voiceController) voiceController.reset();
     resetVoiceReview();
     sessionStorage.removeItem(SESSION_KEY);
@@ -1013,7 +1097,16 @@
 
   if (voiceToggleEl && voiceController) {
     voiceToggleEl.addEventListener("click", function () {
-      if (!interactionModeController || currentInteractionSnapshot().interactionMode !== "voice" || voiceTurnIsBusy()) return;
+      if (
+        !interactionModeController ||
+        currentInteractionSnapshot().interactionMode !== "voice" ||
+        voiceTurnIsBusy()
+      ) return;
+      var recorderSnapshot = voiceController.getSnapshot();
+      if (recorderSnapshot.state !== "recording") {
+        stopTtsPlayback("새 음성 입력을 시작해 재생을 멈췄습니다.");
+        resetVoiceReview();
+      }
       voiceAttemptEpoch = interactionModeController.captureEpoch();
       voiceController.toggle();
     });
@@ -1028,6 +1121,7 @@
   if (voiceRerecordEl && voiceController) {
     voiceRerecordEl.addEventListener("click", function () {
       if (voiceTurnIsBusy()) return;
+      stopTtsPlayback("다시 녹음을 시작해 재생을 멈췄습니다.");
       voiceController.reset();
       resetVoiceReview();
       voiceAttemptEpoch = interactionModeController.captureEpoch();
@@ -1037,7 +1131,13 @@
 
   if (voiceEditEl) {
     voiceEditEl.addEventListener("click", function () {
-      if (!voiceTranscriptEl) return;
+      if (
+        !voiceTranscriptEl ||
+        !voiceController ||
+        !voiceReviewEl ||
+        voiceReviewEl.hidden ||
+        voiceController.getState() !== "transcript_review"
+      ) return;
       voiceTranscriptEl.disabled = false;
       voiceTranscriptEl.focus();
       if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "전사를 수정한 뒤 보내 주세요.";
@@ -1047,7 +1147,13 @@
   if (voiceTranscriptEl) {
     voiceTranscriptEl.addEventListener("input", function () {
       if (!voiceSendEl || requestPending) return;
-      voiceSendEl.disabled = !normalizeVoiceTranscript(voiceTranscriptEl.value);
+      var reviewReady = Boolean(
+        voiceController &&
+        voiceReviewEl &&
+        !voiceReviewEl.hidden &&
+        voiceController.getState() === "transcript_review"
+      );
+      voiceSendEl.disabled = !reviewReady || !normalizeVoiceTranscript(voiceTranscriptEl.value);
       if (voiceTruncationWarningEl) {
         var overLimit = voiceTranscriptEl.value.length > MAX_MESSAGE_LEN;
         voiceTruncationWarningEl.hidden = !overLimit;
@@ -1060,7 +1166,14 @@
 
   if (voiceSendEl && voiceController) {
     voiceSendEl.addEventListener("click", function () {
-      if (!voiceTranscriptEl || requestPending || !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
+      if (
+        !voiceTranscriptEl ||
+        requestPending ||
+        !isCurrentVoiceEpoch(voiceAttemptEpoch) ||
+        !voiceReviewEl ||
+        voiceReviewEl.hidden ||
+        voiceController.getState() !== "transcript_review"
+      ) return;
       var transcript = normalizeVoiceTranscript(voiceTranscriptEl.value);
       if (!transcript) {
         if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "보낼 전사 내용이 없습니다. 다시 녹음해 주세요.";

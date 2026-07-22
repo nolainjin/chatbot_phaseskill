@@ -25,6 +25,7 @@ LAUNCHER_ENV_KEYS = (
     "VOICE_MODEL_PATH",
     "VOICE_WHISPER_CPP_MODEL",
     "VOICE_WHISPER_CPP_BIN",
+    "VOICE_FFMPEG_BIN",
     "VOICE_PROVIDER_TEST_MODE",
 )
 
@@ -193,6 +194,7 @@ def test_provider_is_built_installed_closed_and_restored_once(
     monkeypatch.setattr(voice_api, "transcription_provider", transcription_sentinel)
     monkeypatch.setattr(voice_api, "synthesis_provider", synthesis_sentinel)
     monkeypatch.setattr(launcher, "_preflight_local_runtime", lambda: None)
+    monkeypatch.setattr(launcher, "_probe_local_provider", lambda _provider: None)
     monkeypatch.chdir(tmp_path)
     build_calls: list[None] = []
 
@@ -258,6 +260,7 @@ def test_exception_closes_provider_restores_sentinels_and_returns_classified_cod
     monkeypatch.setattr(voice_api, "transcription_provider", transcription_sentinel)
     monkeypatch.setattr(voice_api, "synthesis_provider", synthesis_sentinel)
     monkeypatch.setattr(launcher, "_preflight_local_runtime", lambda: None)
+    monkeypatch.setattr(launcher, "_probe_local_provider", lambda _provider: None)
     monkeypatch.setattr(voice_provider, "build_local_voice_provider", lambda: provider)
 
     def fail_uvicorn(*_args, **_kwargs) -> None:
@@ -274,6 +277,72 @@ def test_exception_closes_provider_restores_sentinels_and_returns_classified_cod
     assert provider.close_calls == 1
     assert voice_api.transcription_provider is transcription_sentinel
     assert voice_api.synthesis_provider is synthesis_sentinel
+
+
+def test_readiness_probe_exercises_both_directions_and_classifies_failure() -> None:
+    launcher = _launcher()
+
+    class RecordingProvider:
+        def __init__(self, *, fail_synthesis: bool = False) -> None:
+            self.calls: list[str] = []
+            self.fail_synthesis = fail_synthesis
+
+        def transcribe(self, path: Path, content_type: str) -> object:
+            assert path == launcher.VOICE_PROBE_AUDIO
+            assert content_type == "audio/wav"
+            self.calls.append("transcribe")
+            return object()
+
+        def synthesize(self, text: str) -> object:
+            assert text == "음성 기능 준비 확인"
+            self.calls.append("synthesize")
+            if self.fail_synthesis:
+                raise OSError("tts unavailable")
+            return object()
+
+    healthy = RecordingProvider()
+    launcher._probe_local_provider(healthy)
+    assert healthy.calls == ["transcribe", "synthesize"]
+
+    failing = RecordingProvider(fail_synthesis=True)
+    with pytest.raises(launcher.LauncherPreflightError) as raised:
+        launcher._probe_local_provider(failing)
+    assert failing.calls == ["transcribe", "synthesize"]
+    assert raised.value.component == "provider_readiness"
+
+
+def test_readiness_probe_failure_closes_provider_before_uvicorn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = _launcher()
+    from app import voice_provider
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    provider = FakeProvider()
+    failure = launcher.LauncherPreflightError(
+        component="provider_readiness",
+        location=launcher.VOICE_PROBE_AUDIO,
+    )
+    uvicorn_calls: list[None] = []
+
+    monkeypatch.setattr(launcher, "_preflight_local_runtime", lambda: None)
+    monkeypatch.setattr(
+        launcher,
+        "_probe_local_provider",
+        lambda _provider: (_ for _ in ()).throw(failure),
+    )
+    monkeypatch.setattr(voice_provider, "build_local_voice_provider", lambda: provider)
+    monkeypatch.setattr("uvicorn.run", lambda *_args, **_kwargs: uvicorn_calls.append(None))
+
+    assert launcher.main([]) == 3
+    assert provider.close_calls == 1
+    assert uvicorn_calls == []
 
 
 def test_profile_environment_is_forwarded_without_override(
@@ -297,6 +366,7 @@ def test_profile_environment_is_forwarded_without_override(
     for key, value in expected.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(launcher, "_preflight_local_runtime", lambda: None)
+    monkeypatch.setattr(launcher, "_probe_local_provider", lambda _provider: None)
     forwarded: list[dict[str, str]] = []
 
     def build_provider() -> FakeProvider:

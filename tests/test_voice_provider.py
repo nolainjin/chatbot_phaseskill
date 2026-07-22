@@ -4,6 +4,7 @@ import io
 import os
 import subprocess
 import sys
+import threading
 import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,7 @@ import pytest
 
 from app.voice_contracts import AudioDecodeError, VoiceProviderTimeout, VoiceProviderUnavailable
 from app.voice_provider import SidecarVoiceProvider
+from voice_runtime.adapters import MacSayBackend, build_backends
 from voice_runtime.audio import validate_wav_bytes
 from voice_runtime.audio import normalize_audio
 from voice_runtime.sidecar import (
@@ -117,6 +119,68 @@ def test_tts_is_one_shot_validated_pcm_wav(tmp_path: Path) -> None:
     assert validated.sample_rate == 16_000
     assert validated.channels == 1
     assert not list((tmp_path / "voice-runtime").glob("voice-*"))
+
+
+def test_provider_serializes_shared_sidecar_operations(tmp_path: Path) -> None:
+    class ConcurrentManager:
+        def __init__(self) -> None:
+            self.active = 0
+            self.max_active = 0
+            self.guard = threading.Lock()
+
+        def synthesize(self, _text: str) -> tuple[bytes, dict[str, str]]:
+            with self.guard:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            time.sleep(0.03)
+            with self.guard:
+                self.active -= 1
+            return make_wav(100), {}
+
+        def close(self) -> None:
+            return
+
+    manager = ConcurrentManager()
+    provider = SidecarVoiceProvider(manager, temp_root=tmp_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(provider.synthesize, ("첫 번째", "두 번째")))
+
+    assert len(results) == 2
+    assert manager.max_active == 1
+
+
+def test_macos_say_uses_configured_ffmpeg_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(
+        command: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[0] == "/custom/ffmpeg":
+            Path(command[-1]).write_bytes(make_wav(100))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    audio = MacSayBackend(ffmpeg_bin="/custom/ffmpeg").synthesize("준비 확인")
+
+    assert validate_wav_bytes(audio).media_type == "audio/wav"
+    assert commands[1][0] == "/custom/ffmpeg"
+
+
+def test_backend_factory_forwards_configured_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VOICE_FFMPEG_BIN", "/factory/ffmpeg")
+
+    _stt, tts, _model, _provider = build_backends("whisper.cpp")
+
+    assert isinstance(tts, MacSayBackend)
+    assert tts.ffmpeg_bin == "/factory/ffmpeg"
 
 
 def test_provider_timeout_is_stable_and_restart_is_bounded(tmp_path: Path) -> None:
