@@ -280,7 +280,23 @@
   function setInteractionVoicePhase(phase, epoch) {
     if (!interactionModeController || !interactionModeController.setVoicePhase(phase, epoch)) return false;
     renderInteractionMode(interactionModeController.getSnapshot(), false);
+    syncVoiceToggleAvailability();
     return true;
+  }
+
+  function voiceTurnIsBusy() {
+    var snapshot = currentInteractionSnapshot();
+    return Boolean(
+      requestPending ||
+      snapshot && ["sending", "synthesizing", "speaking"].indexOf(snapshot.voicePhase) !== -1
+    );
+  }
+
+  function syncVoiceToggleAvailability(recorderSnapshot) {
+    if (!voiceToggleEl || !voiceController) return;
+    var snapshot = recorderSnapshot || voiceController.getSnapshot();
+    var recorderBusy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
+    voiceToggleEl.disabled = !snapshot.enabled || recorderBusy || voiceTurnIsBusy();
   }
 
   function leaveVoiceMode() {
@@ -332,7 +348,6 @@
     if (!voiceToggleEl || !snapshot) return;
     if (interactionModeController && !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
     var recording = snapshot.state === "recording";
-    var busy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
     var statusLabels = {
       idle: "새 음성 입력을 시작할 수 있습니다.",
       requesting_permission: "마이크 권한을 요청하고 있습니다…",
@@ -347,7 +362,7 @@
     };
     voiceStatusEl.textContent = snapshot.status || statusLabels[snapshot.state] || "";
     voiceElapsedEl.textContent = formatVoiceElapsed(snapshot.elapsedMs);
-    voiceToggleEl.disabled = !snapshot.enabled || busy;
+    syncVoiceToggleAvailability(snapshot);
     voiceToggleEl.setAttribute("aria-pressed", recording ? "true" : "false");
     voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
     voiceToggleLabelEl.textContent = recording ? "녹음 종료" : "말하기";
@@ -736,6 +751,7 @@
       characterCountEl.classList.toggle("near-limit", length > MAX_MESSAGE_LEN * 0.85);
     }
     sendButtonEl.disabled = requestPending || inputEl.disabled || !inputEl.value.trim();
+    syncVoiceToggleAvailability();
     autoResizeInput();
   }
 
@@ -950,7 +966,7 @@
 
   if (voiceToggleEl && voiceController) {
     voiceToggleEl.addEventListener("click", function () {
-      if (!interactionModeController || currentInteractionSnapshot().interactionMode !== "voice") return;
+      if (!interactionModeController || currentInteractionSnapshot().interactionMode !== "voice" || voiceTurnIsBusy()) return;
       voiceAttemptEpoch = interactionModeController.captureEpoch();
       voiceController.toggle();
     });
@@ -964,6 +980,7 @@
 
   if (voiceRerecordEl && voiceController) {
     voiceRerecordEl.addEventListener("click", function () {
+      if (voiceTurnIsBusy()) return;
       voiceController.reset();
       resetVoiceReview();
       voiceAttemptEpoch = interactionModeController.captureEpoch();
