@@ -14,7 +14,7 @@ import pytest
 
 from app.voice_contracts import AudioDecodeError, VoiceProviderTimeout, VoiceProviderUnavailable
 from app.voice_provider import SidecarVoiceProvider
-from voice_runtime.adapters import MacSayBackend, build_backends
+from voice_runtime.adapters import SupertonicTtsBackend, build_backends
 from voice_runtime.audio import validate_wav_bytes
 from voice_runtime.audio import normalize_audio
 from voice_runtime.sidecar import (
@@ -150,37 +150,30 @@ def test_provider_serializes_shared_sidecar_operations(tmp_path: Path) -> None:
     assert manager.max_active == 1
 
 
-def test_macos_say_uses_configured_ffmpeg_binary(
+def test_backend_factory_returns_supertonic_female_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    commands: list[list[str]] = []
+    monkeypatch.delenv("VOICE_TTS_GENDER", raising=False)
+    monkeypatch.delenv("VOICE_SUPERTONIC_VOICE", raising=False)
 
-    def fake_run(
-        command: list[str],
-        **_kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
-        if command[0] == "/custom/ffmpeg":
-            Path(command[-1]).write_bytes(make_wav(100))
-        return subprocess.CompletedProcess(command, 0, "", "")
+    _stt, tts, _model, provider = build_backends("whisper.cpp")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    audio = MacSayBackend(ffmpeg_bin="/custom/ffmpeg").synthesize("준비 확인")
-
-    assert validate_wav_bytes(audio).media_type == "audio/wav"
-    assert commands[1][0] == "/custom/ffmpeg"
+    assert isinstance(tts, SupertonicTtsBackend)
+    assert tts.voice_name == "F1"
+    assert provider == "supertonic-3:F1"
 
 
-def test_backend_factory_forwards_configured_ffmpeg(
+def test_backend_factory_selects_male_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VOICE_FFMPEG_BIN", "/factory/ffmpeg")
+    monkeypatch.delenv("VOICE_SUPERTONIC_VOICE", raising=False)
+    monkeypatch.setenv("VOICE_TTS_GENDER", "male")
 
-    _stt, tts, _model, _provider = build_backends("whisper.cpp")
+    _stt, tts, _model, provider = build_backends("whisper.cpp")
 
-    assert isinstance(tts, MacSayBackend)
-    assert tts.ffmpeg_bin == "/factory/ffmpeg"
+    assert isinstance(tts, SupertonicTtsBackend)
+    assert tts.voice_name == "M4"
+    assert provider == "supertonic-3:M4"
 
 
 def test_provider_timeout_is_stable_and_restart_is_bounded(tmp_path: Path) -> None:

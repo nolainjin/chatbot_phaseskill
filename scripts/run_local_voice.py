@@ -99,7 +99,7 @@ def _apply_environment_defaults() -> None:
     )
     os.environ.setdefault("VOICE_SIDECAR_SCRIPT", str(REPO_ROOT / "scripts" / "voice_sidecar.py"))
     os.environ.setdefault("VOICE_STT_PROVIDER", SttProfile.QWEN)
-    os.environ.setdefault("VOICE_TTS_VOICE", "Yuna")
+    os.environ.setdefault("VOICE_TTS_GENDER", "female")
     os.environ.setdefault("VOICE_TEMP_ROOT", str(REPO_ROOT / ".voice-tmp"))
     if os.environ["VOICE_STT_PROVIDER"] == SttProfile.QWEN and "VOICE_MODEL_PATH" not in os.environ:
         snapshot = _latest_qwen_snapshot()

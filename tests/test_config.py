@@ -102,7 +102,8 @@ def test_config_reports_exact_default_profiles_without_provider_calls(
     monkeypatch.setenv("KNOWLEDGE_DIR", "tests/fixtures/knowledge-fallback")
     monkeypatch.setenv("VOICE_ENABLED", "true")
     monkeypatch.delenv("VOICE_STT_PROVIDER", raising=False)
-    monkeypatch.delenv("VOICE_TTS_VOICE", raising=False)
+    monkeypatch.delenv("VOICE_TTS_GENDER", raising=False)
+    monkeypatch.delenv("VOICE_SUPERTONIC_VOICE", raising=False)
     monkeypatch.setattr(voice_api, "transcription_provider", provider)
     monkeypatch.setattr(voice_api, "synthesis_provider", provider)
 
@@ -115,7 +116,7 @@ def test_config_reports_exact_default_profiles_without_provider_calls(
         "enabled": True,
         "local_only": True,
         "stt": "qwen3-asr-0.6b-8bit",
-        "tts": "macos-say:Yuna",
+        "tts": "supertonic-3:F1",
         "min_recording_ms": 800,
         "max_recording_ms": 60000,
         "silence_auto_stop": True,
@@ -130,7 +131,7 @@ def test_config_reports_exact_runtime_profile_overrides(
     monkeypatch.setenv("KNOWLEDGE_DIR", "tests/fixtures/knowledge-fallback")
     monkeypatch.setenv("VOICE_ENABLED", "true")
     monkeypatch.setenv("VOICE_STT_PROVIDER", "whisper.cpp")
-    monkeypatch.setenv("VOICE_TTS_VOICE", "Kyoko")
+    monkeypatch.setenv("VOICE_TTS_GENDER", "male")
     monkeypatch.setattr(voice_api, "transcription_provider", provider)
     monkeypatch.setattr(voice_api, "synthesis_provider", provider)
 
@@ -140,10 +141,10 @@ def test_config_reports_exact_runtime_profile_overrides(
     # Then
     assert response.status_code == 200
     assert response.json()["voice"]["stt"] == "whisper.cpp"
-    assert response.json()["voice"]["tts"] == "macos-say:Kyoko"
+    assert response.json()["voice"]["tts"] == "supertonic-3:M4"
 
 
-@pytest.mark.parametrize("env_name", ["VOICE_STT_PROVIDER", "VOICE_TTS_VOICE"])
+@pytest.mark.parametrize("env_name", ["VOICE_STT_PROVIDER", "VOICE_SUPERTONIC_VOICE"])
 def test_config_fails_closed_when_voice_metadata_is_invalid(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, env_name: str
 ) -> None:
