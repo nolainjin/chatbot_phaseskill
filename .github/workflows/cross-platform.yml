@@ -35,9 +35,25 @@ jobs:
       - name: 테스트
         run: python -m pytest -q
 
-      - name: 런처 환경 점검
-        run: python run.py --check
-        continue-on-error: true # venv를 안 만드는 CI에서는 실패가 정상
+      - name: 런처 자동 복구 (신규 사용자 경로)
+        shell: python
+        # 비개발자는 clone 직후 런처만 실행한다. venv도 .env도 없는 그 상태에서
+        # 자동 복구가 끝까지 도는지 확인한다. 윈도우는 venv 경로가 Scripts/ 라
+        # macOS/Linux 개발 머신에서는 이 분기가 한 번도 실행되지 않는다.
+        run: |
+          import run
+
+          before = run.check_environment()
+          assert any(not r.ok for r in before), "신규 상태여야 하는데 이미 준비돼 있습니다"
+
+          run.repair_environment(before)
+
+          after = run.check_environment()
+          broken = [f"{r.name}: {r.detail}" for r in after if not r.ok]
+          assert not broken, f"자동 복구 후에도 미준비 항목이 남았습니다: {broken}"
+
+          assert run.venv_python().is_file(), f"venv 파이썬 없음: {run.venv_python()}"
+          print("OK — 자동 복구 완료:", run.venv_python())
 
       - name: 서버 기동 + 대화 1턴 (한글 왕복)
         shell: python

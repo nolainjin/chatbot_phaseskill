@@ -86,19 +86,37 @@
 
 요구 사항은 Python 3.11 이상입니다. Windows, macOS, Linux에서 동일하게 동작합니다.
 
-### 런처로 실행 (권장)
+### 더블클릭으로 실행 (설치 지식 없이)
 
-`run.py`가 가상환경 생성, 의존성 설치, `.env` 준비, 서버 실행까지 한 번에
-처리합니다. OS와 무관하게 같은 명령을 씁니다.
+파이썬만 설치되어 있으면 됩니다. 나머지는 런처가 알아서 준비합니다.
+
+| 운영체제 | 실행할 파일 |
+|---|---|
+| Windows | `시작하기-윈도우.bat` |
+| macOS | `시작하기-맥.command` |
+
+처음 실행하면 필요한 구성요소를 자동으로 내려받습니다(몇 분 소요, 인터넷 필요).
+준비가 끝나면 브라우저가 자동으로 열립니다. 종료는 검은 창에서 `Ctrl+C`입니다.
+
+파이썬이 없으면 런처가 설치 안내를 띄웁니다. Windows 설치 화면에서
+**"Add python.exe to PATH"** 체크를 빠뜨리면 설치해도 다시 막히므로 주의하세요.
+
+macOS에서 "권한이 없습니다"가 뜨면 터미널에서 한 번만:
+
+```bash
+chmod +x "시작하기-맥.command"
+```
+
+### 명령줄로 실행
 
 ```bash
 python run.py            # 환경 준비 후 서버 실행
 python run.py --check    # 환경 점검만 (아무것도 바꾸지 않음)
+python run.py --port 9000 --knowledge knowledge-math --reload
+python run.py --no-browser   # 브라우저 자동 열기 끄기
 ```
 
 Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를 씁니다.
-
-브라우저에서 다음 주소를 엽니다.
 
 - 챗봇: http://127.0.0.1:8000/
 - 관리자 통계: http://127.0.0.1:8000/stats.html

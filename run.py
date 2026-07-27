@@ -15,6 +15,9 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
+import time
+import webbrowser
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -25,6 +28,23 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 MIN_PYTHON = (3, 11)
 IS_WINDOWS = sys.platform == "win32"
+PYTHON_DOWNLOAD_URL = "https://www.python.org/downloads/"
+
+
+def _print_block(title: str, lines: list[str]) -> None:
+    """실패 안내를 눈에 띄게 묶어서 출력한다.
+
+    비개발자에게 트레이스백을 보여주면 아무것도 전달되지 않는다. 무슨 일이
+    일어났고 다음에 뭘 하면 되는지만 남긴다.
+    """
+    print()
+    print("  " + "━" * 52)
+    print(f"  {title}")
+    print("  " + "━" * 52)
+    for line in lines:
+        print(f"  {line}" if line else "")
+    print("  " + "━" * 52)
+    print()
 
 
 def _force_utf8_console() -> None:
@@ -36,7 +56,9 @@ def _force_utf8_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+            # line_buffering — 파일·파이프로 넘길 때 print가 블록 버퍼링되면
+            # 자식 프로세스(pip) 출력과 순서가 뒤엉켜 안내문이 묻힌다.
+            reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 
 def venv_python() -> Path:
@@ -126,23 +148,58 @@ def _dependencies_installed() -> bool:
 # 환경 복구
 # ─────────────────────────────────────────────────────────────────────────────
 
+class RepairFailed(RuntimeError):
+    """복구 단계 실패 — 사용자에게 보여줄 로그를 함께 들고 있다."""
+
+    def __init__(self, step: str, log: str):
+        super().__init__(step)
+        self.step = step
+        self.log = log
+
+
+def _run_quiet(step: str, argv: list[str], note: str = "") -> None:
+    """복구 명령을 조용히 실행한다. 실패했을 때만 로그를 드러낸다.
+
+    pip는 정상 동작 중에도 'Cache entry deserialization failed' 같은 경고를
+    수십 줄 뱉는다. 처음 실행하는 비개발자에게는 그게 전부 오류로 보인다.
+    성공하면 아무것도 보여주지 않고, 실패할 때만 원문을 붙여 올린다.
+    """
+    print(f"  · {step}…{f' {note}' if note else ''}", flush=True)
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError as exc:
+        raise RepairFailed(step, str(exc)) from exc
+    if proc.returncode != 0:
+        raise RepairFailed(step, (proc.stdout + proc.stderr).strip()[-1500:])
+
+
 def repair_environment(results: list[CheckResult]) -> None:
     """점검에서 걸린 항목 중 고칠 수 있는 것을 실제로 고친다."""
     failed = {r.name for r in results if not r.ok}
 
     if "가상환경(.venv)" in failed:
-        print("  · 가상환경 생성 중…")
-        subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)], check=True)
+        _run_quiet("실행 환경 만드는 중", [sys.executable, "-m", "venv", str(VENV_DIR)])
 
     if failed & {"가상환경(.venv)", "의존성 패키지"}:
-        print(f"  · 의존성 설치 중… ({REQUIREMENTS.name})")
-        subprocess.run(
-            [str(venv_python()), "-m", "pip", "install", "-q", "-r", str(REQUIREMENTS)],
-            check=True,
+        _run_quiet(
+            "필요한 구성요소 내려받는 중",
+            [
+                str(venv_python()), "-m", "pip", "install",
+                "--quiet", "--disable-pip-version-check", "--no-input",
+                "-r", str(REQUIREMENTS),
+            ],
+            note="(몇 분 걸립니다)",
         )
 
     if "설정 파일(.env)" in failed:
-        print(f"  · {ENV_EXAMPLE.name} -> {ENV_FILE.name} 복사")
+        print("  · 설정 파일 준비 중…", flush=True)
         ENV_FILE.write_text(ENV_EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
 
 
@@ -150,7 +207,30 @@ def repair_environment(results: list[CheckResult]) -> None:
 # 실행
 # ─────────────────────────────────────────────────────────────────────────────
 
-def serve(host: str, port: int, model: str, knowledge: str, reload: bool) -> int:
+def _open_browser_when_ready(url: str, probe_url: str, timeout_sec: int = 40) -> None:
+    """서버가 응답하기 시작하면 브라우저를 연다.
+
+    주소를 직접 입력하게 하지 않는다. 다만 서버가 뜨기 전에 열면 오류 화면을
+    보게 되므로, 뜰 때까지 기다렸다가 연다. 열지 못해도 서버는 그대로 둔다.
+    """
+    import urllib.request
+
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(probe_url, timeout=2).read()
+        except Exception:
+            time.sleep(0.5)
+            continue
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass  # 브라우저를 못 열어도 주소는 화면에 찍혀 있다
+        return
+
+
+def serve(host: str, port: int, model: str, knowledge: str, reload: bool,
+          open_browser: bool = True) -> int:
     """uvicorn을 venv 파이썬으로 띄운다."""
     env = os.environ.copy()
     env["MODEL"] = model
@@ -166,42 +246,88 @@ def serve(host: str, port: int, model: str, knowledge: str, reload: bool) -> int
     if reload:
         argv.append("--reload")
 
+    base = f"http://{host}:{port}"
     print()
-    print(f"  챗봇      http://{host}:{port}/")
-    print(f"  관리자    http://{host}:{port}/stats.html")
+    print(f"  챗봇      {base}/")
+    print(f"  관리자    {base}/stats.html")
     print(f"  모델      MODEL={model}   지식폴더 KNOWLEDGE_DIR={knowledge}")
-    print("  (중지: Ctrl+C)")
     print()
+    print("  브라우저가 자동으로 열립니다. 열리지 않으면 위 주소를 붙여넣으세요.")
+    print("  종료하려면 이 창에서 Ctrl+C 를 누르세요.")
+    print()
+
+    if open_browser:
+        threading.Thread(
+            target=_open_browser_when_ready,
+            args=(f"{base}/", f"{base}/api/config"),
+            daemon=True,
+        ).start()
 
     try:
         return subprocess.run(argv, cwd=str(REPO_ROOT), env=env, check=False).returncode
     except KeyboardInterrupt:
+        print("\n  종료했습니다.")
         return 0
 
 
 def handle_check_failures(results: list[CheckResult], args) -> int:
-    """점검 실패를 어떻게 처리할지 정하고, 통과하면 서버를 띄운다.
+    """점검 실패를 처리하고, 준비가 끝나면 서버를 띄운다.
 
-    이 함수가 런처의 성격을 결정한다. 고려할 것:
+    대상 사용자가 전부 비개발자라는 전제로 설계했다.
 
-    - `r.repairable == False`인 실패(= Python 버전)는 런처가 손댈 수 없다.
-      이건 무조건 안내 후 중단이다. python.org 설치 링크를 알려주는 게 친절하다.
-    - 나머지(venv/의존성/.env)는 `repair_environment(results)`로 자동 복구가 된다.
-      자동으로 고칠 것인가, 아니면 사용자에게 확인을 받을 것인가?
-        · 자동 복구: 윈도우 노트북 사용자가 아무 생각 없이 `python run.py`만
-          치면 되게 만든다. 대신 pip 설치가 조용히 일어나 놀랄 수 있다.
-        · 확인 후 복구: 무슨 일이 일어나는지 보여주고 y/N을 받는다. 안전하지만
-          한 단계가 늘고, 더블클릭 실행에서는 입력을 받기 애매하다.
-      `input()`으로 확인을 받는다면 비대화형 실행(CI, 파이프)에서 멈추지 않도록
-      `sys.stdin.isatty()`를 함께 봐야 한다.
-    - 복구 후에는 재점검을 해야 하는가? (`check_environment()` 재호출)
-
-    반환값은 프로세스 종료 코드다. 서버를 띄웠다면 `serve(...)`의 반환값을
-    그대로 돌려주면 된다:
-        return serve(args.host, args.port, args.model, args.knowledge, args.reload)
+    - 확인(y/N)을 받지 않는다. 고칠 수 있는 건 그냥 고친다. "의존성을
+      설치할까요?"는 판단 근거가 없는 사람에게 던지면 안 되는 질문이다.
+    - 대신 무엇을 하는지는 한 줄씩 보여준다. 조용히 하지는 않는다.
+    - 실패하면 트레이스백 대신 다음에 뭘 해야 하는지를 말한다.
     """
-    # TODO: 여기를 구현해 주세요.
-    raise NotImplementedError("handle_check_failures를 구현해 주세요")
+    blocked = [r for r in results if not r.ok and not r.repairable]
+    if blocked:
+        _print_block("이 컴퓨터에서는 아직 실행할 수 없습니다", [
+            f"{r.name}: {r.detail}" for r in blocked
+        ] + [
+            "",
+            f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} 이상을 설치한 뒤 다시 실행해 주세요.",
+            f"내려받기: {PYTHON_DOWNLOAD_URL}",
+            "설치 화면에서 'Add Python to PATH'를 반드시 체크하세요.",
+        ])
+        return 2
+
+    broken = [r for r in results if not r.ok]
+    if broken:
+        print("  처음 실행이라 준비가 필요합니다. 자동으로 설정합니다.")
+        print("  (인터넷 연결이 필요하며 몇 분 걸릴 수 있습니다)\n")
+        try:
+            repair_environment(results)
+        except RepairFailed as exc:
+            _print_block(f"자동 설정 중 문제가 생겼습니다 ({exc.step})", [
+                "확인해 볼 것:",
+                "  · 인터넷에 연결되어 있는지",
+                "  · 회사·학교 네트워크라면 방화벽이 막고 있지 않은지",
+                f"  · '{VENV_DIR.name}' 폴더를 지우고 다시 실행하면 해결되기도 합니다",
+                "",
+                "아래는 전달용 상세 내용입니다:",
+                "",
+                *exc.log.splitlines()[-15:],
+            ])
+            return 3
+        except OSError as exc:
+            _print_block("자동 설정 중 문제가 생겼습니다", [f"{type(exc).__name__}: {exc}"])
+            return 3
+
+        still_broken = [r for r in check_environment() if not r.ok]
+        if still_broken:
+            _print_block("설정을 마쳤지만 아직 준비되지 않은 항목이 있습니다", [
+                f"{r.name}: {r.detail}" for r in still_broken
+            ] + [
+                "",
+                f"'{VENV_DIR.name}' 폴더를 지우고 다시 실행해 보세요.",
+            ])
+            return 4
+
+        print("\n  준비 완료.")
+
+    return serve(args.host, args.port, args.model, args.knowledge, args.reload,
+                 open_browser=args.open_browser)
 
 
 def main() -> int:
@@ -217,7 +343,9 @@ def main() -> int:
     parser.add_argument("--model", default=os.getenv("MODEL", "fake"))
     parser.add_argument("--knowledge", default=os.getenv("KNOWLEDGE_DIR", "knowledge"))
     parser.add_argument("--reload", action="store_true", help="코드 변경 시 자동 재시작")
+    parser.add_argument("--no-browser", action="store_true", help="브라우저 자동 열기 끄기")
     args = parser.parse_args()
+    args.open_browser = not args.no_browser
 
     print(f"\n  환경 점검  ({sys.platform})")
     print("  " + "─" * 52)
@@ -233,5 +361,32 @@ def main() -> int:
     return handle_check_failures(results, args)
 
 
+def _pause_before_exit(code: int) -> None:
+    """실패로 끝났을 때 콘솔 창이 즉시 닫히는 것을 막는다.
+
+    더블클릭 실행에서는 오류 메시지를 띄우자마자 창이 사라져 사용자에게는
+    "아무 일도 안 일어났다"로 보인다. 안내를 읽을 시간을 준다. CI·파이프처럼
+    비대화형 실행에서는 멈추면 안 되므로 tty일 때만 기다린다.
+    """
+    if code == 0 or not sys.stdin.isatty():
+        return
+    try:
+        input("  창을 닫으려면 Enter 를 누르세요… ")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        exit_code = main()
+    except KeyboardInterrupt:
+        exit_code = 0
+    except Exception as exc:  # noqa: BLE001 - 비개발자에게 트레이스백을 띄우지 않는다
+        _print_block("예상치 못한 오류로 실행하지 못했습니다", [
+            f"{type(exc).__name__}: {exc}",
+            "",
+            "이 내용을 그대로 전달해 주시면 확인하겠습니다.",
+        ])
+        exit_code = 1
+    _pause_before_exit(exit_code)
+    sys.exit(exit_code)
