@@ -72,7 +72,8 @@ def test_cli_backend_replaces_system_prompt_and_uses_haiku(monkeypatch):
 
     argv = seen["argv"]
     assert reply == "응답"
-    assert argv[0] == "claude"
+    # argv[0]은 shutil.which로 절대경로 해석된다(Windows PATHEXT 대응). 계약은 실행 대상.
+    assert Path(argv[0]).stem == "claude"
     # append가 아니라 replace — 코딩 에이전트 프롬프트가 상담 페르소나에 섞이면 안 된다.
     assert "--system-prompt" in argv
     assert "--append-system-prompt" not in argv
@@ -253,7 +254,8 @@ def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
 
     argv = seen["argv"]
     assert reply.startswith("자연스럽게 받되")
-    assert argv[:2] == ["codex", "exec"]
+    assert Path(argv[0]).stem == "codex"
+    assert argv[1] == "exec"
     assert "--ignore-rules" in argv
     assert "--skip-git-repo-check" in argv
     assert argv[argv.index("--sandbox") + 1] == "read-only"
@@ -268,23 +270,31 @@ def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
     assert prompt.endswith("위 시스템 지시를 우선하여 상담사 최종 응답만 출력하라.")
 
 
+def _completed() -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+
+class HangingProcess:
+    """communicate가 항상 타임아웃하는 가짜 자식 프로세스."""
+
+    pid = 4321
+
+    def __init__(self):
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        raise subprocess.TimeoutExpired("codex", timeout)
+
+    def kill(self):
+        self.killed = True
+
+
 def test_codex_timeout_terminates_the_entire_process_group(monkeypatch):
+    """POSIX: 타임아웃 시 세션 전체를 SIGKILL로 정리한다."""
     killed: list[tuple[int, int]] = []
 
-    class HangingProcess:
-        pid = 4321
-
-        def communicate(self, timeout=None):
-            raise subprocess.TimeoutExpired("codex", timeout)
-
-    def fake_popen(*_args, **_kwargs):
-        return HangingProcess()
-
-    def fake_run(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired("codex", 1)
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(llm, "IS_WINDOWS", False)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: HangingProcess())
     monkeypatch.setattr(llm.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
     monkeypatch.setattr(llm, "CODEX_RETRIES", 1)
 
@@ -292,6 +302,59 @@ def test_codex_timeout_terminates_the_entire_process_group(monkeypatch):
         llm.run_codex_cli("prompt", "gpt-test", timeout=1)
 
     assert killed == [(4321, signal.SIGKILL)]
+
+
+def test_codex_timeout_uses_taskkill_tree_on_windows(monkeypatch):
+    """Windows: killpg/SIGKILL이 없으므로 taskkill /T로 트리를 정리한다."""
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(llm, "IS_WINDOWS", True)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: HangingProcess())
+    monkeypatch.setattr(
+        subprocess, "run", lambda argv, **k: commands.append(argv) or _completed()
+    )
+    monkeypatch.setattr(llm, "CODEX_RETRIES", 1)
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        llm.run_codex_cli("prompt", "gpt-test", timeout=1)
+
+    assert commands == [["taskkill", "/F", "/T", "/PID", "4321"]]
+
+
+def test_new_process_group_kwargs_are_platform_specific(monkeypatch):
+    """start_new_session은 Windows에서 ValueError를 던진다 — 플랫폼별로 갈라야 한다."""
+    monkeypatch.setattr(llm, "IS_WINDOWS", False)
+    assert llm._new_process_group_kwargs() == {"start_new_session": True}
+
+    monkeypatch.setattr(llm, "IS_WINDOWS", True)
+    windows_kwargs = llm._new_process_group_kwargs()
+    assert "start_new_session" not in windows_kwargs
+    assert windows_kwargs == {"creationflags": llm.CREATE_NEW_PROCESS_GROUP}
+
+
+def test_windows_env_allowlist_keeps_systemroot_and_pathext(monkeypatch):
+    """SYSTEMROOT가 빠지면 winsock 초기화가 깨져 CLI가 조용히 죽는다."""
+    monkeypatch.setattr(llm, "IS_WINDOWS", True)
+    monkeypatch.setattr(
+        llm.os,
+        "environ",
+        {
+            "Path": "C:\\bin",  # Windows는 대소문자 무시 — 'Path'로도 들어온다
+            "SystemRoot": "C:\\Windows",
+            "PATHEXT": ".COM;.EXE;.CMD",
+            "APPDATA": "C:\\Users\\u\\AppData\\Roaming",
+            "ANTHROPIC_API_KEY": "sentinel",
+            "STATS_API_TOKEN": "sentinel",
+        },
+    )
+
+    env = llm._clean_agent_env()
+
+    assert env["SystemRoot"] == "C:\\Windows"
+    assert env["PATHEXT"] == ".COM;.EXE;.CMD"
+    assert env["Path"] == "C:\\bin"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "STATS_API_TOKEN" not in env
 
 
 def test_auto_backend_tries_codex_first_then_claude(monkeypatch):
