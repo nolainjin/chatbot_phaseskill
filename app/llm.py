@@ -17,6 +17,16 @@ IS_WINDOWS = sys.platform == "win32"
 # 고정해두면 다른 OS에서도 Windows 분기를 테스트로 검증할 수 있다.
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
 
+# 자식 프로세스 파이프는 반드시 UTF-8로 못박는다. text=True만 주면 파이썬이 OS
+# 로케일 인코딩으로 디코딩하는데, 한국어 Windows는 그게 cp949라서 CLI가 뱉은
+# 한글 응답이 깨지거나 UnicodeDecodeError로 죽는다. errors="replace"는 모델이
+# 깨진 바이트를 한 번 뱉었다고 대화 전체를 죽이지 않기 위한 안전판이다.
+_TEXT_IO: dict[str, object] = {
+    "text": True,
+    "encoding": "utf-8",
+    "errors": "replace",
+}
+
 MAX_TOKENS = 1024
 
 AUTO_MODEL = "auto"
@@ -151,12 +161,12 @@ def run_claude_cli(argv: list[str], timeout: int = CLI_TIMEOUT_SEC) -> str:
                 proc = subprocess.run(
                     _resolve_executable(argv),
                     capture_output=True,
-                    text=True,
                     timeout=timeout,
                     check=False,
                     cwd=neutral_cwd,
                     env=_clean_env(),
                     stdin=subprocess.DEVNULL,
+                    **_TEXT_IO,
                 )
             if proc.returncode == 0:
                 return _bounded_output(proc.stdout)
@@ -260,10 +270,10 @@ def _run_codex_process(argv: list[str], timeout: int, cwd: str, env: dict[str, s
         _resolve_executable(argv),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         stdin=subprocess.DEVNULL,
         cwd=cwd,
         env=env,
+        **_TEXT_IO,
         **_new_process_group_kwargs(),
     )
     try:

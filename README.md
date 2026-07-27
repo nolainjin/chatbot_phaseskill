@@ -84,13 +84,37 @@
 
 ## 빠른 시작
 
-요구 사항은 Python 3.11 이상입니다.
+요구 사항은 Python 3.11 이상입니다. Windows, macOS, Linux에서 동일하게 동작합니다.
+
+### 런처로 실행 (권장)
+
+`run.py`가 가상환경 생성, 의존성 설치, `.env` 준비, 서버 실행까지 한 번에
+처리합니다. OS와 무관하게 같은 명령을 씁니다.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
+python run.py            # 환경 준비 후 서버 실행
+python run.py --check    # 환경 점검만 (아무것도 바꾸지 않음)
 ```
+
+Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를 씁니다.
+
+브라우저에서 다음 주소를 엽니다.
+
+- 챗봇: http://127.0.0.1:8000/
+- 관리자 통계: http://127.0.0.1:8000/stats.html
+
+### 수동 설치
+
+런처 없이 직접 구성할 때는 가상환경 경로가 OS마다 다릅니다.
+
+| | macOS · Linux | Windows |
+|---|---|---|
+| 가상환경 생성 | `python3 -m venv .venv` | `py -3 -m venv .venv` |
+| 파이썬 경로 | `.venv/bin/python` | `.venv\Scripts\python.exe` |
+| 설정 파일 복사 | `cp .env.example .env` | `copy .env.example .env` |
+
+이 문서의 나머지 예시는 `.venv/bin/python`으로 적혀 있습니다. Windows에서는
+`.venv\Scripts\python.exe`로 바꿔 읽으세요.
 
 ### API 호출 없이 기능 확인
 
@@ -99,14 +123,22 @@ cp .env.example .env
 전제로 합니다.
 
 ```bash
-MODEL=fake KNOWLEDGE_DIR=knowledge \
-  .venv/bin/python -m uvicorn app.main:app --reload
+python run.py --model fake --knowledge knowledge --reload
 ```
 
-브라우저에서 다음 주소를 엽니다.
+### 크로스플랫폼 지원 범위
 
-- 챗봇: http://127.0.0.1:8000/
-- 관리자 통계: http://127.0.0.1:8000/stats.html
+`.github/workflows/cross-platform.yml`이 windows / ubuntu / macOS × Python
+3.11·3.13 매트릭스에서 테스트와 한글 왕복 스모크를 돌립니다. 윈도우 전용
+실패(POSIX 전용 API, cp949 인코딩)는 개발 머신에서 재현되지 않으므로 이
+매트릭스가 실질적인 회귀 가드입니다.
+
+주의할 점:
+
+- 자식 프로세스 파이프와 파일 입출력은 전부 UTF-8로 고정돼 있습니다.
+  로케일에 맡기면 한국어 Windows(cp949)에서 한글이 깨집니다.
+- CLI 모델 백엔드(`claude-cli`, `codex-cli`)는 해당 CLI가 설치·로그인된
+  경우에만 동작합니다. 없으면 `auto` 체인이 `fake`로 내려갑니다.
 
 관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
 관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로 설정한

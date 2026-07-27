@@ -1,0 +1,89 @@
+name: cross-platform
+
+# 크로스플랫폼 회귀 가드.
+# 이 레포는 macOS에서 개발되지만 윈도우 노트북에서도 돌아가야 한다.
+# 윈도우 전용 실패(POSIX 전용 API, cp949 인코딩, 경로 구분자)는 macOS에서
+# 절대 재현되지 않으므로, 실제 windows-latest 러너에서 돌리는 것이 유일한 증명이다.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: 의존성 설치
+        run: python -m pip install --upgrade pip && pip install -r requirements.lock
+
+      - name: 테스트
+        run: python -m pytest -q
+
+      - name: 런처 환경 점검
+        run: python run.py --check
+        continue-on-error: true # venv를 안 만드는 CI에서는 실패가 정상
+
+      - name: 서버 기동 + 대화 1턴 (한글 왕복)
+        shell: python
+        # 한국어 윈도우에서 깨지는 것은 "임포트"가 아니라 "한글이 실제로
+        # 파이프와 파일을 왕복할 때"다. 그래서 부팅 확인에 그치지 않고
+        # 한글 메시지를 보내 저장된 JSON까지 읽어 대조한다.
+        run: |
+          import json, os, sys, time, urllib.request, subprocess
+          from pathlib import Path
+
+          env = {**os.environ, "MODEL": "fake", "KNOWLEDGE_DIR": "knowledge"}
+          proc = subprocess.Popen(
+              [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8125"],
+              env=env,
+          )
+          try:
+              base = "http://127.0.0.1:8125"
+              for _ in range(60):
+                  try:
+                      urllib.request.urlopen(base + "/api/config", timeout=2).read()
+                      break
+                  except Exception:
+                      time.sleep(1)
+              else:
+                  raise SystemExit("서버가 60초 안에 뜨지 않았습니다")
+
+              message = "요즘 불안해서 상담을 받아보고 싶어요."
+              body = json.dumps(
+                  {"session_id": "ci-smoke-1", "message": message}
+              ).encode("utf-8")
+              request = urllib.request.Request(
+                  base + "/api/chat",
+                  data=body,
+                  headers={"Content-Type": "application/json"},
+              )
+              payload = json.loads(urllib.request.urlopen(request, timeout=30).read())
+              assert payload["turn"] == 1, payload
+              assert payload["reply"].strip(), "빈 응답"
+
+              saved = list(Path("data/conversations").rglob("ci-smoke-1.json"))
+              assert saved, "대화 JSON이 저장되지 않았습니다"
+              turns = json.loads(saved[0].read_text(encoding="utf-8"))["turns"]
+              assert turns[0]["text"] == message, (
+                  f"한글 왕복 실패: {turns[0]['text']!r} != {message!r}"
+              )
+              print("OK — 한글 왕복 정상:", turns[0]["text"])
+          finally:
+              proc.terminate()
+              proc.wait(timeout=30)

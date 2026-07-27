@@ -321,6 +321,40 @@ def test_codex_timeout_uses_taskkill_tree_on_windows(monkeypatch):
     assert commands == [["taskkill", "/F", "/T", "/PID", "4321"]]
 
 
+def test_cli_pipes_are_pinned_to_utf8(monkeypatch):
+    """로케일에 맡기면 한국어 Windows(cp949)에서 한글 응답이 깨진다."""
+    seen = _capture(monkeypatch)
+
+    llm.ask(
+        system="s",
+        history=[],
+        user="u",
+        doc_titles=[],
+        settings=_settings(llm.CLI_MODEL),
+    )
+
+    kwargs = seen["kwargs"]
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
+
+
+def test_codex_pipes_are_pinned_to_utf8(monkeypatch):
+    """Popen 경로도 동일 계약 — 상담 응답 전문이 이 파이프로 넘어온다."""
+    seen = _capture_popen(monkeypatch)
+
+    llm.ask(
+        system="s",
+        history=[],
+        user="u",
+        doc_titles=[],
+        settings=_settings(llm.CODEX_CLI_MODEL),
+    )
+
+    kwargs = seen["kwargs"]
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
+
+
 def test_new_process_group_kwargs_are_platform_specific(monkeypatch):
     """start_new_session은 Windows에서 ValueError를 던진다 — 플랫폼별로 갈라야 한다."""
     monkeypatch.setattr(llm, "IS_WINDOWS", False)
