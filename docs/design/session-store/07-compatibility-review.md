@@ -31,7 +31,7 @@ Windows 노트북·Linux 서버에서도 동작해야 하며(`.github/workflows/
 
 | # | 위험 항목 | 위험의 실체 | 새 설계가 안전한 이유 |
 |---|-----------|-------------|------------------------|
-| 1 | Windows 파일락 시맨틱 | Windows는 POSIX와 파일 잠금 모델이 다르다 — 열려 있는 파일을 덮어쓰거나 이름을 바꾸는 연산이 플랫폼별로 실패 조건이 다르다 | 대화 JSON 파일 교체는 `os.replace`로 원자적으로 수행한다(04-interface.md §6.2 단계4, §6.3). 이 관례는 이미 `app/ratelimit.py:88` `os.replace(tmp_path, self._path)`가 3-OS CI로 검증하며 쓰고 있는 기존 패턴을 그대로 재사용한 것이다(04-interface.md §6.3 "os.replace를 쓰는 이유"). 세션 상태 자체는 SQLite에 있고, `sqlite3`는 WAL 모드에서 Windows/POSIX 양쪽의 잠금 프리미티브를 표준 라이브러리 내부에서 흡수한다 — 설계 문서가 플랫폼별 잠금 코드를 직접 작성하지 않는다(D01이 기각한 후보 ④ "파일 + 크로스플랫폼 파일락 직접 구현"이 정확히 이 위험을 피하려 기각된 안이다) |
+| 1 | Windows 파일락 시맨틱 | Windows는 POSIX와 파일 잠금 모델이 다르다 — 열려 있는 파일을 덮어쓰거나 이름을 바꾸는 연산이 플랫폼별로 실패 조건이 다르다 | 대화 JSON 파일 교체는 `os.replace`로 수행한다(04-interface.md §6.2 단계4, §6.3). **여기서 3-OS CI가 보증하는 범위를 정확히 좁혀 적는다**: `app/ratelimit.py:88` `os.replace(tmp_path, self._path)`가 세 러너에서 도는 것이 보증하는 것은 **크로스플랫폼 rename 시맨틱**(이 행이 다루는 위험)이며, `tests/test_ratelimit.py`가 전부 단일 프로세스·순차 테스트이므로 **다중 프로세스 안전성은 보증하지 않는다**(§2.2, 04-interface.md §6.3). 프로세스 간 안전의 근거는 별도다 — 새 설계의 tmp write + `os.replace`는 `BEGIN IMMEDIATE` 임계 구역 **안**에 있어 writer가 직렬화된다(04-interface.md §6.1·§6.2·§6.3). 세션 상태 자체는 SQLite에 있고, `sqlite3`는 WAL 모드에서 Windows/POSIX 양쪽의 잠금 프리미티브를 표준 라이브러리 내부에서 흡수한다 — 설계 문서가 플랫폼별 잠금 코드를 직접 작성하지 않는다(D01이 기각한 후보 ④ "파일 + 크로스플랫폼 파일락 직접 구현"이 정확히 이 위험을 피하려 기각된 안이다) |
 | 2 | 경로 구분자 | Windows는 `\`, POSIX는 `/`를 쓴다. 문자열로 경로를 이어붙이면 한쪽 플랫폼에서만 깨진다 | 기존 코드가 이미 `pathlib.Path`로 경로를 조립한다(`app/storage.py:11` `from pathlib import Path`, `:13` `DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")`, `:35`·`:84`의 `Path(base_dir) / ...`). 신규 `data/sessions.db`(04-interface.md §7.1)도 같은 `data/` 루트 아래 cwd 상대 경로이며 별도의 경로 조립 코드를 새로 추가하지 않는다 — 기존 관례를 그대로 잇는다 |
 | 3 | 한국어 Windows 콘솔 cp949 | 한국어 Windows의 콘솔 기본 코드페이지는 cp949다. 한글을 그대로 `print`하면 `UnicodeEncodeError`로 죽는다(`run.py:51-52` 함수 docstring) | `run.py:50` `_force_utf8_console()`이 `sys.stdout`/`sys.stderr`를 `reconfigure(encoding="utf-8", errors="replace", line_buffering=True)`(`run.py:61`)로 강제하고, 서버 기동 직전 `run.py:334`에서 호출된다. 세션 스토어 계층은 콘솔에 직접 출력하지 않고 SQLite `TEXT` 컬럼과 JSON 파일에만 쓰므로 이 위험의 표면이 아니다 — 콘솔 강제는 런처(run.py) 책임으로 이미 닫혀 있고, 새 설계는 그 경계를 침범하지 않는다 |
 | 4 | `sqlite3` 가용성 | 표준 라이브러리라도 일부 최소 빌드에서 빠질 가능성이 이론상 있다 | `app/stats.py:6` `import sqlite3`가 이미 이 리포의 살아있는 의존이고, `GET /api/stats`가 매 배포 환경에서 이를 임포트해 동작한다(02-policy-decisions.md D01 근거). `run.py:92`의 `check_environment()`는 Python 버전·`.venv`·의존성 패키지(`fastapi, uvicorn, yaml, anthropic`)·`.env`만 점검하고 `sqlite3`는 점검 대상에 없다 — `sqlite3`가 CPython 표준 배포에 포함되어 별도 점검이 불필요하기 때문이다. `.github/workflows/cross-platform.yml`의 `actions/setup-python@v5`(:27-30)가 windows/ubuntu/macos 세 러너 모두에 표준 CPython 배포를 설치하므로 `sqlite3` 부재 시나리오는 이 CI 환경에서 발생하지 않는다 |
@@ -168,6 +168,40 @@ Redis 안이었다면 전자(동시성 미검증)와 후자(OS 비대칭)가 **�
 복구)마다 `_sessions` dict가 전량 소실된다(Phase 1 §1 블로커 1). 새 설계는 세션 상태가
 `/app/data` 볼륨 위 SQLite 파일에 있으므로, 컨테이너가 재생성돼도 볼륨이 유지되는 한 세션이
 살아남는다 — D03의 24시간 TTL이 그 생존 상한을 규정한다.
+
+**`--workers 1`이 보장하지 않는 것 — 블로커 3.** 위 두 사유가 `--workers 1`로 닫히는 항목의
+전부다. **블로커 3(대화 JSON 동시 쓰기 유실)은 이
+고정으로 보호되지 않는다.** 근거는 `app/main.py:20` `def post_chat`이 `async def`가 아니라
+**동기 함수**라는 점이다 — Starlette는 동기 라우트 핸들러를 이벤트 루프가 아니라 스레드풀에서
+실행하므로, 워커 프로세스가 하나여도 같은 세션에 대한 요청이 **한 프로세스 안에서 병렬로**
+`app/storage.py:88`(read) / `:92`(write)에 도달한다. `:92` `path.write_text(...)`는 먼저
+truncate하고 쓰므로 그 창에서 `:88`이 빈 파일을 읽어 `JSONDecodeError`로 죽는다
+(04-interface.md §6.3). 실측으로도 `--workers 1`에서 같은 세션 동시 4건으로 3라운드 전부
+재현됐다.
+
+따라서 §4.3의 정확한 진술은 "`--workers 1`이 블로커 1·2 계열(프로세스 내부 락, 프로세스
+메모리 dict)을 닫고 **블로커 3은 열어 둔다**"이다. 이 구분은 §2.2가 기록한 CI 가드의 한계와
+같은 계열이다 — 단일 프로세스라는 전제가 보장 범위를 **암시적으로 넓혀 보이게** 만드는
+지점이다.
+
+**05 §9 #5 인계의 종결.** [05-invariants.md §9](./05-invariants.md) 표의 5행이 정확히 이
+관측(`app/main.py:20` 동기 함수 → 블로커 3이 `--workers 1`에서도 도달 가능)을 Phase 7로
+인계했다. 이 절이 그 인계를 수용해 **여기서 종결한다**: `--workers 1` 해제 논의의 입력으로
+확정된 결론은 "블로커 3은 `--workers 1` 해제와 **독립된** 결함이며, 워커를 늘리지 않아도
+존재하고 워커 수를 되돌려도 사라지지 않는다"이다.
+
+**다만 이것이 05 §8.3의 필요조건에 항목을 더한다는 뜻은 아니다.** 05 §8.2의 T3 정의는
+"`_sessions` 직접 접근 **37곳/13파일**과 `storage.append_turn` 호출 **9곳**이 전부 스토어
+연산으로 이행된다"이므로, `append_turn` 9곳의 이행이 T3 안에 이미 들어 있다. 그 9곳이
+04-interface.md §6.2의 임계 구역으로 옮겨가면 T4("모든 갱신이 `BEGIN IMMEDIATE` 단일 트랜잭션
+안에")와 결합해 쓰기가 직렬화된다 — 즉 **블로커 3의 쓰기 직렬화는 T3 완결의 귀결이지 T3 밖의
+추가 조건이 아니다.** 이 절이 채우는 빈칸은 필요조건의 개수가 아니라 그 연결의 명시다: 05
+§8.3 서술이 `Dockerfile:25-29`의 두 사유만 다루기 때문에, T3 완결이 블로커 3까지 닫는다는
+사실이 그 절에 드러나 있지 않다.
+
+코드 수정 자체는 이 task 범위 밖이며(CAP04·CAP08·CAP09) 이행 task의 S단계가 담당한다 —
+`app/ratelimit.py` 계열은 D04가 레이트리밋을 DB 테이블로 옮기면서, `storage.append_turn`
+쓰기는 04-interface.md §6.2의 임계 구역으로 이행하면서 닫힌다.
 
 ### 4.4 확인 — 음성 기능 미부활, 범위 밖 3항목 미설계
 

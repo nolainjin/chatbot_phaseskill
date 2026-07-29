@@ -467,8 +467,42 @@ append_conversation_turn(session_id, role, text, participant_id,
 | **sweep 분리** | `sweep_expired(now, limit)` 의 `limit` 이 필수인 이유가 이것이다. 만료 레코드가 수천 건 쌓인 상태에서 무제한 sweep 이 임계 구역에 들어오면 위 상수 상한이 깨진다 |
 
 `os.replace` 를 쓰는 이유: 오늘 `app/storage.py:92` 는 `path.write_text(...)` 로 **직접** 쓴다 —
-쓰기 도중 크래시하면 파일이 잘린다. 같은 리포의 `app/ratelimit.py:85-88` 은 이미 임시 파일 +
-`os.replace` 원자적 교체 관례를 갖고 있고 3-OS CI 로 검증돼 있다. 이 연산은 그 관례를 따른다.
+`write_text` 는 먼저 truncate 하고 쓰므로 **쓰기 도중 크래시하면** 파일이 잘린다.
+
+**크래시가 없어도 실패한다.** truncate 와 쓰기 완료 사이의 창에서 다른 실행 흐름이 `:88`
+`path.read_text(encoding="utf-8")` 로 그 파일을 읽으면 빈 파일을 읽어
+`JSONDecodeError: Expecting value: line 1 column 1 (char 0)` 로 죽는다. 즉 실패 표면은 "크래시
+시나리오"보다 넓고, **정상 쓰기 중에도 열린다.** 이 창은 워커 수와 무관하게 도달 가능하다 —
+`app/main.py:20` `post_chat` 이 `async def` 가 아니라 동기 함수라 Starlette 가 스레드풀에서
+병렬 실행하기 때문이다(실측: `--workers 1`, 같은 세션 동시 4건, 3라운드 전부 재현).
+
+같은 리포의 `app/ratelimit.py:85-88` 이 임시 파일 + `os.replace` 교체 관례를 이미 갖고 있고
+이 연산은 그 **형태**를 따른다. **다만 그 관례가 3-OS CI 로 검증돼 있다는 사실을 이 연산의
+안전 근거로 삼지 않는다.** `.github/workflows/cross-platform.yml` 의 windows/ubuntu/macos
+매트릭스가 보증하는 것은 **크로스플랫폼 rename 시맨틱**이며, `tests/test_ratelimit.py` 는
+전부 단일 프로세스·순차 테스트라 **다중 프로세스 안전성에 대해서는 아무 신호도 주지 않는다**
+([07 §2.2](./07-compatibility-review.md)). 실제로 `app/ratelimit.py:85` 는 tmp 경로를
+`data/ratelimit.json.tmp` 로 **고정**하므로, 워커 둘이 같은 tmp 에 쓰고 각자 `os.replace`
+(`:88`) 를 부르면 먼저 성공한 쪽이 tmp 를 소비하고 뒤진 쪽은 `FileNotFoundError` 로 죽는다
+(실측: `--workers 2`, 서로 다른 세션 24건 동시 발사 → HTTP 500 이 3라운드 전부 발생. 대조군
+`--workers 1` 은 0건). `os.replace` 자체는 원자적이지만 **tmp 경로가 프로세스 간 공유 자원**
+이라는 점이 그 관례를 깨뜨린다.
+
+**이 연산의 실제 안전 근거는 `BEGIN IMMEDIATE` 직렬화다.** §6.2 단계 4 의 tmp write +
+`os.replace` 는 `BEGIN IMMEDIATE`~`COMMIT` 임계 구역 **안**에 있고(§6.1 "스토어 전역 락 — 그
+락은 `BEGIN IMMEDIATE` 쓰기 트랜잭션 그 자체다", §4.3 `BEGIN IMMEDIATE` "쓰기 락을 시작
+시점에 확보"), SQLite 는 한 시점에 커밋 가능한 writer 가 1개다. 따라서 두 프로세스가 같은
+tmp 경로를 동시에 잡는 상태가 **구조적으로 만들어지지 않는다.** `os.replace` 의 원자성은
+**크래시 내성**을 주고, 프로세스 간 안전은 **임계 구역**이 준다 — 둘은 서로 다른 근거이며
+어느 쪽도 다른 쪽을 대체하지 못한다.
+
+> **이행 주의사항 — 고정 tmp 경로 관례를 임계 구역 밖으로 복사하지 말 것.**
+> `app/ratelimit.py:85` 의 `f"{self._path}.tmp"` 처럼 **프로세스 간 공유되는 고정 tmp 경로**는
+> 쓰기 트랜잭션 안에서만 안전하다. 같은 형태를 `BEGIN IMMEDIATE` 밖(읽기 경로의 캐시 갱신,
+> 배치·유지보수 스크립트, 별도 도구 등)으로 옮기면 다중 프로세스에서 `FileNotFoundError` 가
+> 난다 — 위 실측이 그 상태다. 임계 구역 밖에서 원자적 파일 교체가 필요하면 tmp 이름에
+> 프로세스·난수 성분을 넣어 경로를 **호출마다 유일하게** 만들어야 한다. 이 문서가 tmp +
+> `os.replace` 를 허용하는 범위는 §6.2 의 임계 구역 안뿐이다.
 
 ### 6.4 롤백 시맨틱 — 두 매체는 원자적으로 묶이지 않는다
 
@@ -480,11 +514,17 @@ SQLite 트랜잭션은 파일시스템 쓰기를 롤백하지 못한다. 그래�
 | 1 (레코드 조회) | 변화 없음 | ROLLBACK | 없음 | 안전 |
 | 2 (파일 read) | 변화 없음 | ROLLBACK | 없음 | 안전 |
 | 3 (인덱스 UPDATE) | 변화 없음 | ROLLBACK | 없음 | 안전 |
-| 4 (tmp write 또는 `os.replace`) | **원본 그대로** — `os.replace` 는 원자적이라 중간 상태가 없다 | ROLLBACK | 없음 | 안전 |
+| 4 (tmp write 또는 `os.replace`) | **원본 그대로** — `BEGIN IMMEDIATE` 가 프로세스 간 writer 를 직렬화해 이 tmp/replace 쌍에 다른 워커가 끼어들지 못하고(§6.3), 그 위에서 `os.replace` 가 중간 상태 없이 교체한다 | ROLLBACK | 없음 | 안전 |
 | **5 (COMMIT 실패 / 프로세스 크래시)** | **새 턴 포함 (N+1개)** | 옛 상태 (`turn_partitions[day] = N`) | **두 국면 모두 §6.5 가 닫는다** — ① 다음 append 전의 복원: `seq ≥ N` 인 꼬리를 **버린다**. ② 다음 append: 단계 2' 가 그 꼬리를 `context_excluded` 에 **등재하면서** 수용 범위로 승격시킨다 | **안전 (양 국면)** — 충실도만 손실 |
 
+**4행의 "안전" 판정이 무엇에 기대는지 명시한다.** `os.replace` 의 원자성만으로는 부족하다 —
+tmp 경로가 프로세스 간 공유 자원이면 원자적 교체 관례 자체가 깨진다(§6.3 의 `--workers 2`
+실측). 4행이 안전한 이유는 이 tmp write + `os.replace` 가 `BEGIN IMMEDIATE` 임계 구역 안에
+있어 **프로세스 간 writer 가 직렬화**되고, 그 직렬화 위에서 `os.replace` 가 중간 상태 없이
+교체하기 때문이다. 두 근거는 겹치지 않는다.
+
 **잔여 창은 5 하나뿐이고, 방향이 하나로 고정된다**: 파일이 인덱스보다 **앞선다**. 반대 방향
-(인덱스가 파일보다 앞섬)은 4 가 원자적이므로 발생하지 않는다.
+(인덱스가 파일보다 앞섬)은 4 가 실패해도 파일이 원본 그대로 남으므로 발생하지 않는다.
 
 **5행의 판정은 두 국면을 모두 논증해야 성립한다.** 잔여 창이 남긴 고아 턴은 다음 append 가
 올 때까지만 "인덱스 밖"에 있다. 국면 ①(잘라내기)만 설계하고 국면 ②를 빠뜨리면, 다음 append
