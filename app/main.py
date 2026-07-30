@@ -10,6 +10,7 @@ from app import chat, intake, ratelimit, stats, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
+MIN_STATS_TOKEN_LEN = 16
 STATIC_DIR = "static"
 
 app = FastAPI()
@@ -82,6 +83,8 @@ def get_stats(
     settings = Settings.from_env()
     if not settings.stats_api_token:
         raise HTTPException(status_code=503, detail="통계 API 토큰이 구성되지 않았습니다.")
+    if len(settings.stats_api_token) < MIN_STATS_TOKEN_LEN:
+        raise HTTPException(status_code=503, detail="통계 API 토큰이 너무 짧습니다.")
     if not stats_token or not secrets.compare_digest(stats_token, settings.stats_api_token):
         raise HTTPException(status_code=401, detail="통계 API 인증이 필요합니다.")
     return stats.read_stats(

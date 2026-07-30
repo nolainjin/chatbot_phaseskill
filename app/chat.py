@@ -220,6 +220,105 @@ def _ensure_crisis_hotline(reply: str) -> str:
     if "109" in reply and "1588-9191" in reply:
         return reply
     return reply.rstrip() + _CRISIS_HOTLINE_NOTICE
+_AGGRESSION_SIGNALS = (
+    "누군가를 해칠",
+    "상대를 해칠",
+    "사람을 해칠",
+    "해칠 것 같",
+    "때릴 것 같",
+    "죽여버리고 싶",
+    "칼을 들고 찾아",
+)
+_DOMESTIC_VIOLENCE_SIGNALS = (
+    "물건을 던",
+    "위협",
+    "맞을까",
+    "집에 있는 게 불안",
+    "집에 있는 것이 불안",
+    "집이 불안",
+    "배우자가 화나면",
+    "파트너가 화나면",
+)
+
+
+def _has_any(message: str, signals: tuple[str, ...]) -> bool:
+    return any(signal in message for signal in signals)
+
+
+def _safety_route_kind(message: str) -> str | None:
+    if _has_any(message, _AGGRESSION_SIGNALS):
+        return "aggression"
+    if _has_any(message, _DOMESTIC_VIOLENCE_SIGNALS):
+        return "domestic_violence"
+    return None
+
+
+def _build_interpersonal_safety_reply(kind: str) -> str:
+    if kind == "domestic_violence":
+        return (
+            "위협이 반복되고 집에 있는 것이 불안하다면 지금은 관계 설명보다 안전 확인이 먼저입니다. "
+            "오늘 위험하다고 느껴지면 상대와 거리를 두고, 바로 갈 수 있는 안전한 장소나 연락할 사람을 확보하세요. "
+            "즉각적인 폭력 위험이 있으면 112 또는 119에 도움을 요청하세요. "
+            "오늘 바로 피할 수 있는 장소나 연락할 사람이 있나요?"
+        )
+    return (
+        "누군가를 해칠 것 같은 상상이 들 정도라면 지금은 갈등 설명보다 안전 확인이 먼저입니다. "
+        "상대와 거리를 두고, 칼·도구·차량처럼 위험해질 수 있는 수단에서 떨어져 주세요. "
+        "당장 실행할 계획이나 수단이 있거나 통제가 어렵다면 112 또는 119에 바로 도움을 요청하세요. "
+        "지금 당장 누군가를 해칠 구체적인 계획이나 준비한 수단이 있나요?"
+    )
+
+
+def _persist_intake_snapshot(
+    session: ChatSession,
+    schema: intake.Schema,
+    participant_id: str,
+) -> None:
+    storage.update_metadata(
+        session.session_id,
+        {"intake_snapshot": intake.build_summary_json(schema, session.slots)},
+        participant_id=participant_id,
+    )
+
+
+def _handle_interpersonal_safety_route(
+    session: ChatSession,
+    message: str,
+    kind: str,
+    schema: intake.Schema,
+    participant_id: str,
+) -> dict:
+    normalized_message = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+    session.slots["track"] = "위기"
+    session.slots.setdefault("chief_complaint", normalized_message)
+    reply = _build_interpersonal_safety_reply(kind)
+
+    storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
+    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
+    session.history.append({"role": "user", "content": message})
+    session.history.append({"role": "assistant", "content": reply})
+    session.turns += 1
+    red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
+    unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+    session.last_question_slot_id = unfilled[0].id if unfilled else None
+    _persist_intake_snapshot(session, schema, participant_id)
+
+    if session.turns >= MAX_TURNS:
+        summary_json = intake.build_summary_json(schema, session.slots)
+        storage.append_turn(
+            session.session_id,
+            "intake_summary",
+            json.dumps(summary_json, ensure_ascii=False),
+            participant_id=participant_id,
+        )
+
+    return {
+        "reply": reply,
+        "turn": session.turns,
+        "limit_reached": False,
+        "intake": _intake_state(schema, session.slots, unfilled),
+    }
+
 
 
 def _slot_by_id(schema: intake.Schema, slot_id: str | None) -> intake.Slot | None:
@@ -324,6 +423,7 @@ def _handle_addiction_route(
     session.history.append({"role": "assistant", "content": reply})
     session.turns += 1
     session.last_question_slot_id = None
+    _persist_intake_snapshot(session, schema, participant_id)
 
     if session.turns >= MAX_TURNS:
         summary_json = intake.build_summary_json(schema, session.slots)
@@ -411,6 +511,7 @@ def handle_message(
         if schema is not None:
             final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
             session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
+            _persist_intake_snapshot(session, schema, effective_participant_id)
             result["intake"] = _intake_state(schema, session.slots, final_unfilled)
         return result
     if schema is not None:
@@ -418,6 +519,14 @@ def handle_message(
         crisis_detected = (
             classification.get("track") == "위기" or session.slots.get("track") == "위기"
         )
+        if safety_kind := _safety_route_kind(message):
+            return _handle_interpersonal_safety_route(
+                session,
+                message,
+                safety_kind,
+                schema,
+                effective_participant_id,
+            )
         assessment = addiction.assess(
             message,
             active=session.slots.get("track") == "중독",
@@ -534,5 +643,6 @@ def handle_message(
         # 패널 상태와 다음 fallback 기준은 최종 session.slots 기준으로 다시 계산한다.
         final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
         session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
+        _persist_intake_snapshot(session, schema, effective_participant_id)
         result["intake"] = _intake_state(schema, session.slots, final_unfilled)
     return result

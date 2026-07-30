@@ -102,29 +102,41 @@ def _load_summaries(
     participant_prefix: str | None,
     session_prefix: str | None,
 ) -> list[dict[str, Any]]:
-    where, params = _turn_join_filter(participant_prefix, session_prefix, "intake_summary")
+    where, params = _turn_join_filter(participant_prefix, session_prefix)
+    role_clause = "t.role IN ('intake_summary', 'intake_snapshot')"
+    if where:
+        where = f"{where} AND {role_clause}"
+    else:
+        where = f" WHERE {role_clause}"
     rows = conn.execute(
         f"""
-        SELECT t.date, t.session_id, t.text
+        SELECT t.date, t.session_id, t.role, t.text
         FROM turns t
         JOIN conversations c
           ON c.date=t.date AND c.session_id=t.session_id
         {where}
-        ORDER BY t.date DESC, t.session_id ASC, t.seq ASC
+        ORDER BY t.date DESC, t.session_id ASC, t.role ASC, t.seq DESC
         """,
         params,
     ).fetchall()
-    summaries: list[dict[str, Any]] = []
-    for day, session_id, text in rows:
+    summaries_by_session: dict[tuple[str, str], dict[str, Any]] = {}
+    priority = {"intake_summary": 2, "intake_snapshot": 1}
+    chosen_priority: dict[tuple[str, str], int] = {}
+    for day, session_id, role, text in rows:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError:
             continue
         if isinstance(parsed, dict):
+            key = (day, session_id)
+            rank = priority.get(str(role), 0)
+            if chosen_priority.get(key, -1) > rank:
+                continue
             parsed["date"] = day
             parsed["session_id"] = session_id
-            summaries.append(parsed)
-    return summaries
+            summaries_by_session[key] = parsed
+            chosen_priority[key] = rank
+    return list(summaries_by_session.values())
 
 
 def _has_any(text: str, needles: tuple[str, ...]) -> bool:

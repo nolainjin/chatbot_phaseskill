@@ -33,6 +33,11 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "처방약 중독",
             "약을 못 끊",
             "약에 의존",
+            "약물을 못 끊",
+            "약물을 끊",
+            "약물을 몇 번",
+            "혼자 끊기",
+            "다시 찾게",
         ),
     ),
     (
@@ -46,7 +51,11 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "게임 중독",
             "게임 과몰입",
             "게임을 못 끊",
+            "게임 때문에",
+            "게임을 끄",
             "밤새 게임",
+            "밤새 하",
+            "하루 8시간",
             "폰을 못 놓",
         ),
     ),
@@ -62,9 +71,14 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "술 중독",
             "술을 못 끊",
             "술을 끊지 못",
+            "술을 줄",
             "술 때문에",
             "매일 술",
             "술 없이는",
+            "계속 마시",
+            "다음 날 후회",
+            "다시 마실",
+            "재발",
         ),
     ),
 )
@@ -76,6 +90,20 @@ _GENERIC_SIGNALS = (
     "중독 상담",
     "중독센터",
     "중독 센터",
+)
+
+_GENERIC_PROBLEM_SIGNALS = (
+    "통제가 안",
+    "조절이 안",
+    "끊기 어렵",
+    "끊기가 어렵",
+    "끊어야",
+    "못 끊",
+    "생활이 무너",
+    "생활 균형",
+    "재발",
+    "다시 하게",
+    "다시 찾게",
 )
 
 _EMERGENCY_SIGNALS = (
@@ -114,6 +142,13 @@ _HIGH_RISK_SIGNALS = (
     "직장을 못",
     "학교를 못",
     "가족이 떠",
+    "재발",
+    "끊기 어렵",
+    "끊기가 어렵",
+    "계속 마시",
+    "다음 날 후회",
+    "하루 8시간",
+    "밤새",
 )
 
 
@@ -129,14 +164,20 @@ def _contains_any(message: str, signals: tuple[str, ...]) -> bool:
 
 
 def detect_kind(message: str) -> str | None:
-    """명시적인 문제 표현이 있을 때만 중독 유형을 반환한다.
-
-    평범한 "술 한잔"이나 "게임을 했다"를 중독으로 과탐지하지 않도록 단독 명사는
-    피하고 문제·통제 상실이 드러나는 복합 표현을 사용한다.
-    """
+    """명시적인 문제 표현이 있을 때만 중독 유형을 반환한다."""
     for kind, signals in _TYPE_SIGNALS:
         if _contains_any(message, signals):
             return kind
+    if _contains_any(message, _GENERIC_PROBLEM_SIGNALS):
+        text = message.casefold()
+        if any(word in text for word in ("술", "음주", "알코올", "마시")):
+            return "알코올"
+        if any(word in text for word in ("약물", "마약", "처방약")):
+            return "마약·약물"
+        if any(word in text for word in ("도박", "베팅", "토토")):
+            return "도박"
+        if any(word in text for word in ("게임", "스마트폰", "휴대폰", "인터넷")):
+            return "인터넷·스마트폰·게임"
     if _contains_any(message, _GENERIC_SIGNALS):
         return "기타·미확인"
     return None

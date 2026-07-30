@@ -145,7 +145,18 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 def _read_conversation_file(json_file: Path) -> tuple[str, str, list[dict]]:
     raw = json.loads(json_file.read_text(encoding="utf-8"))
     payload = storage.normalize_conversation_payload(raw, json_file.stem)
-    return payload["session_id"], payload["participant_id"], payload["turns"]
+    turns = list(payload["turns"])
+    snapshot = raw.get("intake_snapshot") if isinstance(raw, dict) else None
+    if isinstance(snapshot, dict):
+        next_seq = max((int(turn.get("seq", -1)) for turn in turns), default=-1) + 1
+        turns.append(
+            {
+                "seq": next_seq,
+                "role": "intake_snapshot",
+                "text": json.dumps(snapshot, ensure_ascii=False),
+            }
+        )
+    return payload["session_id"], payload["participant_id"], turns
 
 
 def load_day(

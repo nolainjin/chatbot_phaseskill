@@ -8,6 +8,7 @@ from app.config import Settings
 
 
 def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
+    root = root.resolve()
     scenario_path = root / "_validation_scenario.json"
     if not scenario_path.is_file():
         if intake_mode:
@@ -29,8 +30,8 @@ def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
     old_cwd = Path.cwd()
     old_model = os.environ.get("MODEL")
     old_knowledge_dir = os.environ.get("KNOWLEDGE_DIR")
-    try:
-        with tempfile.TemporaryDirectory(prefix="lmwiki-pack-exercise-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="lmwiki-pack-exercise-") as temp_dir:
+        try:
             os.chdir(temp_dir)
             os.environ["MODEL"] = "fake"
             os.environ["KNOWLEDGE_DIR"] = str(root)
@@ -61,13 +62,13 @@ def exercise_pack(root: Path, intake_mode: bool) -> dict[str, object]:
                     "unfilled": unfilled,
                 }
             return {"ok": True, "messages": len(messages), "unfilled": unfilled or []}
-    finally:
-        os.chdir(old_cwd)
-        if old_model is None:
-            os.environ.pop("MODEL", None)
-        else:
-            os.environ["MODEL"] = old_model
-        if old_knowledge_dir is None:
-            os.environ.pop("KNOWLEDGE_DIR", None)
-        else:
-            os.environ["KNOWLEDGE_DIR"] = old_knowledge_dir
+        finally:
+            os.chdir(old_cwd)
+            if old_model is None:
+                os.environ.pop("MODEL", None)
+            else:
+                os.environ["MODEL"] = old_model
+            if old_knowledge_dir is None:
+                os.environ.pop("KNOWLEDGE_DIR", None)
+            else:
+                os.environ["KNOWLEDGE_DIR"] = old_knowledge_dir
