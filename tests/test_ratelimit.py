@@ -44,18 +44,18 @@ def test_client_ip_falls_back_to_socket_when_xff_missing():
 # --- RateLimiter: 세션 윈도우 + 일일 캡 -----------------------------------------
 
 
-def test_sixth_new_session_in_window_is_blocked(tmp_path):
+def test_twenty_sixth_new_session_in_window_is_blocked(tmp_path):
     limiter = ratelimit.RateLimiter(path=str(tmp_path / "ratelimit.json"))
-    for i in range(5):
+    for i in range(25):
         limiter.check("1.2.3.4", f"session-{i}", daily_cap=500)
 
     with pytest.raises(ratelimit.RateLimitExceeded):
-        limiter.check("1.2.3.4", "session-6th", daily_cap=500)
+        limiter.check("1.2.3.4", "session-26th", daily_cap=500)
 
 
 def test_existing_session_followups_are_not_counted(tmp_path):
     limiter = ratelimit.RateLimiter(path=str(tmp_path / "ratelimit.json"))
-    for i in range(5):
+    for i in range(25):
         limiter.check("1.2.3.4", f"session-{i}", daily_cap=500)
 
     # 이미 등록된 세션의 후속 발화는 윈도우를 소모하지 않는다.
@@ -66,16 +66,16 @@ def test_existing_session_followups_are_not_counted(tmp_path):
 def test_window_clears_after_expiry(tmp_path):
     path = tmp_path / "ratelimit.json"
     limiter = ratelimit.RateLimiter(path=str(path))
-    for i in range(5):
+    for i in range(25):
         limiter.check("1.2.3.4", f"session-{i}", daily_cap=500)
 
-    # 5개의 타임스탬프를 2시간 전으로 되돌려 윈도우 경과를 시뮬레이션한다.
+    # 25개의 타임스탬프를 2시간 전으로 되돌려 윈도우 경과를 시뮬레이션한다.
     import json
     from datetime import datetime, timedelta, timezone
 
     state = json.loads(path.read_text(encoding="utf-8"))
     old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    state["windows"]["1.2.3.4"] = [old] * 5
+    state["windows"]["1.2.3.4"] = [old] * 25
     path.write_text(json.dumps(state), encoding="utf-8")
 
     # 윈도우가 비워졌으니 새 세션은 다시 허용된다.
@@ -91,7 +91,7 @@ def test_daily_cap_blocks_new_session(tmp_path):
 # --- main.py 배선: /api/chat 429 응답 ------------------------------------------
 
 
-def test_api_chat_returns_429_after_six_new_sessions(tmp_path, monkeypatch):
+def test_api_chat_allows_five_resets_and_blocks_twenty_sixth_session(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     monkeypatch.setattr(
@@ -101,13 +101,20 @@ def test_api_chat_returns_429_after_six_new_sessions(tmp_path, monkeypatch):
     monkeypatch.setenv("MODEL", "fake")
     client = TestClient(main_module.app)
 
-    for i in range(5):
+    # 최초 세션 + 새 대화 5회는 동일 IP에서도 문제없이 허용한다.
+    for i in range(6):
+        response = client.post(
+            "/api/chat", json={"session_id": f"api-session-{i}", "message": "안녕하세요"}
+        )
+        assert response.status_code == 200
+
+    for i in range(6, 25):
         response = client.post(
             "/api/chat", json={"session_id": f"api-session-{i}", "message": "안녕하세요"}
         )
         assert response.status_code == 200
 
     response = client.post(
-        "/api/chat", json={"session_id": "api-session-6th", "message": "안녕하세요"}
+        "/api/chat", json={"session_id": "api-session-26th", "message": "안녕하세요"}
     )
     assert response.status_code == 429

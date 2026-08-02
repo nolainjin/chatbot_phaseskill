@@ -102,24 +102,16 @@ def test_single_utterance_fills_two_slots_at_once(tmp_path):
     assert "방문사유=이유" in result["reply"]
 
 
-def test_red_flag_signal_reorders_unfilled_slots_to_top(tmp_path, monkeypatch):
+def test_red_flag_signal_reorders_unfilled_slots_to_top(tmp_path):
     _write_schema(tmp_path)
-    captured = {}
-
-    def fake_ask(system, history, user, doc_titles, settings):
-        captured["system"] = system
-        return "[fake] 응답"
-
-    monkeypatch.setattr(chat.llm, "ask", fake_ask)
 
     # "자해"로 트랙=위기가 이번 턴에 채워지며 crisis_plan이 막 활성화되고,
     # 동시에 "계획"이 crisis_plan의 red_flag signal에 걸린다 — priority(2)가
     # reason(priority 1)보다 낮은데도 레드플래그 정렬로 먼저 나와야 한다.
-    chat.handle_message("slot-cap05", "자해할 계획이에요", _settings(tmp_path))
+    result = chat.handle_message("slot-cap05", "자해할 계획이에요", _settings(tmp_path))
 
-    system = captured["system"]
-    section_start = system.index("미충족 슬롯")
-    assert system.index("위기계획", section_start) < system.index("방문사유", section_start)
+    assert result["intake"]["unfilled"][0]["label"] == "위기계획"
+    assert result["intake"]["unfilled"][0]["red_flag"] is True
 
 
 def test_already_filled_slot_is_not_overwritten(tmp_path):

@@ -26,6 +26,30 @@ def test_addiction_detection_requires_problem_context():
 
 
 @pytest.mark.parametrize(
+    "message",
+    [
+        "남편이 매일 술을 못 끊어서 제가 잠을 못 자요",
+        "아들이 게임을 못 끊어서 가족 갈등이 심해졌어요",
+        "친구가 도박 빚이 생겼는데 어떻게 도와야 하나요",
+    ],
+)
+def test_third_party_addiction_is_not_classified_as_client_addiction(message):
+    assert addiction.assess(message) is None
+
+
+def test_shared_addiction_problem_still_routes_to_specialist():
+    assessment = addiction.assess("남편과 저 둘 다 술을 못 끊고 있어요")
+    assert assessment is not None
+    assert assessment.kind == "알코올"
+
+
+def test_third_party_overdose_still_routes_as_emergency():
+    assessment = addiction.assess("친구가 약을 과다복용하고 숨을 못 쉬어요")
+    assert assessment is not None
+    assert assessment.severity == "응급"
+
+
+@pytest.mark.parametrize(
     ("message", "kind", "severity"),
     [
         ("도박 빚이 생겼고 통제가 안 돼요", "도박", "고위험"),
@@ -86,6 +110,20 @@ def test_addiction_route_skips_llm_and_completes_specialist_handoff(monkeypatch,
     assert result["intake"]["unfilled"] == []
     assert "일반 상담을 이어가기보다" in result["reply"]
     assert "중독관리통합지원센터" in result["reply"]
+
+
+def test_third_party_addiction_stays_in_general_intake(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    result = chat.handle_message(
+        "partner-addiction-relationship",
+        "남편이 저녁마다 술을 마시고 와서 잠을 제대로 못 자요",
+        _settings(),
+        participant_id="b4402759-0d25-465b-be1c-e2f30522ee74",
+    )
+
+    slots = chat._sessions["partner-addiction-relationship"].slots
+    assert slots.get("track") != "중독"
+    assert "중독관리통합지원센터" not in result["reply"]
 
 
 def test_addiction_followup_keeps_higher_observed_severity(monkeypatch, tmp_path):

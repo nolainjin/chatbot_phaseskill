@@ -144,8 +144,53 @@ def test_stats_serves_csv_formula_neutralizer_before_dashboard_script():
     response = client.get("/stats.html")
 
     assert response.status_code == 200
-    assert response.text.index('src="csv.js?v=1"') < response.text.index('src="stats.js?v=6"')
+    assert response.text.index('src="csv.js?v=1"') < response.text.index('src="stats.js?v=8"')
     assert client.get("/csv.js?v=1").status_code == 200
+
+
+def test_stats_dashboard_is_counselor_first_without_triage_tabs():
+    response = client.get("/stats.html")
+
+    assert response.status_code == 200
+    assert "최근 내담자" in response.text
+    assert "내담자 관리번호 찾기" in response.text
+    assert "CSV 내보내기" in response.text
+    assert "인쇄하기" in response.text
+    assert "관리 대상" not in response.text
+    assert "위기 우선" not in response.text
+    assert "위기만 보기" in response.text
+    assert "요약 완료" in response.text
+    assert 'id="conversation-dialog"' in response.text
+    stats_script = client.get("/stats.js?v=8")
+    assert stats_script.status_code == 200
+    assert "/api/stats/session?" in stats_script.text
+    assert "대화 내역 보기" in stats_script.text
+
+
+def test_public_chat_page_has_no_stats_navigation():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "stats.html" not in response.text
+    assert "내담자 통계 보기" not in response.text
+
+def test_chat_client_supports_management_number_links():
+    response = client.get("/app.js?v=19")
+
+    assert response.status_code == 200
+    assert 'url.searchParams.get("management_id")' in response.text
+    assert "MANAGEMENT_ID_PATTERN" in response.text
+    assert "window.history.replaceState" in response.text
+
+
+def test_chat_client_linkifies_verified_support_resources():
+    response = client.get("/app.js?v=19")
+
+    assert response.status_code == 200
+    assert '"109": "tel:109"' in response.text
+    assert '"119": "tel:119"' in response.text
+    assert 'link.rel = "noopener noreferrer"' in response.text
+    assert "appendSupportLinks(bubble, text)" in response.text
 
 
 def test_csv_cell_neutralizes_formula_markers():

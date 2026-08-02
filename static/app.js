@@ -5,6 +5,7 @@
   var SESSION_KEY = "lmwiki_session_id";
   var SESSION_TOKEN_KEY = "lmwiki_session_token";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
+  var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
   var CONTEXTUAL_REPLIES = {
@@ -135,12 +136,27 @@
   }
 
   function getParticipantId() {
-    var id = localStorage.getItem(PARTICIPANT_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(PARTICIPANT_KEY, id);
+    var url = new URL(window.location.href);
+    var linkedId = url.searchParams.get("management_id") || url.searchParams.get("client_id") || "";
+    var storedId = localStorage.getItem(PARTICIPANT_KEY);
+
+    if (linkedId && MANAGEMENT_ID_PATTERN.test(linkedId)) {
+      if (storedId !== linkedId) {
+        localStorage.setItem(PARTICIPANT_KEY, linkedId);
+        sessionStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      }
+      url.searchParams.delete("management_id");
+      url.searchParams.delete("client_id");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      return linkedId;
     }
-    return id;
+
+    if (!storedId) {
+      storedId = crypto.randomUUID();
+      localStorage.setItem(PARTICIPANT_KEY, storedId);
+    }
+    return storedId;
   }
 
   function getSessionToken() {
@@ -149,6 +165,49 @@
 
   function formatTimestamp(date) {
     return date.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+  }
+
+  var SUPPORT_PHONE_LINKS = {
+    "109": "tel:109",
+    "119": "tel:119",
+    "129": "tel:129",
+    "1336": "tel:1336",
+    "1342": "tel:1342",
+    "1388": "tel:1388",
+    "1577-0199": "tel:15770199",
+    "1588-9191": "tel:15889191",
+    "1599-0075": "tel:15990075",
+    "000-000-0000": "tel:0000000000"
+  };
+  var SUPPORT_LINK_PATTERN = /(https:\/\/[^\s]+|000-000-0000|1588-9191|1577-0199|1599-0075|(?:^|[^\d])(109|119|129|1336|1342|1388)(?!\d))/g;
+
+  function appendSupportLinks(node, content) {
+    node.textContent = "";
+    var cursor = 0;
+    content.replace(SUPPORT_LINK_PATTERN, function (match, _url, shortNumber, offset) {
+      var leading = "";
+      var value = match;
+      if (shortNumber && match !== shortNumber) {
+        leading = match.slice(0, -shortNumber.length);
+        value = shortNumber;
+      }
+      node.appendChild(document.createTextNode(content.slice(cursor, offset) + leading));
+      var link = document.createElement("a");
+      link.className = "support-link";
+      link.textContent = value;
+      if (value.startsWith("https://")) {
+        link.href = value.replace(/[),.;]+$/, "");
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      } else {
+        link.href = SUPPORT_PHONE_LINKS[value];
+        link.setAttribute("aria-label", value + " 전화 걸기");
+      }
+      node.appendChild(link);
+      cursor = offset + match.length;
+      return match;
+    });
+    node.appendChild(document.createTextNode(content.slice(cursor)));
   }
 
   function addMessage(role, text) {
@@ -236,6 +295,7 @@
         if (index < text.length) {
           window.setTimeout(tick, delay);
         } else {
+          appendSupportLinks(bubble, text);
           resolve(rendered);
         }
       }
@@ -393,6 +453,23 @@
     contextualRepliesEl.hidden = false;
   }
 
+  function renderServerQuickReplies(replies) {
+    if (!contextualRepliesEl || !Array.isArray(replies) || !replies.length) return;
+    hideContextualReplies();
+    replies.forEach(function (reply) {
+      if (!reply || !reply.label || !reply.message) return;
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "reply-suggestion";
+      button.textContent = reply.label;
+      button.addEventListener("click", function () {
+        sendMessage(reply.message);
+      });
+      contextualRepliesEl.appendChild(button);
+    });
+    contextualRepliesEl.hidden = false;
+  }
+
   function renderCoachingStatus(data) {
     if (!coachingStatusEl || !data || typeof data.coach_stage !== "string" || typeof data.next_action !== "string") return;
     coachingStageEl.textContent = data.coach_stage;
@@ -477,11 +554,21 @@
           setStatus("");
           updateTurnCounter(data.turn);
           renderIntake(data.intake);
-          renderContextualReplies(data.intake, replyText);
+          if (Array.isArray(data.quick_replies) && data.quick_replies.length) {
+            renderServerQuickReplies(data.quick_replies);
+          } else {
+            renderContextualReplies(data.intake, replyText);
+          }
           renderCoachingStatus(data);
           requestPending = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
 
+          if (data.conversation_ended) {
+            setStatus("안내가 완료되어 대화가 종료되었습니다. 다시 시작하려면 ‘새 대화’를 눌러 주세요.");
+            hideContextualReplies();
+            disableInput();
+            return;
+          }
           if (data.limit_reached) {
             setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
             hideContextualReplies();
@@ -546,7 +633,6 @@
     setTextIf(".subtitle", ui.subtitle);
     setTextIf(".privacy-summary-text", ui.privacy_summary);
     setTextIf(".privacy-body", ui.privacy_body);
-    setTextIf(".header-link", ui.stats_link_text);
     setTextIf(".panel-title", ui.panel_title);
     if (Array.isArray(ui.stepper_labels)) {
       document.querySelectorAll(".stepper-label").forEach(function (el, i) {
@@ -587,8 +673,6 @@
     document.title = "학습 코칭 챗봇";
     setTextIf(".chat-title h1", "학습 코칭 챗봇");
     setTextIf(".subtitle", "질문과 지식 문서를 바탕으로 함께 살펴봅니다");
-    var headerLink = document.querySelector(".header-link");
-    if (headerLink) headerLink.hidden = true;
     setTextIf(".privacy-summary-text", "학습 대화 안내");
     setTextIf(
       ".privacy-body",
@@ -606,9 +690,6 @@
     document.title = "접수 면담 챗봇";
     setTextIf(".chat-title h1", "접수 면담 챗봇");
     setTextIf(".subtitle", "첫 상담 전, 이야기를 정리하는 시간입니다");
-    var headerLink = document.querySelector(".header-link");
-    if (headerLink) headerLink.hidden = false;
-    setTextIf(".header-link", "내담자 통계 보기");
     setTextIf(".privacy-summary-text", "첫 상담 전 접수용 안내");
     setTextIf(
       ".privacy-body",
@@ -616,6 +697,9 @@
     );
     setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
   }
+
+  // 예약 링크의 관리번호를 첫 발화 전에 확정하고 URL에서는 즉시 제거한다.
+  getParticipantId();
 
   // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
   // fail-closed로 수렴한다. 채팅 기능에는 영향 없음. 첫 인사말은 ui.greeting

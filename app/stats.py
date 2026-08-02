@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,13 @@ _SLOT_LABELS = {
     "support": "지지체계",
     "expectation": "상담 기대",
 }
+
+
+def sync_today() -> int:
+    """현재 날짜의 JSON 접수 기록을 내부 대시보드 SQLite에 멱등 반영한다."""
+    from scripts import load_to_sqlite
+
+    return load_to_sqlite.load_day(date.today())
 
 
 def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) -> dict[str, Any]:
@@ -50,6 +58,54 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
         "recent_sessions": [],
         "individual_flags": [],
     }
+
+
+def read_session_detail(
+    day: str,
+    session_id: str,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """상담자가 선택한 한 접수 세션의 대화 내역을 순서대로 반환한다."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(db_path)
+    try:
+        if not all(
+            _table_exists(conn, table)
+            for table in ("participants", "conversations", "turns")
+        ):
+            return None
+        conversation = conn.execute(
+            """
+            SELECT participant_id
+            FROM conversations
+            WHERE date=? AND session_id=?
+            """,
+            (day, session_id),
+        ).fetchone()
+        if conversation is None:
+            return None
+        turns = [
+            {"seq": int(seq), "role": str(role), "text": str(text)}
+            for seq, role, text in conn.execute(
+                """
+                SELECT seq, role, text
+                FROM turns
+                WHERE date=? AND session_id=?
+                ORDER BY seq
+                """,
+                (day, session_id),
+            ).fetchall()
+        ]
+        return {
+            "date": day,
+            "session_id": session_id,
+            "participant_id": str(conversation[0]),
+            "turns": turns,
+        }
+    finally:
+        conn.close()
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -392,6 +448,12 @@ def read_stats(
         individual_flags = []
         for day, session_id, participant_id in session_rows:
             summary = summary_by_session.get((day, session_id), {})
+            slots = summary.get("slots") if isinstance(summary.get("slots"), dict) else {}
+            unfilled = (
+                summary.get("unfilled")
+                if isinstance(summary.get("unfilled"), dict)
+                else {}
+            )
             user_turn_count = user_turn_count_by_session[(day, session_id)]
             recent_sessions.append(
                 {
@@ -399,7 +461,15 @@ def read_stats(
                     "session_id": session_id,
                     "participant_id": participant_id,
                     "track": summary.get("track", "미확인"),
-                    "red_flags": summary.get("red_flags", []),
+                    "chief_complaint": slots.get("chief_complaint", ""),
+                    "symptom_context": slots.get("symptom_context", ""),
+                    "coping": slots.get("coping", ""),
+                    "support": slots.get("support", ""),
+                    "expectation": slots.get("expectation", ""),
+                    "missing": [
+                        _SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled
+                    ],
+                    "summary_available": bool(summary),
                     "user_turns": user_turn_count,
                 }
             )
@@ -422,7 +492,7 @@ def read_stats(
                 item["session_id"],
             )
         )
-        recent_sessions = recent_sessions[:20]
+        recent_sessions = recent_sessions[:200]
 
         return {
             "database": str(db_path),

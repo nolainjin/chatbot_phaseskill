@@ -1,4 +1,4 @@
-"""IP별 rate limit — 신규 대화 세션 1시간당 5회 + 전역 일일 요청 상한.
+"""IP별 rate limit — 신규 대화 세션 1시간당 25회 + 전역 일일 요청 상한.
 
 기존 세션의 후속 발화는 카운트하지 않는다(10턴 캡이 이미 세션 내부 상한을
 담당). client_ip()는 TRUST_PROXY_HOPS env로 X-Forwarded-For 신뢰 범위를
@@ -18,10 +18,10 @@ from fastapi import Request
 logger = logging.getLogger(__name__)
 
 WINDOW = timedelta(hours=1)
-MAX_SESSIONS_PER_WINDOW = 5
+MAX_SESSIONS_PER_WINDOW = 25
 DATA_PATH = "data/ratelimit.json"
 
-RATE_LIMIT_MESSAGE = "이 IP에서 1시간 동안 새 대화 세션을 5회 넘게 시작했습니다. 잠시 후 다시 시도해 주세요."
+RATE_LIMIT_MESSAGE = "이 IP에서 1시간 동안 새 대화 세션을 25회 넘게 시작했습니다. 잠시 후 다시 시도해 주세요."
 DAILY_CAP_MESSAGE = "오늘의 서비스 요청 상한에 도달했습니다. 내일 다시 이용해 주세요."
 
 _xff_warned = False  # 프로세스당 1회만 경고 로그를 남기기 위한 플래그

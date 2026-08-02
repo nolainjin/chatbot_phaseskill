@@ -8,15 +8,20 @@ from __future__ import annotations
 
 import base64
 import binascii
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
+from urllib.parse import unquote
 
 _ZERO_WIDTH_AND_BIDI_RE = re.compile(
     "[\u200b\u200c\u200d\u2060\ufeff\u202a-\u202e\u2066-\u2069]"
 )
 _WHITESPACE_RE = re.compile(r"\s+")
 _BASE64_RE = re.compile(r"\b[A-Za-z0-9+/]{16,}={0,2}\b")
+_BASE64_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{4,}={0,2}(?![A-Za-z0-9+/=])"
+)
 _HEX_RE = re.compile(r"\b(?:0x)?[0-9a-fA-F]{24,}\b")
 _WORD_RE = re.compile(r"[a-zA-Z]{4,}")
 _CONFUSABLE_TRANSLATION = str.maketrans(
@@ -72,9 +77,21 @@ _ATTACK_PATTERNS: dict[str, tuple[str, ...]] = {
     ),
     "data_exfiltration": (
         r"\b(api[_\s-]?key|secret|token|password)\b",
+        r"(api\s*키|비밀\s*키|토큰|비밀번호).{0,20}(보여|출력|공개|덤프|알려|말해|읽어|반복|뭐)",
+    ),
+    "sensitive_internal_inquiry": (
+        r"\b(api[_\s-]?key|secret|token|password)\b",
+        r"\b(account|account\s+id|email|user\s+id|identity|plan|subscription|provider|model)\b.{0,50}\b(confirm|show|reveal|tell|what|which|who)\b",
+        r"\b(what|which|who).{0,50}\b(account|account\s+id|email|user\s+id|identity|plan|subscription|provider|model)\b",
+        r"\b(cli|api)\b.{0,50}\b(auth|authentication|login|credential|token)\b",
+        r"\b(system\s+prompt|runtime|filesystem|file\s*system|config(?:uration)?)\b.{0,50}\b(show|dump|print|reveal|read|list|tell|what|which)\b",
         r"\.env\b",
         r"\b(sqlite|database|db\s*schema|schema)\b.{0,40}\b(show|dump|print|reveal)\b",
         r"환경\s*변수",
+        r"(계정|사용자|이메일|신원|요금제|구독|제공자).{0,30}(확인|보여|출력|공개|알려|말해|뭐|누구|어떤)",
+        r"(?:(?:사용|구동|기반).{0,12}모델|(?:ai|챗봇|너|당신).{0,12}모델|모델.{0,12}(?:이름|버전|제공자)).{0,20}(확인|보여|출력|공개|알려|말해|뭐|무엇|어떤)",
+        r"(cli|api).{0,30}(인증|로그인|자격|토큰|키).{0,30}(보여|출력|공개|알려|말해|확인)",
+        r"(파일\s*시스템|런타임|설정|구성|config).{0,30}(보여|출력|공개|읽어|목록|알려|말해|뭐)",
         r"(api\s*키|비밀\s*키|토큰|비밀번호).{0,20}(보여|출력|공개|덤프|알려|말해|읽어|반복|뭐)",
         r"대화\s*기록.{0,20}(보여|출력|공개|덤프)",
         r"(db|데이터베이스|sqlite).{0,20}(구조|덤프|전체|보여|출력)",
@@ -112,9 +129,11 @@ _OUTPUT_LEAK_PATTERNS = (
     r"\bdeveloper\s*(message|instruction|prompt)\b",
     r"(?:내|나의|제)\s*시스템\s*프롬프트",
     r"시스템\s*프롬프트\s*(?:내용|전문|원문)",
-    r"ANTHROPIC_API_KEY",
-    r"OPENAI_API_KEY",
-    r"CODEX_MODEL",
+    r"\b(?:api[_\s-]?key|secret|password|bearer\s+token)\b",
+    r"\b(?:anthropic|openai|codex|claude|gpt)[-_ ]?(?:api|model|cli|\d)\b",
+    r"\b(?:i|we)\s+(?:use|am\s+running\s+on)\s+(?:a\s+|the\s+)?(?:model|provider)\b",
+    r"\b(?:account|user)\s*(?:id|email|identity|plan|subscription)\b",
+    r"\b(?:filesystem|runtime|environment\s+variable|configuration)\b",
     r"_safety_protocol\.md",
     r"_persona\.md",
     r"_tone\.md",
@@ -122,6 +141,12 @@ _OUTPUT_LEAK_PATTERNS = (
 )
 _REMOTE_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(\s*https?://[^)]+\)", re.IGNORECASE)
 _RAW_ACTIVE_HTML_RE = re.compile(r"<\s*(script|iframe|img)\b[^>]*>", re.IGNORECASE)
+_TOOL_CALL_RE = re.compile(
+    r"""["']tool["']\s*:\s*["'](?:filesystem|shell|http|browser)[._/:\w-]*["']""",
+    re.IGNORECASE,
+)
+_MALFORMED_BASE64_RE = re.compile(r"\b[A-Za-z0-9+/]{16,}={3,}\b")
+_MAX_ENCODED_FRAGMENTS = 8
 
 
 @dataclass(frozen=True)
@@ -148,10 +173,24 @@ def _looks_printable(decoded: bytes) -> bool:
     return printable / len(decoded) >= 0.85
 
 
+def _encoded_fragments(text: str) -> tuple[str, ...]:
+    """Return whole and safely joinable whitespace-split Base64 candidates."""
+    fragments = _BASE64_RE.findall(text)
+    tokens = _BASE64_TOKEN_RE.findall(text)
+    if (
+        len(tokens) > 1
+        and sum(len(token) for token in tokens) >= 16
+        and all(len(token) % 4 == 0 for token in tokens)
+        and (any("=" in token for token in tokens) or len(tokens) >= 3)
+    ):
+        fragments.append("".join(tokens))
+    return tuple(dict.fromkeys(fragments))
+
+
 def _decode_fragments(text: str) -> tuple[str, ...]:
     """Decode short suspicious Base64/hex payloads for detection only."""
     fragments: list[str] = []
-    for match in _BASE64_RE.findall(text):
+    for match in _encoded_fragments(text):
         padded = match + ("=" * ((4 - len(match) % 4) % 4))
         try:
             decoded = base64.b64decode(padded, validate=True)
@@ -211,6 +250,11 @@ def assess_prompt_injection(text: str) -> SafetyAssessment:
     candidates = (normalized, *(normalize_text(fragment) for fragment in decoded))
 
     categories: set[str] = set()
+    encoded_fragments = _encoded_fragments(text)
+    if len(encoded_fragments) > _MAX_ENCODED_FRAGMENTS:
+        categories.add("decoder_fragment_limit")
+    if _MALFORMED_BASE64_RE.search(text):
+        categories.add("malformed_encoding")
     for candidate in candidates:
         for category, patterns in _ATTACK_PATTERNS.items():
             if any(re.search(pattern, candidate, re.IGNORECASE | re.DOTALL) for pattern in patterns):
@@ -225,8 +269,19 @@ def assess_prompt_injection(text: str) -> SafetyAssessment:
 
 
 def sanitize_model_reply(reply: str, fallback: str) -> str:
-    """Block leaked privileged text and remove active remote-rendering payloads."""
-    if any(re.search(pattern, reply, re.IGNORECASE | re.DOTALL) for pattern in _OUTPUT_LEAK_PATTERNS):
+    """Block direct or bounded encoded leaks before rendering or persistence."""
+    decoded = _decode_fragments(reply)
+    candidates = (
+        normalize_text(reply),
+        normalize_text(unquote(reply)),
+        normalize_text(html.unescape(reply)),
+        *(normalize_text(fragment) for fragment in decoded),
+    )
+    if _TOOL_CALL_RE.search(reply) or any(
+        re.search(pattern, candidate, re.IGNORECASE | re.DOTALL)
+        for candidate in candidates
+        for pattern in _OUTPUT_LEAK_PATTERNS
+    ):
         return fallback
     sanitized = _REMOTE_MARKDOWN_IMAGE_RE.sub("[원격 이미지 링크 생략]", reply)
     sanitized = _RAW_ACTIVE_HTML_RE.sub("[HTML 링크 생략]", sanitized)

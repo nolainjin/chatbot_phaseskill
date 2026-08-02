@@ -110,16 +110,34 @@ chmod +x "시작하기-맥.command"
 ### 명령줄로 실행
 
 ```bash
-python run.py            # 환경 준비 후 서버 실행
-python run.py --check    # 환경 점검만 (아무것도 바꾸지 않음)
-python run.py --port 9000 --knowledge knowledge-math --reload
-python run.py --no-browser   # 브라우저 자동 열기 끄기
+python run.py --model fake       # 환경 준비 후 private loopback 서버 실행
+python run.py --check            # 환경 점검만 (아무것도 바꾸지 않음)
+python run.py --port 9000 --knowledge knowledge --reload
+python run.py --no-browser       # 브라우저 자동 열기 끄기
 ```
 
 Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를 씁니다.
 
 - 챗봇: http://127.0.0.1:8000/
 - 관리자 통계: http://127.0.0.1:8000/stats.html
+### 현재 운영 경로: 1주 로컬 데모
+
+`.env.example`의 안전 기본값은 `MODEL=fake`, `PRIVATE_LOCAL_UI=1`입니다. 현재
+승인된 1주 개인 테스트에서는 Mac의 개인 Codex 로그인으로
+`codex-cli:gpt-5.6-luna`를 `high` 강도로 사용합니다. `run.py`와 스모크 실행기는
+`127.0.0.1`·`::1`·`localhost`에만 바인딩하며, 외부 IP, `0.0.0.0`, 리버스
+프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
+
+현재 개인 테스트 명령은 다음과 같습니다.
+
+```bash
+python run.py --model codex-cli:gpt-5.6-luna
+```
+
+브라우저에서 한 세션은 10턴까지 진행할 수 있습니다. 한도를 채웠거나 새 사례를
+시작할 때는 화면의 **새 대화 시작**을 눌러 세션을 재설정합니다. 서버를 완전히
+초기화하려면 `Ctrl+C`로 종료한 뒤 같은 명령으로 다시 시작합니다.
+
 
 ### 수동 설치
 
@@ -138,11 +156,12 @@ Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를
 
 `fake`는 LLM 품질 시연용이 아니라 슬롯·저장·UI 테스트용 결정론 모드입니다.
 기본 데모는 synthetic data, localhost-only, no-PII, non-production 교육 환경을
-전제로 합니다.
+전제로 하며 `PRIVATE_LOCAL_UI=1`인 loopback 요청에서만 UI/API를 엽니다.
 
 ```bash
 python run.py --model fake --knowledge knowledge --reload
 ```
+
 
 ### 크로스플랫폼 지원 범위
 
@@ -151,44 +170,19 @@ python run.py --model fake --knowledge knowledge --reload
 실패(POSIX 전용 API, cp949 인코딩)는 개발 머신에서 재현되지 않으므로 이
 매트릭스가 실질적인 회귀 가드입니다.
 
-주의할 점:
+### 로컬 전용 제한
 
-- 자식 프로세스 파이프와 파일 입출력은 전부 UTF-8로 고정돼 있습니다.
-  로케일에 맡기면 한국어 Windows(cp949)에서 한글이 깨집니다.
-- CLI 모델 백엔드(`claude-cli`, `codex-cli`)는 해당 CLI가 설치·로그인된
-  경우에만 동작합니다. 없으면 `auto` 체인이 `fake`로 내려갑니다.
-
-관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
-관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로 설정한
-뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는 fail-closed로 503을
-반환합니다.
-
-### Codex GPT로 대화 시연
-
-첫 안내문은 팩 모드에 맞춰 표시되고, 이후 접수 응답 또는 지식 코칭은 Codex GPT가 생성합니다.
-위기·중독·인젝션 응답은 모델을 호출하지 않는 안전 경로를 사용합니다.
-
-```bash
-MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge \
-  .venv/bin/python -m uvicorn app.main:app --reload
-```
-
-### 모델 제공자
-
-`MODEL` 값으로 응답 백엔드를 고릅니다.
-
-| 설정 | 용도 |
-|---|---|
-| `auto` | Codex CLI gpt-5.4를 먼저 시도하고 실패 시 Claude CLI, 둘 다 실패하면 fake |
-| `fake` | API 없이 테스트하는 결정론 스텁 |
-| `codex-cli` 또는 `codex-cli:<model>` | 로컬에 로그인된 Codex CLI 호출 |
-| `claude-cli` | 로컬에 로그인된 Claude CLI 호출 |
-| Anthropic 모델명 | `ANTHROPIC_API_KEY`를 사용하는 Anthropic API 호출 |
-
-Codex CLI와 Claude CLI는 로컬 명령을 사용하지만 **완전한 오프라인 로컬 모델은
-아닙니다**. Ollama, llama.cpp 같은 로컬 추론기를 붙이려면 `app/llm.py`에
-동일한 `ask()` 계약을 구현하면 됩니다. 접수 엔진, DB, UI는 그대로 재사용할 수
-있습니다.
+- 자식 프로세스 파이프와 파일 입출력은 UTF-8로 고정돼 있습니다. 로케일에
+  맡기면 한국어 Windows(cp949)에서 한글이 깨집니다.
+- canonical launcher는 기본적으로 `fake`를 사용하며, 로컬 Mac에서만 명시적인
+  `codex-cli:<model>` 값을 허용합니다. 현재 개인 테스트 설정은
+  `codex-cli:gpt-5.6-luna`와 `high` 추론 강도입니다.
+- CLI 모델 경로는 `127.0.0.1`·`::1`·`localhost` 바인딩에서만 허용합니다.
+  외부 IP, 리버스 프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
+- 관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
+  관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로
+  설정한 뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는
+  fail-closed로 503을 반환합니다.
 
 ## 다른 업종으로 바꾸는 방법
 

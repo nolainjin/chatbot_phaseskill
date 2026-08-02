@@ -15,6 +15,13 @@ from app.config import Settings
 MAX_TURNS = 10
 MAX_REPLY_CHARS = llm.MAX_MODEL_OUTPUT_CHARS
 LIMIT_MESSAGE = f"이 세션은 대화 {MAX_TURNS}턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
+_BLOCKED_INPUT_MARKER = "[안전 필터로 보류된 요청]"
+_SUMMARY_FALLBACK = "상담 요약을 안전하게 생성하지 못했습니다."
+_CENTER_PHONE_DISPLAY = "000-000-0000"
+_CRISIS_STAGE_SUPPORT = "support_request"
+_CRISIS_STAGE_SAFETY_CHECK = "safety_check"
+_CRISIS_STAGE_REFERRAL = "referral_decision"
+_CRISIS_STAGE_COMPLETE = "complete"
 
 # 면담 종료(MAX_TURNS 도달) 시 히스토리를 넘겨 접수 요약을 생성하는 지시.
 _SUMMARY_INSTRUCTION = (
@@ -32,7 +39,10 @@ _CRISIS_ESCALATION_INSTRUCTION = (
 )
 _CRISIS_HOTLINE_NOTICE = (
     " 지금 혼자 버티기 어렵거나 스스로를 해칠까 걱정된다면 "
-    "자살예방상담전화 109 또는 생명의전화 1588-9191에 바로 연락해 주세요."
+    "자살예방상담전화 109, 정신건강상담전화 1577-0199 또는 생명의전화 1588-9191에 "
+    "바로 연락해 주세요. 당장 실행할 계획·수단이 있거나 안전을 유지하기 어렵다면 "
+    "119에 전화하거나 가까운 응급실로 가세요. 관련 기관 안내: "
+    "https://www.suicideprevention.or.kr/04_sub/05_sub.html"
 )
 
 _EXTRACTION_INSTRUCTION = (
@@ -52,6 +62,7 @@ class ChatSession:
     slots: dict[str, str] = field(default_factory=dict)
     last_question_slot_id: str | None = None
     participant_id: str | None = None
+    crisis_followup_stage: str | None = None
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -187,7 +198,10 @@ def _build_fake_intake_reply(
         return (
             "말씀해 주셔서 감사합니다. 안전 확인을 먼저 하겠습니다. "
             f"{question} 지금 혼자 버티기 어렵거나 스스로를 해칠까 걱정된다면 "
-            "자살예방상담전화 109 또는 생명의전화 1588-9191에 바로 연락해 주세요."
+            "자살예방상담전화 109, 정신건강상담전화 1577-0199 또는 생명의전화 "
+            "1588-9191에 바로 연락해 주세요. 당장 안전을 유지하기 어렵다면 119에 "
+            "전화하거나 가까운 응급실로 가세요. 관련 기관 안내: "
+            "https://www.suicideprevention.or.kr/04_sub/05_sub.html"
         )
 
     if new_fills:
@@ -217,7 +231,14 @@ def _build_guardrail_reply(
 
 
 def _ensure_crisis_hotline(reply: str) -> str:
-    if "109" in reply and "1588-9191" in reply:
+    required = (
+        "109",
+        "1577-0199",
+        "1588-9191",
+        "119",
+        "https://www.suicideprevention.or.kr/04_sub/05_sub.html",
+    )
+    if all(value in reply for value in required):
         return reply
     return reply.rstrip() + _CRISIS_HOTLINE_NOTICE
 _AGGRESSION_SIGNALS = (
@@ -243,6 +264,8 @@ _DOMESTIC_VIOLENCE_SIGNALS = (
 
 def _has_any(message: str, signals: tuple[str, ...]) -> bool:
     return any(signal in message for signal in signals)
+
+
 
 
 def _safety_route_kind(message: str) -> str | None:
@@ -416,7 +439,10 @@ def _handle_addiction_route(
         severity=session.slots["addiction_severity"],
     )
     reply = addiction.build_reply(routed_assessment, followup=followup)
-    storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
+    stored_message = message if include_user_in_model_context else _BLOCKED_INPUT_MARKER
+    storage.append_turn(
+        session.session_id, "user", stored_message, participant_id=participant_id
+    )
     storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
     if include_user_in_model_context:
         session.history.append({"role": "user", "content": message})
@@ -443,6 +469,160 @@ def _handle_addiction_route(
     }
 
 
+def _crisis_result(
+    session: ChatSession,
+    schema: intake.Schema,
+    participant_id: str,
+    user_message: str,
+    reply: str,
+    *,
+    quick_replies: list[dict[str, str]] | None = None,
+    conversation_ended: bool = False,
+) -> dict:
+    storage.append_turn(session.session_id, "user", user_message, participant_id=participant_id)
+    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
+    session.history.append({"role": "user", "content": user_message})
+    session.history.append({"role": "assistant", "content": reply})
+    session.turns += 1
+    red_flag_ids = intake.detect_red_flags(user_message, schema, session.slots)
+    unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+    session.last_question_slot_id = unfilled[0].id if unfilled else None
+    _persist_intake_snapshot(session, schema, participant_id)
+    return {
+        "reply": reply,
+        "turn": session.turns,
+        "limit_reached": False,
+        "conversation_ended": conversation_ended,
+        "quick_replies": quick_replies or [],
+        "intake": _intake_state(schema, session.slots, unfilled),
+    }
+
+
+def _start_crisis_followup(
+    session: ChatSession,
+    schema: intake.Schema,
+    participant_id: str,
+    message: str,
+) -> dict:
+    session.slots["track"] = "위기"
+    session.slots.setdefault(
+        "chief_complaint", " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+    )
+    session.crisis_followup_stage = _CRISIS_STAGE_SUPPORT
+    reply = (
+        "안전을 먼저 안내드릴게요. 지금 당장 자신을 해칠 구체적인 계획이나 수단이 있거나 "
+        "혼자 안전을 유지하기 어렵다면 119 또는 가까운 응급실을 이용하고, "
+        "자살예방상담전화 109, 정신건강상담전화 1577-0199, 생명의전화 1588-9191에 "
+        "바로 연락해 주세요. 관련 기관 안내: "
+        "https://www.suicideprevention.or.kr/04_sub/05_sub.html\n\n"
+        "안전 안내를 확인하신 뒤에도 저희 상담센터에서 받고 싶은 도움이 있다면 "
+        "어떤 내용인지 말씀해 주세요."
+    )
+    return _crisis_result(session, schema, participant_id, message, reply)
+
+
+def _is_affirmative(message: str) -> bool:
+    normalized = "".join(message.casefold().split())
+    return normalized in {"예", "네", "넵", "응", "좋아요", "그럴게요", "그렇게할게요"} or any(
+        phrase in normalized for phrase in ("먼저방문", "전문기관에갈", "그렇게하겠")
+    )
+
+
+def _is_negative(message: str) -> bool:
+    normalized = "".join(message.casefold().split())
+    return normalized in {"아니요", "아니오", "싫어요", "어려워요", "못가요"} or any(
+        phrase in normalized for phrase in ("방문하기어렵", "먼저가기싫", "센터에바로", "상담센터에먼저")
+    )
+
+
+def _continue_crisis_followup(
+    session: ChatSession,
+    schema: intake.Schema,
+    participant_id: str,
+    message: str,
+) -> dict:
+    if session.crisis_followup_stage == _CRISIS_STAGE_SAFETY_CHECK:
+        clinical_fills = intake.extract_fake(message, schema, session.slots)
+        clinical_fills.pop("track", None)
+        session.slots.update(clinical_fills)
+        session.crisis_followup_stage = _CRISIS_STAGE_SUPPORT
+        reply = (
+            "안전 상태를 접수 내용에 기록했습니다. 저희 상담센터에서 받고 싶은 도움이 "
+            "있다면 어떤 내용인지 말씀해 주세요."
+        )
+        return _crisis_result(session, schema, participant_id, message, reply)
+
+    if session.crisis_followup_stage == _CRISIS_STAGE_SUPPORT:
+        clinical_fills = intake.extract_fake(message, schema, session.slots)
+        clinical_fills.pop("track", None)
+        session.slots.update(clinical_fills)
+        if "crisis_attempt_history" in clinical_fills and "crisis_plan_means" not in session.slots:
+            session.crisis_followup_stage = _CRISIS_STAGE_SAFETY_CHECK
+            reply = (
+                "과거의 시도 경험을 말씀해 주셔서 감사합니다. 지금 당장 실행할 계획이나 "
+                "사용할 수단이 있는지도 안전을 위해 확인해야 합니다. 현재 계획이나 준비한 "
+                "수단이 있나요?"
+            )
+            return _crisis_result(session, schema, participant_id, message, reply)
+        session.slots["expectation"] = " ".join(message.split())[: intake._MAX_SLOT_VALUE_LEN]
+        session.crisis_followup_stage = _CRISIS_STAGE_REFERRAL
+        reply = (
+            "말씀하신 상담 필요를 접수 내용에 기록했습니다. 안전을 위해 자살예방·정신건강 "
+            "전문기관을 먼저 이용한 뒤 저희 상담센터에 방문하시겠어요?"
+        )
+        return _crisis_result(
+            session,
+            schema,
+            participant_id,
+            message,
+            reply,
+            quick_replies=[
+                {"label": "예, 전문기관을 먼저 이용할게요", "message": "예"},
+                {"label": "아니요, 상담센터와 먼저 통화할게요", "message": "아니요"},
+            ],
+        )
+
+    if session.crisis_followup_stage == _CRISIS_STAGE_REFERRAL:
+        if _is_affirmative(message):
+            session.crisis_followup_stage = _CRISIS_STAGE_COMPLETE
+            reply = (
+                "알겠습니다. 우선 전문기관의 도움을 받은 뒤 필요할 때 저희 상담센터를 "
+                "이용해 주세요. 지금 대화는 여기서 종료하겠습니다."
+            )
+            return _crisis_result(
+                session, schema, participant_id, message, reply, conversation_ended=True
+            )
+        if _is_negative(message):
+            session.crisis_followup_stage = _CRISIS_STAGE_COMPLETE
+            reply = (
+                f"알겠습니다. 저희 상담센터 {_CENTER_PHONE_DISPLAY}로 바로 전화해 주세요. "
+                "통화할 때 현재 안전이 걱정되는 상황이라고 먼저 말씀해 주세요."
+            )
+            return _crisis_result(
+                session, schema, participant_id, message, reply, conversation_ended=True
+            )
+        reply = "전문기관을 먼저 이용하시겠다면 ‘예’, 상담센터와 먼저 통화하시겠다면 ‘아니요’를 선택해 주세요."
+        return _crisis_result(
+            session,
+            schema,
+            participant_id,
+            message,
+            reply,
+            quick_replies=[
+                {"label": "예, 전문기관을 먼저 이용할게요", "message": "예"},
+                {"label": "아니요, 상담센터와 먼저 통화할게요", "message": "아니요"},
+            ],
+        )
+
+    return {
+        "reply": "이 위기 안내 대화는 종료되었습니다. 새 대화가 필요하면 ‘새 대화’를 눌러 주세요.",
+        "turn": session.turns,
+        "limit_reached": False,
+        "conversation_ended": True,
+        "intake": _intake_state(schema, session.slots, schema.unfilled_by_priority(session.slots, ())),
+    }
+
+
 def handle_message(
     session_id: str,
     message: str,
@@ -455,20 +635,18 @@ def handle_message(
         session.participant_id = participant_id
     effective_participant_id = session.participant_id or session_id
 
+
     if session.turns >= MAX_TURNS:
         return {"reply": LIMIT_MESSAGE, "turn": session.turns, "limit_reached": True}
-
-    # ponytail: 매 요청마다 지식 디렉토리를 다시 읽는다. 소규모 위키 전제라
-    # 캐시 없이도 충분하다 — 문서 수가 늘어 느려지면 그때 캐시를 붙인다.
-    docs = knowledge.search(message, knowledge.load_documents(settings.knowledge_dir))
-    persona = _load_persona(settings.knowledge_dir)
-    progress = f"[진행: {session.turns + 1}/{MAX_TURNS}턴]"
-    doc_section = _build_doc_section(docs)
 
     schema = intake.load_schema(settings.knowledge_dir)
     new_fills: dict[str, str] = {}
     unfilled: list[intake.Slot] = []
     red_flag_ids: set[str] = set()
+    if schema is not None and session.crisis_followup_stage is not None:
+        return _continue_crisis_followup(
+            session, schema, effective_participant_id, message
+        )
     safety_assessment = safety.assess_prompt_injection(message)
     if safety_assessment.blocked:
         # 인젝션성 발화는 LLM에 넘기지 않는다. 단, 자해·자살 신호가 함께 있으면
@@ -478,11 +656,13 @@ def handle_message(
         else:
             crisis_fills = intake.extract_fake(message, schema, session.slots)
             if crisis_fills.get("track") == "위기" or session.slots.get("track") == "위기":
-                new_fills = crisis_fills
+                new_fills = {"track": "위기"}
                 session.slots.update(new_fills)
                 red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
-                reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
+                reply = "안전 확인을 먼저 하겠습니다. " + _build_fake_intake_reply(
+                    schema, new_fills, unfilled, session.turns
+                )
             elif assessment := addiction.assess(
                 message,
                 active=session.slots.get("track") == "중독",
@@ -502,7 +682,12 @@ def handle_message(
         if schema is not None and session.slots.get("track") == "위기":
             reply = _ensure_crisis_hotline(reply)
 
-        storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
+        storage.append_turn(
+            session_id,
+            "user",
+            _BLOCKED_INPUT_MARKER,
+            participant_id=effective_participant_id,
+        )
         storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
         session.history.append({"role": "assistant", "content": reply})
         session.turns += 1
@@ -514,11 +699,21 @@ def handle_message(
             _persist_intake_snapshot(session, schema, effective_participant_id)
             result["intake"] = _intake_state(schema, session.slots, final_unfilled)
         return result
+
+    # 차단 입력은 검색·페르소나·모델 경계로 넘기지 않는다.
+    docs = knowledge.search(message, knowledge.load_documents(settings.knowledge_dir))
+    persona = _load_persona(settings.knowledge_dir)
+    progress = f"[진행: {session.turns + 1}/{MAX_TURNS}턴]"
+    doc_section = _build_doc_section(docs)
     if schema is not None:
         classification = intake.extract_classification(message, schema, session.slots)
         crisis_detected = (
             classification.get("track") == "위기" or session.slots.get("track") == "위기"
         )
+        if crisis_detected and session.slots.get("track") != "위기":
+            return _start_crisis_followup(
+                session, schema, effective_participant_id, message
+            )
         if safety_kind := _safety_route_kind(message):
             return _handle_interpersonal_safety_route(
                 session,
@@ -568,7 +763,7 @@ def handle_message(
         system = "\n\n".join(sections)
 
     try:
-        reply = llm.ask(
+        raw_reply = llm.ask(
             system=system,
             history=session.history,
             user=message,
@@ -576,11 +771,16 @@ def handle_message(
             settings=settings,
         )
     except llm.ModelOutputTooLarge:
-        reply = _build_guardrail_reply(schema, unfilled)
+        raw_reply = _build_guardrail_reply(schema, unfilled)
 
+    # This is the model-output trust boundary. Sanitize before slot extraction,
+    # session mutation, history, or durable storage so leaked text cannot become
+    # structured intake state or a persisted transcript.
+    reply = safety.sanitize_model_reply(
+        raw_reply, _build_guardrail_reply(schema, unfilled)
+    )
     if len(reply) > MAX_REPLY_CHARS:
         reply = _build_guardrail_reply(schema, unfilled)
-
     if schema is not None and settings.model == "fake":
         reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
         reply += _fake_progress_suffix(schema, new_fills, unfilled)
@@ -631,8 +831,12 @@ def handle_message(
                     doc_titles=[],
                     settings=settings,
                 )
+                safe_summary = safety.sanitize_model_reply(summary, _SUMMARY_FALLBACK)
                 storage.append_turn(
-                    session_id, "intake_summary", summary, participant_id=effective_participant_id
+                    session_id,
+                    "intake_summary",
+                    safe_summary,
+                    participant_id=effective_participant_id,
                 )
             except Exception:
                 pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리

@@ -30,6 +30,9 @@ MIN_PYTHON = (3, 11)
 IS_WINDOWS = sys.platform == "win32"
 PYTHON_DOWNLOAD_URL = "https://www.python.org/downloads/"
 
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_PRIVATE_SUPPORTED_MODELS = frozenset({"fake"})
+
 
 def _print_block(title: str, lines: list[str]) -> None:
     """실패 안내를 눈에 띄게 묶어서 출력한다.
@@ -229,6 +232,22 @@ def _open_browser_when_ready(url: str, probe_url: str, timeout_sec: int = 40) ->
         return
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Return whether uvicorn can bind the private local UI to this host."""
+    return host.strip().lower().strip("[]") in _LOCAL_HOSTS
+
+
+def _local_model(model: str) -> str:
+    """Allow deterministic fake or an explicitly selected private Codex CLI model."""
+    normalized = model.strip()
+    if normalized.lower() in _PRIVATE_SUPPORTED_MODELS:
+        return normalized.lower()
+    if normalized.lower().startswith("codex-cli:") and normalized.partition(":")[2]:
+        return normalized
+    print(f"  MODEL={model!r} is not supported for private local operation; using fake.")
+    return "fake"
+
+
 def serve(host: str, port: int, model: str, knowledge: str, reload: bool,
           open_browser: bool = True) -> int:
     """uvicorn을 venv 파이썬으로 띄운다."""
@@ -238,6 +257,15 @@ def serve(host: str, port: int, model: str, knowledge: str, reload: bool,
     # 자식 파이썬도 UTF-8 모드로 — 한국어 Windows 로케일(cp949) 영향을 끊는다.
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    # The UI is intentionally dark unless this child is bound to loopback.
+    env.pop("PRIVATE_LOCAL_UI", None)
+    if not _is_loopback_host(host):
+        print(f"  Refusing non-loopback host: {host}")
+        return 2
+    env["PRIVATE_LOCAL_UI"] = "1"
+    model = _local_model(model)
+    env["MODEL"] = model
+
 
     argv = [
         str(venv_python()), "-m", "uvicorn", "app.main:app",
@@ -246,7 +274,8 @@ def serve(host: str, port: int, model: str, knowledge: str, reload: bool,
     if reload:
         argv.append("--reload")
 
-    base = f"http://{host}:{port}"
+    display_host = f"[{host}]" if ":" in host else host
+    base = f"http://{display_host}:{port}"
     print()
     print(f"  챗봇      {base}/")
     print(f"  관리자    {base}/stats.html")
@@ -340,11 +369,14 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="환경 점검만 하고 종료")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--model", default=os.getenv("MODEL", "fake"))
+    parser.add_argument("--model", default="fake")
     parser.add_argument("--knowledge", default=os.getenv("KNOWLEDGE_DIR", "knowledge"))
     parser.add_argument("--reload", action="store_true", help="코드 변경 시 자동 재시작")
     parser.add_argument("--no-browser", action="store_true", help="브라우저 자동 열기 끄기")
     args = parser.parse_args()
+    if not _is_loopback_host(args.host):
+        parser.error("--host must be a loopback address (127.0.0.1, ::1, or localhost)")
+    args.model = _local_model(args.model)
     args.open_browser = not args.no_browser
 
     print(f"\n  환경 점검  ({sys.platform})")

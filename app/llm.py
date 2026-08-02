@@ -286,7 +286,11 @@ def _run_codex_process(argv: list[str], timeout: int, cwd: str, env: dict[str, s
 
 
 def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> str:
-    """Codex CLI 호출 공통 경로. 중립 cwd + read-only sandbox로 리포 오염을 차단한다."""
+    """Run the private loopback counseling adapter with documented CLI flags.
+
+    The one-week local setup pins ``model_reasoning_effort="high"``. Public
+    routes remain dark, and this adapter is not a public deployment boundary.
+    """
     last = ""
     for attempt in range(CODEX_RETRIES):
         try:
@@ -304,6 +308,8 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
                     neutral_cwd,
                     "-m",
                     model,
+                    "-c",
+                    'model_reasoning_effort="high"',
                     "-o",
                     str(output_path),
                     prompt,

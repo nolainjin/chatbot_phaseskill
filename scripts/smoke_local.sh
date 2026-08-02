@@ -55,9 +55,15 @@ esac
 [ -d "$PACK_DIR" ] || fail "knowledge pack directory not found: $PACK_DIR"
 [ -x "$PYTHON" ] || fail "python not executable: $PYTHON"
 
-export MODEL="${MODEL:-fake}"
+case "$HOST" in
+  127.0.0.1|::1|localhost) ;;
+  *) fail "refusing non-loopback host: $HOST" ;;
+esac
+
+export MODEL="fake"
 export KNOWLEDGE_DIR="$PACK_DIR"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PRIVATE_LOCAL_UI=1
 
 VALIDATION_JSON="$WORK_DIR/validation.json"
 if [ -f "$REPO_ROOT/scripts/validate_knowledge_pack.py" ] && [ -f "$PACK_DIR/_validation_scenario.json" ]; then

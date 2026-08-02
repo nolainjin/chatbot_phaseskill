@@ -3,9 +3,9 @@
 - 검토일: 2026-07-17
 - 검토 대상: Phase 1~6 완료 시점의 `app/`, `scripts/`, `static/`, 저장 데이터(`data/`)
 - 검토자: AI 검토 (opus). 사람 보안 개발자 검토는 아래 "권고" 항목 참고.
-- 배포 맥락: **내부 시연**. 첫 도메인은 상담 초기 면담(민감정보 유입 가능) → 저장 데이터 항목 가중 점검.
+- 배포 맥락: **1주일 개인 Mac local-only 시연**. 안전 기본값은 `MODEL=fake`이며, 실제 시연은 개인 Codex 로그인으로 `codex-cli:gpt-5.6-luna`와 `high` 강도를 사용한다. private loopback만 허용하고 공개 도메인·공개 ingress·제3자 live chat은 현재 차단한다.
 
-판정 표기: `PASS`(문제 없음) / `FIXED`(이 phase에서 수정) / `RISK`(수용한 잔여 위험) / `FOLLOW-UP`(공개 서비스 전환 시 필요, 현재 비차단) / `권고`(사람 보안 개발자 검토 권장).
+판정 표기: `PASS`(문제 없음) / `FIXED`(이 phase에서 수정) / `RISK`(수용한 잔여 위험) / `FOLLOW-UP`(현재 범위 밖) / `BLOCKED`(현재 운영에서 금지) / `권고`(사람 보안 개발자 검토 권장).
 
 ---
 
@@ -34,11 +34,11 @@
 - **[FIXED] 지식 문서 비신뢰 데이터 격리**: 검색 문서는 `[untrusted_knowledge]` JSON 블록으로 감싸고, 문서 안의 지시문은 명령이 아니라고 명시한다. 지식 파일이 운영자 소유라는 전제는 유지하지만, RAG poisoning형 문구가 시스템 지시처럼 붙는 표면을 줄였다.
 - **[FIXED] 출력 검증**: 모델 응답에 시스템 지시 표지, 예약 프롬프트 파일명, API key명, raw script/iframe/img, 원격 Markdown 이미지가 섞이면 안전 fallback으로 교체하거나 제거한다.
 - **[FIXED] 차단 문장 history 재주입 방지**: 차단된 인젝션 발화는 감사 저장에는 남지만 이후 LLM history에는 넣지 않는다. 따라서 다음 정상 발화가 이전 공격 문장을 모델에 재전달하지 않는다.
-- **[FIXED] Codex 환경 경계**: Codex subprocess에는 임의의 부모 환경을 상속하지 않고 `PATH`, `HOME`, `CODEX_HOME`, locale·터미널 등 최소 허용목록만 전달한다. `DATABASE_URL`, `KUBECONFIG`, `SSH_AUTH_SOCK`, cloud credential 경로 같은 비표준 이름도 차단한다. read-only sandbox는 유지되며, CLI 정책 자체는 별도 배포 검증 대상이다.
+- **[FIXED] Codex 환경 경계**: Codex subprocess에는 임의의 부모 환경을 상속하지 않고 `PATH`, `HOME`, `CODEX_HOME`, locale·터미널 등 최소 허용목록만 전달한다. `DATABASE_URL`, `KUBECONFIG`, `SSH_AUTH_SOCK`, cloud credential 경로 같은 비표준 이름도 차단한다. read-only sandbox는 쓰기 범위를 제한할 뿐 도구 부재를 뜻하지 않는다. no-tool 보장은 별도 아키텍처/API adapter에서 도구 권한을 명시적으로 제거하고 검증해야 한다.
 - **[FIXED] 혼합 문자 우회**: Cyrillic/Greek confusable 문자를 제한된 ASCII 동형 문자로 정규화한 뒤 기존 인젝션 탐지기를 적용한다. 기존 typoglycemia·인코딩 탐지와 함께 우회 입력 회귀 테스트를 둔다.
 - **[FIXED] 모델 출력 제어 경계**: CLI/API 모델 출력은 12,000자 상한을 넘으면 `ModelOutputTooLarge`로 거부하고, 채팅 경계에서도 저장·응답 전 안전 fallback으로 대체한다. `slots` 제어 블록이 한 번이라도 나오면 첫 블록 뒤의 모든 텍스트를 history에 재주입하지 않으며, malformed/non-object 블록도 제거한다.
 - **[FIXED] 지식팩 파일 경계**: 런타임 로더가 symlink·팩 root 밖 경로·UTF-8 오류·과대 Markdown(256 KiB)과 과대 스키마(64 KiB)를 fail-closed로 건너뛴다. validator가 별도인 현재 구조에서도 request-time 로더가 검증을 우회하지 않는다.
-- **[RISK] LLM 프롬프트 인젝션은 코드로 100% 못 막음**: OWASP/NCSC 권고처럼 완전 제거가 아니라 방어층·최소권한·모니터링으로 위험을 낮추는 문제다. 현재 모델에는 외부 전송/파일쓰기/결제/DB 조회 도구 권한이 없어 성공 시 피해 범위가 제한된다.
+- **[RISK] LLM 프롬프트 인젝션은 코드로 100% 못 막음**: OWASP/NCSC 권고처럼 완전 제거가 아니라 방어층·최소권한·모니터링으로 위험을 낮추는 문제다. 현재 개인 Mac loopback 범위에서는 Codex CLI Luna/high를 사용하며, 공개 터널과 제3자 접근은 차단한다. 공개 전환의 피해 범위 제한은 read-only sandbox가 아니라 별도 no-tool 아키텍처/API adapter에서 명시적으로 제거·검증한 도구 권한에 근거해야 한다.
 
 ## 4. Rate limit 우회 (XFF 스푸핑) — PASS
 
@@ -58,11 +58,17 @@
 - `data/chatlog.db`(배치 적재): 위 대화 JSON을 그대로 UPSERT. 추가 식별자 없음.
 - **접근 경계**: `data/`를 서빙하는 엔드포인트 없음. static 마운트는 `static/`에 루트가 고정된 `StaticFiles`라 `data/`로 못 빠져나감(StaticFiles 자체 경로 순회 방어 + 디렉토리 루트 제한). session_id 화이트리스트(§2)가 파일명 경로 순회를 차단.
 
-**[FOLLOW-UP] 공개 서비스 전환 시 (현재 내부 시연이라 비차단):**
+**[BLOCKED] 공개 서비스 전환 (현재 실행 금지):**
 
-- 상담 초기 면담 도메인 → 사용자가 대화에 민감정보(정신건강·개인사)를 입력할 수 있음. 지금은 평문 저장, 암호화·접근통제 없음.
+현재는 1주일 개인 Mac local-only 시연만 승인되어 공개 URL·외부 ingress·제3자
+live chat은 운영하지 않는다. 비공개 Luna/high CLI 사용은 이 경계 안에서만
+허용된다. 공개 전환은 별도의 진짜 **no-tool** 아키텍처 또는 API adapter,
+도구 권한의 명시적 제거·검증, 데이터 보호, 보안·운영 재승인을 모두 요구한다.
+시크릿은 문서·명령·이미지·로그에 넣지 않고 승인된 secret store에서만 주입한다.
+
+- 상담 초기 면담 도메인에서는 사용자가 대화에 민감정보(정신건강·개인사)를 입력할 수 있다. 현재 저장은 평문이므로 공개 전환 전 암호화·접근통제가 필요하다.
 - 필요 항목: (a) **보존 기간** 정의 + 자동 만료 삭제, (b) **삭제 요청** 처리 절차, (c) 저장 고지 강화 — 현재 UI 문구 "이 대화 내용은 서버에 저장됩니다"를 동의/목적/보존기간까지 포함하도록 확장, (d) 저장 시 암호화 또는 `data/`·`chatlog.db` 파일 권한 최소화, (e) 백업/로그에 대화 원문이 새지 않는지 점검.
-- **[권고]** 위 (a)~(e)는 개인정보/의료정보 취급 요건과 얽히므로 공개 전환 전 **사람 보안·법무 검토** 권장.
+- **[권고]** 위 항목은 개인정보/의료정보 취급 요건과 얽히므로 공개 전환 전 사람 보안·법무 검토가 필요하다.
 
 ## 6. 의존성 — 권고 (pip-audit 미가용)
 
@@ -82,8 +88,8 @@
 - 즉시 수정(FIXED): §2 session_id 경계·세션 token 결속, §3 prompt-injection 탐지·history·Codex 환경·모델 출력·지식팩 경계, §7 통계 token·CSV 수식 중화.
 - PASS: 키 노출, XFF 스푸핑, 저장 데이터 접근 경계, XSS(아래 참고).
 - 수용 잔여 위험(RISK): 프롬프트 인젝션의 근본 잔여 위험, ratelimit IP 저장.
-- 후속 과제(FOLLOW-UP, 비차단): 상담 데이터 보존/삭제/고지/암호화 정책.
-- 사람 검토 권고: 공개 서비스 전환 시 개인·의료정보 취급(§5), 의존성 취약점 스캔(§6).
+- 후속 과제(FOLLOW-UP, 현재 범위 밖): 의존성 핀·정기 취약점 스캔.
+- **차단(BLOCKED):** 공개 도메인·ingress·제3자 live chat 및 개인 loopback 예외 밖의 API-key-backed 실모델 호출. 공개 전환은 별도 genuine no-tool 아키텍처/API adapter, 데이터 보호 조치, 보안·운영 재승인 전에는 실행하지 않는다.
 
 ### 참고: 클라이언트 XSS (static/, scope 밖 — 관측만)
 

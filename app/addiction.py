@@ -7,7 +7,9 @@
 
 from dataclasses import dataclass
 
-CENTER_DIRECTORY_URL = "https://www.mohw.go.kr/menu.es?hl=ko-KR&mid=a10706040400"
+CENTER_DIRECTORY_URL = "https://www.nhis.or.kr/magazin/151/html/sub6.html"
+MENTAL_HEALTH_PHONE = "1577-0199"
+WELFARE_PHONE = "129"
 
 _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -106,6 +108,33 @@ _GENERIC_PROBLEM_SIGNALS = (
     "다시 찾게",
 )
 
+_THIRD_PARTY_SIGNALS = (
+    "남편",
+    "아내",
+    "배우자",
+    "남자친구",
+    "여자친구",
+    "아들",
+    "딸",
+    "자녀",
+    "부모",
+    "엄마",
+    "아빠",
+    "형제",
+    "자매",
+    "친구",
+    "동료",
+)
+_SELF_INVOLVEMENT_SIGNALS = (
+    "나도",
+    "저도",
+    "나 역시",
+    "저 역시",
+    "함께 못 끊",
+    "같이 못 끊",
+    "둘 다",
+)
+
 _EMERGENCY_SIGNALS = (
     "과다복용",
     "과다 복용",
@@ -183,6 +212,13 @@ def detect_kind(message: str) -> str | None:
     return None
 
 
+def is_third_party_only(message: str) -> bool:
+    """가족·지인의 사용 문제를 내담자 본인의 중독으로 오분류하지 않는다."""
+    return _contains_any(message, _THIRD_PARTY_SIGNALS) and not _contains_any(
+        message, _SELF_INVOLVEMENT_SIGNALS
+    )
+
+
 def assess(
     message: str,
     *,
@@ -196,6 +232,8 @@ def assess(
     """
     kind = detect_kind(message) or previous_kind
     emergency = _contains_any(message, _EMERGENCY_SIGNALS)
+    if is_third_party_only(message) and not emergency:
+        return None
     if kind is None and emergency:
         kind = "마약·약물"
     if kind is None and not active:
@@ -229,8 +267,11 @@ def build_reply(assessment: AddictionAssessment, *, followup: bool = False) -> s
     contact = _specialized_contact(assessment.kind)
     contact_line = f" 유형별 전문창구는 {contact}입니다." if contact else ""
     center_line = (
-        "가까운 중독관리통합지원센터는 본인과 가족에게 전화·방문 상담, 단기개입, "
-        f"치료·재활 연계를 제공합니다. 센터 목록: {CENTER_DIRECTORY_URL}"
+        "중독은 혼자 의지만으로 해결하기 어려울 수 있어 가능한 빨리 전문 도움을 받는 것이 "
+        "중요합니다. 중독관리통합지원센터는 본인과 가족에게 상담, 단기개입, 치료·재활과 "
+        f"사회복귀 연계를 제공합니다. 가까운 센터는 보건복지상담센터 {WELFARE_PHONE} 또는 "
+        f"정신건강상담전화 {MENTAL_HEALTH_PHONE}에서 확인할 수 있습니다. "
+        f"기관·치료 정보: {CENTER_DIRECTORY_URL}"
     )
 
     if assessment.severity == "응급":
