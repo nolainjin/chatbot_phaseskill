@@ -289,6 +289,7 @@ class HangingProcess:
         self.killed = True
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="SIGKILL is POSIX-only")
 def test_codex_timeout_terminates_the_entire_process_group(monkeypatch):
     """POSIX: 타임아웃 시 세션 전체를 SIGKILL로 정리한다."""
     killed: list[tuple[int, int]] = []
