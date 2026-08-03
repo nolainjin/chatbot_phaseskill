@@ -73,7 +73,12 @@ jobs:
           sys.path.insert(0, os.getcwd())
           from pathlib import Path
 
-          env = {**os.environ, "MODEL": "fake", "KNOWLEDGE_DIR": "knowledge"}
+          env = {
+              **os.environ,
+              "MODEL": "fake",
+              "KNOWLEDGE_DIR": "knowledge",
+              "PRIVATE_LOCAL_UI": "1",
+          }
           proc = subprocess.Popen(
               [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8125"],
               env=env,
