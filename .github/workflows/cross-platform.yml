@@ -44,6 +44,9 @@ jobs:
         # 자동 복구가 끝까지 도는지 확인한다. 윈도우는 venv 경로가 Scripts/ 라
         # macOS/Linux 개발 머신에서는 이 분기가 한 번도 실행되지 않는다.
         run: |
+          import os, sys
+          os.chdir(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, os.getcwd())
           import run
 
           before = run.check_environment()
@@ -66,6 +69,8 @@ jobs:
         # 한글 메시지를 보내 저장된 JSON까지 읽어 대조한다.
         run: |
           import json, os, sys, time, urllib.request, subprocess
+          os.chdir(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, os.getcwd())
           from pathlib import Path
 
           env = {**os.environ, "MODEL": "fake", "KNOWLEDGE_DIR": "knowledge"}
