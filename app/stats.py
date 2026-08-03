@@ -121,6 +121,10 @@ def _count(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> int:
     return int(row[0] or 0) if row else 0
 
 
+def _like_prefix(prefix: str) -> str:
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 def _conversation_filter(
     participant_prefix: str | None,
     session_prefix: str | None,
@@ -129,11 +133,11 @@ def _conversation_filter(
     clauses: list[str] = []
     params: list[str] = []
     if participant_prefix:
-        clauses.append(f"{alias}.participant_id LIKE ?")
-        params.append(f"{participant_prefix}%")
+        clauses.append(f"{alias}.participant_id LIKE ? ESCAPE '\\'")
+        params.append(_like_prefix(participant_prefix))
     if session_prefix:
-        clauses.append(f"{alias}.session_id LIKE ?")
-        params.append(f"{session_prefix}%")
+        clauses.append(f"{alias}.session_id LIKE ? ESCAPE '\\'")
+        params.append(_like_prefix(session_prefix))
     return (" WHERE " + " AND ".join(clauses), tuple(params)) if clauses else ("", ())
 
 
@@ -256,15 +260,15 @@ def _individual_flag_record(
         if "support" in unfilled or not support:
             add("medium", "지지체계 미확인", "도와주는 사람이 있는지 아직 확인되지 않았습니다.")
         elif _has_any(support, ("없", "혼자", "거의 없", "모르", "감당")):
-            add("medium", "지지체계 취약", support)
+            add("medium", "지지체계 취약", "지지체계 취약 신호가 기록됐습니다.")
 
     coping = str(slots.get("coping") or "")
     if not addiction_handoff and coping and _has_any(coping, ("참고", "버티", "한계", "오래가지는")):
-        add("low", "대처 전략 취약", coping)
+        add("low", "대처 전략 취약", "대처 전략 취약 신호가 기록됐습니다.")
 
     expectation = str(slots.get("expectation") or "")
     if expectation and _has_any(expectation, ("안전", "넘기는", "위험")):
-        add("medium", "안전계획 기대", expectation)
+        add("medium", "안전계획 기대", "안전계획 관련 기대가 기록됐습니다.")
 
     if user_turns < 3 and not (addiction_handoff and referral):
         add("low", "조기 이탈 가능", f"사용자 입력이 {user_turns}턴뿐입니다.")
@@ -281,12 +285,12 @@ def _individual_flag_record(
         "track": track,
         "severity": severity,
         "flags": flags,
-        "chief_complaint": slots.get("chief_complaint", ""),
+        "chief_complaint": "[recorded]" if slots.get("chief_complaint") else "",
         "addiction_type": slots.get("addiction_type", ""),
         "addiction_severity": slots.get("addiction_severity", ""),
         "addiction_referral": referral,
-        "support": support,
-        "expectation": expectation,
+        "support": "[recorded]" if support else "",
+        "expectation": "[recorded]" if expectation else "",
         "missing": missing_labels,
         "user_turns": user_turns,
     }
@@ -461,11 +465,11 @@ def read_stats(
                     "session_id": session_id,
                     "participant_id": participant_id,
                     "track": summary.get("track", "미확인"),
-                    "chief_complaint": slots.get("chief_complaint", ""),
-                    "symptom_context": slots.get("symptom_context", ""),
-                    "coping": slots.get("coping", ""),
-                    "support": slots.get("support", ""),
-                    "expectation": slots.get("expectation", ""),
+                    "chief_complaint": "[recorded]" if slots.get("chief_complaint") else "",
+                    "symptom_context": "[recorded]" if slots.get("symptom_context") else "",
+                    "coping": "[recorded]" if slots.get("coping") else "",
+                    "support": "[recorded]" if slots.get("support") else "",
+                    "expectation": "[recorded]" if slots.get("expectation") else "",
                     "missing": [
                         _SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled
                     ],

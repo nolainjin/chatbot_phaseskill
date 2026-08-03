@@ -171,7 +171,7 @@ def test_prompt_injection_does_not_cross_retrieval_boundary(monkeypatch, tmp_pat
         REALISH_SETTINGS,
     )
 
-    assert result["turn"] == 1
+    assert result["turn"] == 0
     assert "다루지" in result["reply"]
 
 

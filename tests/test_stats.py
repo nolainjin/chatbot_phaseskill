@@ -64,7 +64,7 @@ def test_read_stats_returns_dashboard_shape(tmp_path):
     assert result["track_counts"] == [{"track": "정서", "count": 1}]
     assert result["slot_completion"][0]["completed"] >= 1
     assert result["recent_sessions"][0]["participant_id"] == "demo-person-001"
-    assert result["recent_sessions"][0]["chief_complaint"] == "우울해서 잠을 못 자요"
+    assert result["recent_sessions"][0]["chief_complaint"] == "[recorded]"
     assert result["recent_sessions"][0]["summary_available"] is True
     assert "지지체계" in result["recent_sessions"][0]["missing"]
     assert result["totals"]["notable_sessions"] == 1

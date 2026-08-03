@@ -1,7 +1,7 @@
 """IP별 rate limit — 신규 대화 세션 1시간당 25회 + 전역 일일 요청 상한.
 
-기존 세션의 후속 발화는 카운트하지 않는다(10턴 캡이 이미 세션 내부 상한을
-담당). client_ip()는 TRUST_PROXY_HOPS env로 X-Forwarded-For 신뢰 범위를
+후속 발화도 일일 요청 상한에 포함한다. 세션별 10턴 캡은 별도 상한이다.
+client_ip()는 TRUST_PROXY_HOPS env로 X-Forwarded-For 신뢰 범위를
 결정해 스푸핑을 막는다.
 """
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 WINDOW = timedelta(hours=1)
 MAX_SESSIONS_PER_WINDOW = 25
+KNOWN_SESSION_TTL = timedelta(hours=24)
 DATA_PATH = "data/ratelimit.json"
 
 RATE_LIMIT_MESSAGE = "이 IP에서 1시간 동안 새 대화 세션을 25회 넘게 시작했습니다. 잠시 후 다시 시도해 주세요."
@@ -86,29 +87,28 @@ class RateLimiter:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(state, f)
         os.replace(tmp_path, self._path)  # 원자적 교체
+        try:
+            os.chmod(self._path, 0o600)
+        except OSError:
+            pass
 
     def check(self, ip: str, session_id: str, daily_cap: int = 500) -> None:
-        """새 세션이면 카운트하고 초과 시 RateLimitExceeded를 raise한다.
-
-        이미 알고 있는 session_id(같은 세션의 후속 발화)는 그대로 통과시킨다.
-        """
+        """Count every admitted turn; apply per-IP window only to new sessions."""
         with self._lock:
             state = self._load()
-            known = state.setdefault("known_sessions", {})
-            if session_id in known:
-                return
-
             now = datetime.now(timezone.utc)
             today = now.date().isoformat()
 
-            windows = state.setdefault("windows", {})
-            timestamps = [
-                ts for ts in windows.get(ip, []) if now - datetime.fromisoformat(ts) < WINDOW
-            ]
-            windows[ip] = timestamps
-            if len(timestamps) >= self._max_per_window:
-                self._save(state)
-                raise RateLimitExceeded(RATE_LIMIT_MESSAGE)
+            known = state.setdefault("known_sessions", {})
+            pruned_known = {}
+            for sid, ts in list(known.items()):
+                try:
+                    if now - datetime.fromisoformat(ts) < KNOWN_SESSION_TTL:
+                        pruned_known[sid] = ts
+                except (TypeError, ValueError):
+                    continue
+            state["known_sessions"] = known = pruned_known
+            is_known_session = session_id in known
 
             daily = state.setdefault("daily", {"date": today, "count": 0})
             if daily.get("date") != today:
@@ -118,7 +118,22 @@ class RateLimiter:
                 self._save(state)
                 raise RateLimitExceeded(DAILY_CAP_MESSAGE)
 
-            timestamps.append(now.isoformat())
+            windows = state.setdefault("windows", {})
+            windows = state.setdefault("windows", {})
+            timestamps = []
+            for ts in windows.get(ip, []):
+                try:
+                    if now - datetime.fromisoformat(ts) < WINDOW:
+                        timestamps.append(ts)
+                except (TypeError, ValueError):
+                    continue
+            windows[ip] = timestamps
+            if not is_known_session and len(timestamps) >= self._max_per_window:
+                self._save(state)
+                raise RateLimitExceeded(RATE_LIMIT_MESSAGE)
+
+            if not is_known_session:
+                timestamps.append(now.isoformat())
             daily["count"] += 1
             known[session_id] = now.isoformat()
             self._save(state)

@@ -269,7 +269,7 @@ def serve(host: str, port: int, model: str, knowledge: str, reload: bool,
 
     argv = [
         str(venv_python()), "-m", "uvicorn", "app.main:app",
-        "--host", host, "--port", str(port),
+        "--host", host, "--port", str(port), "--no-proxy-headers",
     ]
     if reload:
         argv.append("--reload")

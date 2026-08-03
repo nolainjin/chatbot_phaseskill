@@ -17,13 +17,14 @@ from pathlib import Path
 
 import yaml
 
-from app import knowledge
+from app import knowledge, safety
 
 _SCHEMA_FILENAME = "_intake_schema.md"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SLOTS_FENCE_RE = re.compile(r"```slots\s*?\n(.*?)```", re.DOTALL)
 _MAX_SLOT_VALUE_LEN = 200
 _MAX_SCHEMA_FILE_BYTES = 64 * 1024
+_TRACK_RANK = {"정서": 0, "관계": 1, "중독": 2, "위기": 3}
 
 
 @dataclass
@@ -81,18 +82,25 @@ class Schema:
 
 
 def _match_signal(message: str, signals) -> str | None:
-    """message에서 signals 부분문자열 매칭 결과를 반환한다. 없으면 None.
+    """message에서 signals 매칭 결과를 반환한다.
 
-    signals가 dict(값 -> 부분문자열 목록)이면 매칭된 값(키)을 반환하고,
-    list(부분문자열 목록)이면 매칭된 부분문자열 자체를 반환한다.
+    양쪽을 공통 정규화한 뒤 공백 없는 형태도 비교한다. 한국어 사용자는
+    "죽고싶어요"처럼 띄어쓰기를 생략하고, 공격자는 zero-width/NBSP를
+    삽입할 수 있으므로 raw substring만으로는 안전 라우팅을 맡길 수 없다.
     """
+    normalized_message = safety.normalize_for_signal(message)
+
+    def matched(signal: str) -> bool:
+        normalized_signal = safety.normalize_for_signal(str(signal))
+        return bool(normalized_signal and normalized_signal in normalized_message)
+
     if isinstance(signals, dict):
         for value, substrings in signals.items():
-            if any(sub in message for sub in substrings):
+            if any(matched(sub) for sub in substrings):
                 return value
         return None
     for sub in signals:
-        if sub in message:
+        if matched(sub):
             return sub
     return None
 
@@ -114,10 +122,14 @@ def _is_rejected_by_signal_guard(message: str | None, slot: Slot) -> bool:
     """
     if message is None or not slot.reject_signals:
         return False
-    if not any(word in message for word in slot.reject_signals):
+    if not any(
+        safety.normalize_for_signal(word) in safety.normalize_for_signal(message)
+        for word in slot.reject_signals
+    ):
         return False
     if slot.reject_unless_signals and any(
-        word in message for word in slot.reject_unless_signals
+        safety.normalize_for_signal(word) in safety.normalize_for_signal(message)
+        for word in slot.reject_unless_signals
     ):
         return False
     return True
@@ -140,6 +152,11 @@ def _can_override(
         return False
     if current_value == new_value:
         return False
+    if slot.id == "track":
+        current_rank = _TRACK_RANK.get(current_value, -1)
+        new_rank = _TRACK_RANK.get(new_value, -1)
+        if new_rank < current_rank:
+            return False
     restricted = slot.override_signals and slot.override_signals.get(new_value)
     if restricted:
         return message is not None and any(word in message for word in restricted)
@@ -182,6 +199,14 @@ def extract_classification(message: str, schema: Schema, filled: dict) -> dict[s
         for slot_id, value in extract_fake(message, schema, filled).items()
         if slot_id in classify_ids
     }
+
+def crisis_signal_present(message: str, schema: Schema) -> bool:
+    """Return whether an active crisis signal is present in a message."""
+    for slot in schema.active_slots({}):
+        if slot.id == "track" and isinstance(slot.signals, dict):
+            if _match_signal(message, slot.signals) == "위기":
+                return True
+    return False
 
 
 def detect_red_flags(message: str, schema: Schema, filled: dict) -> set[str]:
@@ -238,6 +263,10 @@ def extract_real(
         if not isinstance(value, str):
             continue
         if len(value) > _MAX_SLOT_VALUE_LEN:
+            continue
+        if safety.sanitize_model_reply(value, "__blocked_slot__") == "__blocked_slot__":
+            continue
+        if any(marker in value for marker in ("<", ">", "```", "[시스템 지시]", "[대화]")):
             continue
         # 닫힌 값 집합을 선언한 슬롯은 그 안의 값만 받는다. track이 대표적 —
         # when 분기(`track=위기`)가 이 값과 정확히 맞물리므로, 모델이 지어낸

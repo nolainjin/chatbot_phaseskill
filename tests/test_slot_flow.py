@@ -114,7 +114,7 @@ def test_red_flag_signal_reorders_unfilled_slots_to_top(tmp_path):
     assert result["intake"]["unfilled"][0]["red_flag"] is True
 
 
-def test_already_filled_slot_is_not_overwritten(tmp_path):
+def test_filled_track_promotes_to_crisis(tmp_path):
     _write_schema(tmp_path)
     session_id = "slot-cap-noflip"
 
@@ -124,7 +124,7 @@ def test_already_filled_slot_is_not_overwritten(tmp_path):
 
     result = chat.handle_message(session_id, "사실 자해 생각도 있어요", _settings(tmp_path))
 
-    assert session.slots["track"] == "개인"
+    assert session.slots["track"] == "위기"
     assert "채움:" not in result["reply"]  # 이미 채워진 track은 이번 턴 신규 채움이 아니다
 
 

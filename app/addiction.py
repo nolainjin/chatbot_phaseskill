@@ -7,6 +7,8 @@
 
 from dataclasses import dataclass
 
+from app import safety
+
 CENTER_DIRECTORY_URL = "https://www.nhis.or.kr/magazin/151/html/sub6.html"
 MENTAL_HEALTH_PHONE = "1577-0199"
 WELFARE_PHONE = "129"
@@ -21,6 +23,11 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "스포츠토토",
             "사설토토",
             "슬롯머신",
+            "선물 거래",
+            "코인",
+            "몰빵",
+            "풀배팅",
+            "꼬라박",
         ),
     ),
     (
@@ -40,6 +47,13 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "약물을 몇 번",
             "혼자 끊기",
             "다시 찾게",
+            "본드",
+            "부탄",
+            "가스 흡입",
+            "야바",
+            "아이스",
+            "엑스터시",
+            "케타민",
         ),
     ),
     (
@@ -81,6 +95,10 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "다음 날 후회",
             "다시 마실",
             "재발",
+            "혼술",
+            "맨날 술",
+            "필름 끊",
+            "두 병",
         ),
     ),
 )
@@ -106,6 +124,9 @@ _GENERIC_PROBLEM_SIGNALS = (
     "재발",
     "다시 하게",
     "다시 찾게",
+    "손이 떨",
+    "필름 끊",
+    "꼬라박",
 )
 
 _THIRD_PARTY_SIGNALS = (
@@ -152,6 +173,23 @@ _EMERGENCY_SIGNALS = (
     "심한 금단",
     "환각이 보",
     "환청이 들",
+    "한 통 다",
+    "한통 다",
+    "한통다",
+    "다 삼켰",
+    "여러 알",
+    "한 움큼",
+    "남은 약 다",
+    "술이랑 약",
+    "술과 약",
+    "약을 같이",
+    "정신을 잃",
+    "기절",
+    "쓰러졌",
+    "깨어나지",
+    "숨쉬기 힘",
+    "숨쉬기가 힘",
+    "숨이 가쁘",
 )
 
 _HIGH_RISK_SIGNALS = (
@@ -188,8 +226,8 @@ class AddictionAssessment:
 
 
 def _contains_any(message: str, signals: tuple[str, ...]) -> bool:
-    normalized = message.casefold()
-    return any(signal.casefold() in normalized for signal in signals)
+    normalized = safety.normalize_for_signal(message)
+    return any(safety.normalize_for_signal(signal) in normalized for signal in signals)
 
 
 def detect_kind(message: str) -> str | None:
@@ -198,12 +236,12 @@ def detect_kind(message: str) -> str | None:
         if _contains_any(message, signals):
             return kind
     if _contains_any(message, _GENERIC_PROBLEM_SIGNALS):
-        text = message.casefold()
-        if any(word in text for word in ("술", "음주", "알코올", "마시")):
+        text = safety.normalize_for_signal(message)
+        if any(word in text for word in ("술", "음주", "알코올", "마시", "혼술")):
             return "알코올"
-        if any(word in text for word in ("약물", "마약", "처방약")):
+        if any(word in text for word in ("약물", "마약", "처방약", "본드", "부탄", "야바", "아이스")):
             return "마약·약물"
-        if any(word in text for word in ("도박", "베팅", "토토")):
+        if any(word in text for word in ("도박", "베팅", "토토", "코인", "선물거래", "몰빵", "풀배팅")):
             return "도박"
         if any(word in text for word in ("게임", "스마트폰", "휴대폰", "인터넷")):
             return "인터넷·스마트폰·게임"
@@ -235,7 +273,8 @@ def assess(
     if is_third_party_only(message) and not emergency:
         return None
     if kind is None and emergency:
-        kind = "마약·약물"
+        normalized = safety.normalize_for_signal(message)
+        kind = "마약·약물" if any(word in normalized for word in ("약", "약물", "처방약", "수면제")) else "기타·미확인"
     if kind is None and not active:
         return None
     kind = kind or "기타·미확인"
@@ -279,7 +318,9 @@ def build_reply(assessment: AddictionAssessment, *, followup: bool = False) -> s
             "지금 말씀은 의식 저하·호흡 이상·경련·과다복용·심한 금단 같은 응급 신호일 수 "
             "있습니다. 중독센터 상담을 기다리지 말고 119 또는 가까운 응급실로 바로 도움을 "
             "요청하고, 가능하면 혼자 있거나 직접 운전하지 마세요. 급한 위험이 가라앉은 뒤에는 "
-            f"중독 전문기관으로 이어가는 것이 맞습니다.{contact_line} {center_line}"
+            f"중독 전문기관으로 이어가는 것이 맞습니다.{contact_line} {center_line} "
+            "의도적 복용이었거나 스스로를 해칠까 걱정된다면 자살예방상담전화 109 또는 "
+            "생명의전화 1588-9191에도 바로 연락해 주세요."
         )
 
     if followup and assessment.severity == "고위험":

@@ -27,7 +27,7 @@ EXPOSE 8000
 #    원자적 쓰기를 전제로 함 (수평 확장 시 Redis 등 외부 스토어로 교체 필요).
 # 2) 대화 세션 상태(app/chat.py `_sessions`)도 프로세스 메모리 dict라 워커가
 #    여러 개면 세션별 10턴 캡이 워커마다 따로 논다.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers"]
 
 # 배치 실행 진입점: 이 이미지는 ENTRYPOINT를 고정하지 않으므로 CMD를
 # 오버라이드해서 같은 이미지로 일배치를 돌린다 (별도 이미지 불필요).
