@@ -11,6 +11,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  PYTHONUTF8: "1"
 jobs:
   test:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}

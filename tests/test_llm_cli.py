@@ -295,7 +295,9 @@ def test_codex_timeout_terminates_the_entire_process_group(monkeypatch):
 
     monkeypatch.setattr(llm, "IS_WINDOWS", False)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: HangingProcess())
-    monkeypatch.setattr(llm.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+    monkeypatch.setattr(
+        llm.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)), raising=False
+    )
     monkeypatch.setattr(llm, "CODEX_RETRIES", 1)
 
     with pytest.raises(RuntimeError, match="timeout"):

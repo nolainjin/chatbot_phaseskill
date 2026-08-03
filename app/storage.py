@@ -121,7 +121,8 @@ def _redact_obj(value):
 
 
 def _write_private_json(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
     try:
         os.chmod(path, 0o600)
     except OSError:
