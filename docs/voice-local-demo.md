@@ -33,7 +33,7 @@ T2의 선택 gate는 network-deny에서 10/10 non-empty, warm RTF ≤ 1.0, peak 
 ## 사전 조건
 
 ```bash
-cd /Volumes/부부공용/worknote/lmwiki-chatbot
+cd (비공개 운영노트) lmwiki-chatbot
 test -x .venv/bin/python
 test -x .voice-venv/bin/python
 test -d .voice-model-cache

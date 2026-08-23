@@ -73,7 +73,7 @@ MODEL=fake .venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --e
 외부 cwd와 포트 변경 smoke:
 
 ```bash
-(cd /tmp && bash /Volumes/부부공용/worknote/lmwiki-chatbot/scripts/smoke_local.sh)
+(cd /tmp && bash scripts/smoke_local.sh)
 PORT=8944 bash scripts/smoke_local.sh --pack knowledge-alt
 ```
 

@@ -1,7 +1,7 @@
 # Issue #1 lmwiki-chatbot 개선 작업 보고서
 
 작성일: 2026-07-16  
-대상 repo: `/Volumes/부부공용/worknote/lmwiki-chatbot`  
+대상 repo: `(비공개 운영노트) lmwiki-chatbot`  
 remote: `https://github.com/nolainjin/chatbot_phaseskill.git`  
 branch: `master`
 
@@ -463,7 +463,7 @@ can't open file ... scripts/validate_knowledge_pack.py
 .venv/bin/python -m pytest -q
 .venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --json
 MODEL=fake .venv/bin/python scripts/validate_knowledge_pack.py knowledge-alt --exercise --json
-(cd /tmp && bash /Volumes/부부공용/worknote/lmwiki-chatbot/scripts/smoke_local.sh)
+(cd /tmp && bash scripts/smoke_local.sh)
 PORT=8944 bash scripts/smoke_local.sh --pack knowledge-alt
 cd scripts/gui-smoke && node gui-smoke.mjs
 .venv/bin/python scripts/check_dependencies.py
@@ -659,7 +659,7 @@ Document and smoke test educational demo setup
 
 ```bash
 .venv/bin/python scripts/check_dependencies.py
-(cd /tmp && bash /Volumes/부부공용/worknote/lmwiki-chatbot/scripts/smoke_local.sh)
+(cd /tmp && bash scripts/smoke_local.sh)
 PORT=8944 bash scripts/smoke_local.sh --pack knowledge-alt
 cd scripts/gui-smoke && node gui-smoke.mjs
 .venv/bin/python -m pytest -q

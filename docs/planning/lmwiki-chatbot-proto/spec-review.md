@@ -111,7 +111,7 @@ decision_surface:
   status: present
   source_mode: registry_rerun
   source_artifact: "docs/planning/lmwiki-chatbot-proto/request.json"
-  source_command: "python3 skills/phase-intake/scripts/decision_rubrics.py --request-file docs/planning/lmwiki-chatbot-proto/request.json --decisions-file docs/planning/lmwiki-chatbot-proto/decisions.md --rubric-dir /Users/jinduchan/.claude/skills/phase-intake/rubrics --as-of 2026-07-11 --pretty"
+  source_command: "python3 skills/phase-intake/scripts/decision_rubrics.py --request-file docs/planning/lmwiki-chatbot-proto/request.json --decisions-file docs/planning/lmwiki-chatbot-proto/decisions.md --rubric-dir ~/.claude/skills/phase-intake/rubrics --as-of 2026-07-11 --pretty"
   freshness: fresh
   no_memory_promotion: true
   accepted_defaults: []

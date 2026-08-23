@@ -38,7 +38,7 @@ research_required: true
 리포 확인 (2026-07-11):
 - 홈 디렉토리에 기존 챗봇 프로젝트·LM Wiki 데이터 폴더 없음 (`~/*chatbot*`, `~/*wiki*` 미존재)
 - 기존 phase 작업 패턴은 프로젝트-로컬 planning (`~/trend-viewer/docs/planning/`)
-- 신규 프로젝트 루트 `/Users/jinduchan/lmwiki-chatbot/` 생성, planning 산출물은 `docs/planning/lmwiki-chatbot-proto/`
+- 신규 프로젝트 루트 `~/lmwiki-chatbot/` 생성, planning 산출물은 `docs/planning/lmwiki-chatbot-proto/`
 - 프로젝트 루트에 `PHASE-SKILLS.md` 없음 → 기본 프로파일로 진행 (`/phase-config init` 권장, 비차단)
 
 ## Assumptions
@@ -83,7 +83,7 @@ research_required: true
 
 - 결정 확정 (2026-07-11, decisions.md): 스택 = Python + FastAPI + 바닐라 HTML/JS 채팅 페이지 (D03), LLM = Anthropic Claude 단일 + 운영자 키 서버측 env (D02). 배포 플랫폼(D01)은 사용자가 명시 유보 — 후보 4종(Railway Hobby/Fly.io/Oracle Free VM/Hetzner)으로 압축, 배포 phase 전 확정. 그때까지 구현은 플랫폼 비종속(실 파일시스템 + 크론 사용 가능 전제)으로 설계할 것
 - rubric front gate: 3개 LB 클래스 explicit_defer로 해소 완료 (`decision_rubrics.py` blocked: false, 2026-07-11). 재사용 rubric 등록은 사용자 선택으로 유보 (D04)
-- 프로젝트 루트: `/Users/jinduchan/lmwiki-chatbot/` (이번 intake에서 신설). phase-init 실행 위치도 여기
+- 프로젝트 루트: `~/lmwiki-chatbot/` (이번 intake에서 신설). phase-init 실행 위치도 여기
 - `PHASE-SKILLS.md` 부재 → 기본 프로파일. `/phase-config init` 1회 권장 (비차단)
 - 배포 플랫폼 후보의 영속 디스크 지원 여부는 research.md 결론을 따를 것 — Research Need Gate `required: true`로 닫힘. phase-init에서 재조사 불요, 선정 플랫폼의 배포 phase에 반영만
 - `capabilities.md` 의 load-bearing CAP(특히 적대적 플래그: 지식 스왑 검증, 실배포 rate limit, 일배치 실동작)은 phase 분해 시 보존 게이트로 추적

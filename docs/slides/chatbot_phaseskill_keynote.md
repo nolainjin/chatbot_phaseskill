@@ -31,15 +31,15 @@
 
 | source | claim | confidence | audience layer | slide/use | privacy class |
 |---|---|---:|---|---|---|
-| `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:95-140`, `.env.example:7-15`, `app/llm.py:154-160,309-320` | `MODEL=fake`는 API 없이 결정론 테스트용이고, `MODEL=auto`/`MODEL_CHAIN=codex-cli:gpt-5.4,claude-cli,fake`는 Codex CLI → Claude CLI → fake 순서로 폴백한다. Codex/Claude CLI는 로컬 명령이지만 완전한 오프라인 로컬 모델이 아니다. | 높음 | 입문+실무 | 모델 모드, 비용/연결 Q&A | repo-public/no-PII |
+| `README.md:95-140`, `.env.example:7-15`, `app/llm.py:154-160,309-320` | `MODEL=fake`는 API 없이 결정론 테스트용이고, `MODEL=auto`/`MODEL_CHAIN=codex-cli:gpt-5.4,claude-cli,fake`는 Codex CLI → Claude CLI → fake 순서로 폴백한다. Codex/Claude CLI는 로컬 명령이지만 완전한 오프라인 로컬 모델이 아니다. | 높음 | 입문+실무 | 모델 모드, 비용/연결 Q&A | repo-public/no-PII |
 | `https://github.com/nolainjin/chatbot_phaseskill/issues/1` | GitHub issue #1은 “교육용 커스터마이징 프로토타입” 기준을 제시했고, 댓글에서 `knowledge-math` starter pack, UI schema extension, `pytest 147 passed`가 완료됐으며 guide/validator/smoke/dependency 항목은 남은 일로 기록됐다. | 높음 | 실무 | Phase-skill, GJC-team, 이슈 기반 개선 | public issue/no survey rows |
-| `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json:1-40` | 최종 품질 게이트는 PASS: pytest 209 passed, math 150/150, legacy/fallback browser PASS, external gpt54 sample·Spark PASS. | 높음 | 실무+Q&A | 레드팀/한계, repair loop 증거 | repo evidence/no-PII |
-| `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/task-3-voice-local-demo-verifier.json:150-159,213-225`, `task-3-voice-local-demo-verifier-final.json:127-149,285-291,315-320` | verifier가 raw 500 provider prediction timeout을 잡았고, 이후 안정적인 503 `provider_timeout`으로 고쳤다. 발표에서는 “실수 → 검증자 → 수정” 한 장짜리 repair-loop 사례로만 쓴다. | 높음 | 실무 | 안전/tests/red-team repair loop | repo evidence/no audio/raw transcript |
-| `/Volumes/부부공용/worknote/직장/빅션/92_작업중/챗봇-비교/2026-07-19_챗봇-4종-비교평가.md:37-42,156-163,209-217`, `2026-07-20_빅션봇-대화품질-개선안.md:22-35,90-96` | ①이 발표 주력이다. ②는 386/386식 검증과 품질 개선이 있었지만 conversation-quality ceiling이 남아 appendix/Q&A 비교로 둔다. | 높음 | Q&A | comparison/limits/what to copy | internal comparison/no raw customer rows |
+| `.omo/evidence/final-quality-gates.json:1-40` | 최종 품질 게이트는 PASS: pytest 209 passed, math 150/150, legacy/fallback browser PASS, external gpt54 sample·Spark PASS. | 높음 | 실무+Q&A | 레드팀/한계, repair loop 증거 | repo evidence/no-PII |
+| `.omo/evidence/task-3-voice-local-demo-verifier.json:150-159,213-225`, `task-3-voice-local-demo-verifier-final.json:127-149,285-291,315-320` | verifier가 raw 500 provider prediction timeout을 잡았고, 이후 안정적인 503 `provider_timeout`으로 고쳤다. 발표에서는 “실수 → 검증자 → 수정” 한 장짜리 repair-loop 사례로만 쓴다. | 높음 | 실무 | 안전/tests/red-team repair loop | repo evidence/no audio/raw transcript |
+| `(비공개 운영노트) 직장/빅션/92_작업중/챗봇-비교/2026-07-19_챗봇-4종-비교평가.md:37-42,156-163,209-217`, `2026-07-20_빅션봇-대화품질-개선안.md:22-35,90-96` | ①이 발표 주력이다. ②는 386/386식 검증과 품질 개선이 있었지만 conversation-quality ceiling이 남아 appendix/Q&A 비교로 둔다. | 높음 | Q&A | comparison/limits/what to copy | internal comparison/no raw customer rows |
 | 사전 설문 CSV 집계(행 단위 비공개) | 집계 테마: 모델/API 비용과 연결, 안전·테스트·레드팀, 팀·피드백·이슈 기반 개선, 초보자 설명, 도메인·사업 적용. 행·연락처·이름은 사용하지 않는다. | 중간 | 입문+Q&A | 왜 이 챗봇인가, 질문 예상 | aggregate-only/no row-level |
-| `/Volumes/부부공용/worknote/troubleshooting-log.md:34-38` | `완료≠전달`: sub-agent가 완료했어도 결과 전달이 안 되면 1회 재요청과 반환값 명시가 필요하다. | 높음 | 실무 | GJC-team 운영 카드 1 | local ops/no PII |
-| `/Volumes/부부공용/worknote/troubleshooting-log.md:42-78` | `완전 회수 강박`: 자료 전체 회수보다 현재 증거 범위로 산출물을 먼저 만들고 한계를 표시해야 한다. | 높음 | 입문+실무 | 제작 과정/컷 규칙 카드 2 | local ops/no PII |
-| `/Volumes/부부공용/worknote/바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md:32-46`, `/Volumes/부부공용/worknote/troubleshooting-log.md:83-129` | `도구/스킬 실패 진단`: “Unknown skill”이나 도구 표면 불일치는 성공 문구가 아니라 실제 산출물·경로·권한으로 확인해야 한다. | 높음 | 실무 | repair loop 카드 3 | local ops/no PII |
+| `(비공개 운영노트) troubleshooting-log.md:34-38` | `완료≠전달`: sub-agent가 완료했어도 결과 전달이 안 되면 1회 재요청과 반환값 명시가 필요하다. | 높음 | 실무 | GJC-team 운영 카드 1 | local ops/no PII |
+| `(비공개 운영노트) troubleshooting-log.md:42-78` | `완전 회수 강박`: 자료 전체 회수보다 현재 증거 범위로 산출물을 먼저 만들고 한계를 표시해야 한다. | 높음 | 입문+실무 | 제작 과정/컷 규칙 카드 2 | local ops/no PII |
+| `(비공개 운영노트) 바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md:32-46`, `(비공개 운영노트) troubleshooting-log.md:83-129` | `도구/스킬 실패 진단`: “Unknown skill”이나 도구 표면 불일치는 성공 문구가 아니라 실제 산출물·경로·권한으로 확인해야 한다. | 높음 | 실무 | repair loop 카드 3 | local ops/no PII |
 
 ---
 
@@ -61,15 +61,15 @@
 
 | candidate path | status | use | note |
 |---|---|---|---|
-| `/Volumes/부부공용/worknote/troubleshooting-log.md` | checked / used | 카드 1~3 일부 | lines 34-38, 42-78, 83-129만 사용. |
-| `/Volumes/부부공용/worknote/troubleshooting-log_v2.md` | checked / deferred | 구조 참고만 | v2는 원본 사건 본문을 바꾸지 않는 재분류본이라고 밝힘(`troubleshooting-log_v2.md:1-6`); 상세 인용은 원본으로 고정. |
-| `/Volumes/부부공용/worknote/troubleshooting-index.md` | checked / deferred | 태그 색인 참고 | 자동 태그 인덱스(`troubleshooting-index.md:1-35`)라 발표 근거 본문으로는 쓰지 않음. |
-| `/Volumes/부부공용/worknote/에이전트_핸드오프_코코님.md` | no-hit | 사용 안 함 | canonical root path는 현재 확인 경로에 없음. archive 대체본을 임의로 쓰지 않음. |
-| `/Volumes/부부공용/worknote/바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md` | checked / used | 카드 3 | `Unknown skill: omc-plan` 패턴만 인용. |
-| `/Volumes/부부공용/worknote/바이브선생/2026-03-16/growth-detail-stock-2026-03-16.md` | checked / deferred | Q&A 예비 | 다중 모델 피드백·fallback·반복 실패 원인 추적 사례가 있으나, 본편 3카드 제한 때문에 사용하지 않음. |
-| `/Volumes/부부공용/worknote/바이브선생/2026-03-16/growth-detail-vibe-basic-2026-03-16.md` | checked / deferred | Q&A 예비 | 팀·도구·컨텍스트 성장 사례로 좋지만 본편 근거 카드가 과밀해 appendix 후보로만 둠. |
-| `/Volumes/부부공용/worknote/바이브선생/2026-03-22/01-project-patterns.md` | checked / deferred | Q&A 예비 | 도구 활용·원인 분석 성장 흐름 확인. 오늘 본편은 `lmwiki-chatbot` 하나에 집중하므로 확장하지 않음. |
-| `/Volumes/부부공용/worknote/.claude/rules-details/qa-gate-details.md`, `llm-observation-details.md`, `bot-outsource-validation.md`, `sub-agent-validation.md` | checked / framing only | 운영 프레임 | QA gate는 “UI/DOM 존재≠기능 성공”, sub-agent validation은 산출물 위치·실측 출력 인용 의무를 강조한다. 제품 기능 증거로는 쓰지 않음. |
+| `(비공개 운영노트) troubleshooting-log.md` | checked / used | 카드 1~3 일부 | lines 34-38, 42-78, 83-129만 사용. |
+| `(비공개 운영노트) troubleshooting-log_v2.md` | checked / deferred | 구조 참고만 | v2는 원본 사건 본문을 바꾸지 않는 재분류본이라고 밝힘(`troubleshooting-log_v2.md:1-6`); 상세 인용은 원본으로 고정. |
+| `(비공개 운영노트) troubleshooting-index.md` | checked / deferred | 태그 색인 참고 | 자동 태그 인덱스(`troubleshooting-index.md:1-35`)라 발표 근거 본문으로는 쓰지 않음. |
+| `(비공개 운영노트) 에이전트_핸드오프_코코님.md` | no-hit | 사용 안 함 | canonical root path는 현재 확인 경로에 없음. archive 대체본을 임의로 쓰지 않음. |
+| `(비공개 운영노트) 바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md` | checked / used | 카드 3 | `Unknown skill: omc-plan` 패턴만 인용. |
+| `(비공개 운영노트) 바이브선생/2026-03-16/growth-detail-stock-2026-03-16.md` | checked / deferred | Q&A 예비 | 다중 모델 피드백·fallback·반복 실패 원인 추적 사례가 있으나, 본편 3카드 제한 때문에 사용하지 않음. |
+| `(비공개 운영노트) 바이브선생/2026-03-16/growth-detail-vibe-basic-2026-03-16.md` | checked / deferred | Q&A 예비 | 팀·도구·컨텍스트 성장 사례로 좋지만 본편 근거 카드가 과밀해 appendix 후보로만 둠. |
+| `(비공개 운영노트) 바이브선생/2026-03-22/01-project-patterns.md` | checked / deferred | Q&A 예비 | 도구 활용·원인 분석 성장 흐름 확인. 오늘 본편은 `lmwiki-chatbot` 하나에 집중하므로 확장하지 않음. |
+| `(비공개 운영노트) .claude/rules-details/qa-gate-details.md`, `llm-observation-details.md`, `bot-outsource-validation.md`, `sub-agent-validation.md` | checked / framing only | 운영 프레임 | QA gate는 “UI/DOM 존재≠기능 성공”, sub-agent validation은 산출물 위치·실측 출력 인용 의무를 강조한다. 제품 기능 증거로는 쓰지 않음. |
 
 ---
 
@@ -110,8 +110,8 @@
 - 오늘의 주인공은 `lmwiki-chatbot` 하나다. ②/③/④는 뒤에서 비교만 한다.
 
 **근거**
-- README의 목적과 비진단 경계: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:3-11`
-- 책임 분리 문장: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:24-26`
+- README의 목적과 비진단 경계: `README.md:3-11`
+- 책임 분리 문장: `README.md:24-26`
 
 ---
 
@@ -130,8 +130,8 @@
 - 이 한 줄이 전체 설계의 기준이다.
 
 **근거**
-- README 책임 분리: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:73-83`
-- README 1분 흐름: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:13-26`
+- README 책임 분리: `README.md:73-83`
+- README 1분 흐름: `README.md:13-26`
 
 ---
 
@@ -151,8 +151,8 @@
 - 챗봇은 손님 말을 주문표에 맞게 정리하는 직원이다.
 
 **근거**
-- 저장·통계 흐름: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:263-312`
-- 프로젝트 지도: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:351-365`
+- 저장·통계 흐름: `README.md:263-312`
+- 프로젝트 지도: `README.md:351-365`
 
 ---
 
@@ -174,9 +174,9 @@
 
 **근거**
 - GitHub issue #1: `https://github.com/nolainjin/chatbot_phaseskill/issues/1`
-- 완료≠전달: `/Volumes/부부공용/worknote/troubleshooting-log.md:34-38`
-- 완전 회수 강박: `/Volumes/부부공용/worknote/troubleshooting-log.md:42-78`
-- 도구/스킬 실패: `/Volumes/부부공용/worknote/바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md:32-46`
+- 완료≠전달: `(비공개 운영노트) troubleshooting-log.md:34-38`
+- 완전 회수 강박: `(비공개 운영노트) troubleshooting-log.md:42-78`
+- 도구/스킬 실패: `(비공개 운영노트) 바이브선생/2026-03-16/growth-detail-dashboard-2026-03-16.md:32-46`
 
 ---
 
@@ -196,7 +196,7 @@
 - 좋은 챗봇은 “말을 잘하는 것”보다 “이미 말한 걸 또 묻지 않는 것”에서 체감이 난다.
 
 **근거**
-- README 책임 분리: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:73-83`
+- README 책임 분리: `README.md:73-83`
 
 ---
 
@@ -217,10 +217,10 @@
 - “비용 질문이 나오면 fake / CLI subscription / API key 세 층으로 분리해 답합니다.”
 
 **근거**
-- fake 실행: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:95-104`
-- provider table 및 오프라인 아님: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:126-140`
-- `MODEL_CHAIN`: `/Volumes/부부공용/worknote/lmwiki-chatbot/.env.example:7-15`
-- auto fallback 구현: `/Volumes/부부공용/worknote/lmwiki-chatbot/app/llm.py:154-160,309-320`
+- fake 실행: `README.md:95-104`
+- provider table 및 오프라인 아님: `README.md:126-140`
+- `MODEL_CHAIN`: `.env.example:7-15`
+- auto fallback 구현: `app/llm.py:154-160,309-320`
 
 ---
 
@@ -239,7 +239,7 @@
 - 발표에서는 합성 데이터만 보여준다.
 
 **근거**
-- README 저장 구조: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:263-292`
+- README 저장 구조: `README.md:263-292`
 
 ---
 
@@ -254,8 +254,8 @@
 - CSV 내보내기는 합성·교육용 범위로만 말한다.
 
 **근거**
-- 관리자 화면 기능: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:62-71`
-- 100명 합성 데모: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:298-312`
+- 관리자 화면 기능: `README.md:62-71`
+- 100명 합성 데모: `README.md:298-312`
 
 ---
 
@@ -275,8 +275,8 @@
 - 핵심은 “모델에게 도구 권한을 주지 않고, 입력과 출력에서 위험 문구를 코드로 거른다”이다.
 
 **근거**
-- README safety routing: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:39-60`
-- final red_team 6/6: `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json:2-8`
+- README safety routing: `README.md:39-60`
+- final red_team 6/6: `.omo/evidence/final-quality-gates.json:2-8`
 
 ---
 
@@ -296,8 +296,8 @@
 - 위험한 문구가 들어오면 모델에게 넘기기 전에 안내와 접수 흐름으로 돌린다.
 
 **근거**
-- README 1분 처리 순서: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:13-26`
-- QA framing “UI 존재≠기능 성공”: `/Volumes/부부공용/worknote/.claude/rules-details/qa-gate-details.md:24-49`
+- README 1분 처리 순서: `README.md:13-26`
+- QA framing “UI 존재≠기능 성공”: `(비공개 운영노트) .claude/rules-details/qa-gate-details.md:24-49`
 
 ---
 
@@ -313,10 +313,10 @@
 - 상담·중독 라우팅은 임상 진단을 대체하지 않는다.
 
 **근거**
-- final gates: `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json:1-40`
-- voice raw 500 finding: `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/task-3-voice-local-demo-verifier.json:150-159,213-225`
-- voice fixed 503: `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/task-3-voice-local-demo-verifier-final.json:127-149,285-291,315-320`
-- README 한계: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md:368-376`
+- final gates: `.omo/evidence/final-quality-gates.json:1-40`
+- voice raw 500 finding: `.omo/evidence/task-3-voice-local-demo-verifier.json:150-159,213-225`
+- voice fixed 503: `.omo/evidence/task-3-voice-local-demo-verifier-final.json:127-149,285-291,315-320`
+- README 한계: `README.md:368-376`
 
 ---
 
@@ -354,11 +354,11 @@
 - OpenAI: Understanding prompt injections.
 
 **로컬 참고**
-- README: `/Volumes/부부공용/worknote/lmwiki-chatbot/README.md`
-- 모델 체인: `/Volumes/부부공용/worknote/lmwiki-chatbot/.env.example`
-- 최종 게이트: `/Volumes/부부공용/worknote/lmwiki-chatbot/.omo/evidence/final-quality-gates.json`
-- 비교 문서: `/Volumes/부부공용/worknote/직장/빅션/92_작업중/챗봇-비교/`
-- 운영 로그 카드: `/Volumes/부부공용/worknote/troubleshooting-log.md`
+- README: `README.md`
+- 모델 체인: `.env.example`
+- 최종 게이트: `.omo/evidence/final-quality-gates.json`
+- 비교 문서: `(비공개 운영노트) 직장/빅션/92_작업중/챗봇-비교/`
+- 운영 로그 카드: `(비공개 운영노트) troubleshooting-log.md`
 
 ---
 
