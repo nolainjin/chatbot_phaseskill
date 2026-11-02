@@ -55,9 +55,15 @@ esac
 [ -d "$PACK_DIR" ] || fail "knowledge pack directory not found: $PACK_DIR"
 [ -x "$PYTHON" ] || fail "python not executable: $PYTHON"
 
-export MODEL="${MODEL:-fake}"
+case "$HOST" in
+  127.0.0.1|::1|localhost) ;;
+  *) fail "refusing non-loopback host: $HOST" ;;
+esac
+
+export MODEL="fake"
 export KNOWLEDGE_DIR="$PACK_DIR"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PRIVATE_LOCAL_UI=1
 
 VALIDATION_JSON="$WORK_DIR/validation.json"
 if [ -f "$REPO_ROOT/scripts/validate_knowledge_pack.py" ] && [ -f "$PACK_DIR/_validation_scenario.json" ]; then
@@ -102,12 +108,12 @@ status=$(printf '%s' "$first_body" | "$PYTHON" -c 'import json, sys; print(json.
 [ -n "$status" ] || fail "first session did not return a session token"
 session_token="$status"
 
-for i in 2 3 4 5; do
+for i in $(seq 2 25); do
   status=$(post_chat "smoke-session-$i" "안녕하세요")
   [ "$status" = "200" ] || fail "new session $i expected 200, got $status"
 done
-status=$(post_chat "smoke-session-6" "안녕하세요")
-[ "$status" = "429" ] || fail "6th new session expected 429, got $status"
+status=$(post_chat "smoke-session-26" "안녕하세요")
+[ "$status" = "429" ] || fail "26th new session expected 429, got $status"
 
 status=$(post_chat_owned "smoke-session-1" "두 번째 질문" "$session_token")
 [ "$status" = "200" ] || fail "second turn expected 200, got $status"
@@ -142,6 +148,6 @@ finally:
     conn.close()
 PY
 )
-[ "$row_count" = "6" ] || fail "SQLite rows expected 6, got $row_count"
+[ "$row_count" = "7" ] || fail "SQLite rows expected 7, got $row_count"
 
 echo "OK: local smoke passed pack=$PACK_DIR port=$PORT"

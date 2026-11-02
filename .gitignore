@@ -11,6 +11,5 @@ __pycache__/
 scripts/gui-smoke/node_modules/
 scripts/gui-smoke/screenshots/
 screenshots/
-.voice-venv/
+.omo/
 .voice-model-cache/
-.voice-tmp/

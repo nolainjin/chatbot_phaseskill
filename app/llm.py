@@ -1,7 +1,9 @@
 import json
 import os
+import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import time
@@ -9,6 +11,21 @@ import time
 import anthropic
 
 from app.config import Settings
+
+IS_WINDOWS = sys.platform == "win32"
+# subprocess.CREATE_NEW_PROCESS_GROUP은 Windows에서만 정의된다. 상수를 여기서
+# 고정해두면 다른 OS에서도 Windows 분기를 테스트로 검증할 수 있다.
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+
+# 자식 프로세스 파이프는 반드시 UTF-8로 못박는다. text=True만 주면 파이썬이 OS
+# 로케일 인코딩으로 디코딩하는데, 한국어 Windows는 그게 cp949라서 CLI가 뱉은
+# 한글 응답이 깨지거나 UnicodeDecodeError로 죽는다. errors="replace"는 모델이
+# 깨진 바이트를 한 번 뱉었다고 대화 전체를 죽이지 않기 위한 안전판이다.
+_TEXT_IO: dict[str, object] = {
+    "text": True,
+    "encoding": "utf-8",
+    "errors": "replace",
+}
 
 MAX_TOKENS = 1024
 
@@ -21,7 +38,7 @@ CLI_RETRIES = 3
 CLI_RETRY_BACKOFF_SEC = 5
 
 CODEX_CLI_MODEL = "codex-cli"
-CODEX_DEFAULT_MODEL = "gpt-5.4"
+CODEX_DEFAULT_MODEL = "gpt-6.1-sol"
 CODEX_TIMEOUT_SEC = 180
 CODEX_RETRIES = 2
 CODEX_RETRY_BACKOFF_SEC = 5
@@ -38,6 +55,27 @@ _AGENT_ENV_ALLOWLIST = frozenset(
         "LC_CTYPE",
         "TERM",
         "NO_COLOR",
+    }
+)
+
+# Windows에서 이 값들을 빼면 자식 프로세스가 조용히 죽는다. SYSTEMROOT가 없으면
+# winsock 초기화가 실패해 네트워크를 쓰는 CLI가 전부 깨지고, COMSPEC/PATHEXT가
+# 없으면 `claude.cmd` 같은 셔임을 찾지 못한다. 인증 파일은 APPDATA 계열에 있다.
+_WINDOWS_ENV_ALLOWLIST = frozenset(
+    {
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "TEMP",
+        "TMP",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
     }
 )
 MAX_MODEL_OUTPUT_CHARS = 12_000
@@ -64,11 +102,30 @@ def _clean_env() -> dict[str, str]:
 
 
 def _clean_agent_env() -> dict[str, str]:
+    """자식 프로세스에 넘길 deny-by-default 환경.
+
+    Windows 환경변수는 대소문자를 가리지 않으므로(`Path` vs `PATH`) 비교 키를
+    대문자로 정규화한다. 원래 키 이름은 그대로 보존해서 넘긴다.
+    """
+    allowlist = _AGENT_ENV_ALLOWLIST | _WINDOWS_ENV_ALLOWLIST if IS_WINDOWS else _AGENT_ENV_ALLOWLIST
     return {
         key: value
         for key, value in os.environ.items()
-        if key in _AGENT_ENV_ALLOWLIST
+        if (key.upper() if IS_WINDOWS else key) in allowlist
     }
+
+
+def _resolve_executable(argv: list[str]) -> list[str]:
+    """argv[0]을 절대경로로 바꾼다.
+
+    Windows의 CreateProcess는 PATHEXT를 보지 않는다. `claude`/`codex`는 그곳에서
+    `claude.cmd` 셔임으로 설치되므로 이름 그대로 넘기면 FileNotFoundError가 난다.
+    shutil.which는 PATHEXT를 참조하므로 여기서 미리 확장자까지 붙여 해석한다.
+    찾지 못하면 원래 argv를 그대로 돌려주고, 실패 처리는 호출자의 재시도·폴백
+    경로에 맡긴다(auto 체인이 다음 모델로 넘어간다).
+    """
+    resolved = shutil.which(argv[0])
+    return [resolved, *argv[1:]] if resolved else argv
 
 
 class ModelOutputTooLarge(RuntimeError):
@@ -102,14 +159,14 @@ def run_claude_cli(argv: list[str], timeout: int = CLI_TIMEOUT_SEC) -> str:
         try:
             with tempfile.TemporaryDirectory(prefix="claude-cli-") as neutral_cwd:
                 proc = subprocess.run(
-                    argv,
+                    _resolve_executable(argv),
                     capture_output=True,
-                    text=True,
                     timeout=timeout,
                     check=False,
                     cwd=neutral_cwd,
                     env=_clean_env(),
                     stdin=subprocess.DEVNULL,
+                    **_TEXT_IO,
                 )
             if proc.returncode == 0:
                 return _bounded_output(proc.stdout)
@@ -171,31 +228,69 @@ def _codex_prompt(system: str, history: list[dict[str, str]], user: str) -> str:
     )
 
 
+def _new_process_group_kwargs() -> dict[str, object]:
+    """자식을 별도 프로세스 그룹으로 띄우는 플랫폼별 인자.
+
+    타임아웃 시 CLI가 띄운 손자 프로세스까지 함께 정리하려면 그룹이 필요하다.
+    POSIX는 start_new_session, Windows는 CREATE_NEW_PROCESS_GROUP을 쓴다
+    (start_new_session은 Windows에서 ValueError를 던진다).
+    """
+    if IS_WINDOWS:
+        return {"creationflags": CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_process_tree(process: "subprocess.Popen[str]") -> None:
+    """타임아웃된 자식과 그 하위 프로세스를 강제 종료한다.
+
+    POSIX는 killpg(SIGKILL)로 그룹을 통째로 정리한다. Windows에는 killpg도
+    SIGKILL도 없으므로 taskkill /T로 트리를 정리하고, 실패하면 Popen.kill()로
+    최소한 직계 자식은 회수한다(고아 손자가 남을 수 있으나 서버는 멈추지 않는다).
+    """
+    if IS_WINDOWS:
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            process.kill()
+        return
+    # start_new_session=True로 띄웠으므로 자식이 세션 리더 = pgid는 pid와 같다.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def _run_codex_process(argv: list[str], timeout: int, cwd: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     process = subprocess.Popen(
-        argv,
+        _resolve_executable(argv),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         stdin=subprocess.DEVNULL,
         cwd=cwd,
         env=env,
-        start_new_session=True,
+        **_TEXT_IO,
+        **_new_process_group_kwargs(),
     )
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _kill_process_tree(process)
         process.communicate()
         raise
     return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
 
 
 def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> str:
-    """Codex CLI 호출 공통 경로. 중립 cwd + read-only sandbox로 리포 오염을 차단한다."""
+    """Run the private loopback counseling adapter with documented CLI flags.
+
+    The one-week local setup pins ``model_reasoning_effort="high"``. Public
+    routes remain dark, and this adapter is not a public deployment boundary.
+    """
     last = ""
     for attempt in range(CODEX_RETRIES):
         try:
@@ -213,6 +308,8 @@ def run_codex_cli(prompt: str, model: str, timeout: int = CODEX_TIMEOUT_SEC) -> 
                     neutral_cwd,
                     "-m",
                     model,
+                    "-c",
+                    'model_reasoning_effort="high"',
                     "-o",
                     str(output_path),
                     prompt,

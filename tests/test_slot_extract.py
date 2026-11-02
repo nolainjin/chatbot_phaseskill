@@ -9,8 +9,8 @@ test_slot_flow.py가 맡는다.
 
 import json
 from datetime import date
-from pathlib import Path
 
+from app import paths as data_paths
 from app import chat
 from app.config import Settings
 from app.intake import extract_real, load_schema
@@ -303,7 +303,7 @@ def test_handle_message_real_mode_storage_file_has_clean_reply(tmp_path, monkeyp
 
     chat.handle_message("real-cap05", "가족 문제로 왔어요", _settings(tmp_path))
 
-    day_dir = Path("data/conversations") / date.today().isoformat()
+    day_dir = data_paths.conversations_dir() / date.today().isoformat()
     turns = json.loads((day_dir / "real-cap05.json").read_text(encoding="utf-8"))["turns"]
     assistant_turn = next(t for t in turns if t["role"] == "assistant")
 

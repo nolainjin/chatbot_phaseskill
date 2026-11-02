@@ -1,9 +1,23 @@
 # 배포 가이드
 
-플랫폼 확정 전 공통 준비물(Dockerfile, `.dockerignore`)은 이미 리포 루트에
-있다. 이 문서는 후보 4개 플랫폼(D01, `docs/planning/lmwiki-chatbot-proto/decisions.md`
-참고 — **아직 미확정**)의 배포 절차를 각각 정리한다. 소스는
-`docs/planning/lmwiki-chatbot-proto/research.md`(2026-07-11 공식 문서 조사).
+## 현재 운영 경계 (2026-08-01)
+
+현재 승인된 운영은 **1주일 동안의 개인 Mac 로컬 전용 시연**이다. 안전 기본값은
+`MODEL=fake`이며, 실제 시연은 개인 Codex 로그인으로
+`MODEL=codex-cli:gpt-5.6-luna`와 `high` 강도를 사용한다. 두 경로 모두
+loopback에서만 접근하며 공개 도메인·공개 ingress·Railway/Cloudflare 배포는
+현재 차단한다. fixture, 회귀 테스트, bounded loopback API, 비공개 Luna 응답을
+함께 검증 근거로 사용한다. API 키나 시크릿을 입력하지 않는다.
+
+공개 전환은 이 문서의 절차를 실행하는 것으로 승인되지 않는다. 별도의 진짜
+**no-tool** 아키텍처 또는 API adapter를 설계·검토하고, 보안·운영 재승인을
+받은 뒤에만 진행한다. read-only sandbox는 도구가 없다는 뜻이 아니므로, 도구
+권한은 sandbox 표기와 별도로 명시적으로 제거·검증해야 한다.
+
+## 향후 공개 배포 참고용 격리 절차
+
+아래 Railway/Fly.io/VM 절차는 향후 재승인된 공개 전환을 위한 참고 자료일 뿐,
+현재 실행 지침이 아니다. 시크릿은 어떤 명령·문서·이미지에도 기록하지 않는다.
 
 ## 공통 사항
 
@@ -15,11 +29,13 @@
 
 | 변수 | 필수 | 설명 |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | 필수 | Claude API 키 |
+| `ANTHROPIC_API_KEY` | 재승인된 Claude API adapter에만 필수 | Claude API 키 — 현재 fake 운영에서는 설정 금지 |
 | `KNOWLEDGE_DIR` | 선택 (기본 `knowledge`) | 지식 디렉토리 — 이미지에 `knowledge/`가 빌드타임에 포함됨 |
-| `MODEL` | 선택 (기본 `claude-haiku-4-5`) | `fake`로 두면 오프라인 스텁 응답(API 미호출) |
+| `MODEL` | 선택 (기본 `fake`) | 개인 Mac loopback 시연만 `codex-cli:gpt-5.6-luna`/high로 명시적 override; 공개 API adapter는 재승인 필요 |
 | `TRUST_PROXY_HOPS` | 선택 (기본 `0`) | 플랫폼별 권장값은 아래 표 참고 |
 | `DAILY_REQUEST_CAP` | 선택 (기본 `500`) | 전역 일일 요청 상한 |
+> 현재 개인 loopback 운영에는 `ANTHROPIC_API_KEY`가 필요하지 않다. 이 표의
+> 공개 플랫폼/API adapter 지침은 재승인된 공개 전환 때만 검토한다.
 
 ### 영속 볼륨
 
@@ -50,6 +66,8 @@ XFF 오른쪽에서 신뢰 가능한 IP를 뽑는다. 값이 실제 프록시 ho
 요청이 같은 IP로 뭉뚱그려져 rate limit이 과도하게 걸린다 — **플랫폼의 엣지
 프록시 구조와 정확히 맞춰야 한다.**
 
+> **격리됨 — 미래 공개 전환 전용:** 아래 플랫폼 지침은 현재 사용하거나 적용하지
+> 않는다. 별도 no-tool 아키텍처/API adapter와 보안·운영 재승인 후에만 사용한다.
 ## Railway (Hobby, $5/월 고정)
 
 - 근거: `https://docs.railway.com/pricing/plans` (2026-07-11 확인) — 영속
@@ -79,7 +97,7 @@ XFF 오른쪽에서 신뢰 가능한 IP를 뽑는다. 값이 실제 프록시 ho
   - **외부 크론 트리거**: 외부 스케줄러(예: GitHub Actions cron, cron-job.org)가
     HTTP로 볼 수 있는 별도 관리 엔드포인트를 앱에 만들어야 하므로, 앱 코드
     무수정 제약(이 phase 영향 범위) 하에서는 스케줄 머신 방식을 우선 권장.
-- env: `fly secrets set ANTHROPIC_API_KEY=... MODEL=... TRUST_PROXY_HOPS=1 ...`
+- env: 승인된 secret store에서 환경변수를 주입한다. 키 값은 명령행·셸 히스토리·문서에 넣지 않는다.
 - **TRUST_PROXY_HOPS=1** — Fly.io Anycast 엣지가 XFF에 1홉을 추가한다.
 
 ## Oracle Always Free VM ($0)
@@ -122,48 +140,33 @@ XFF 오른쪽에서 신뢰 가능한 IP를 뽑는다. 값이 실제 프록시 ho
 - Hetzner는 리전 선택이 자유로워 유럽 외 리전(가격 상이 가능, research.md
   Remaining Uncertainty) 선택도 가능.
 
-## 로컬 컨테이너 스모크 (플랫폼 무관, 배포 전 공통 점검)
+## 현재 로컬 loopback 점검
+
+현재는 공개 포트나 공개 URL을 열지 않는다. 안전 기본값 `MODEL=fake`로 결정론
+회귀를 확인하고, 개인 테스트에서는 `MODEL=codex-cli:gpt-5.6-luna`로 비공개
+loopback 응답을 확인한다. fixture, 전체 회귀, bounded API 세션 검증, Luna
+응답을 함께 성공 판정 근거로 사용한다.
+
+Docker 이미지 점검이 미래 전환에 필요하면 공개 포트 대신 loopback에만 바인딩한다.
 
 ```bash
 docker build -t lmwiki-chatbot .
-docker run --rm -p 8000:8000 -v "$(pwd)/data:/app/data" \
+docker run --rm -p 127.0.0.1:8000:8000 -v "$(pwd)/data:/app/data" \
   -e MODEL=fake -e KNOWLEDGE_DIR=knowledge lmwiki-chatbot
-# 다른 터미널에서
-curl -s -X POST http://localhost:8000/api/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id": "docker-smoke-1", "message": "안녕하세요"}'
 ```
 
-이 리포 워커 환경(2026-07-11 Phase 8 실행분)에는 docker CLI가 설치돼 있지
-않아 이 스모크를 직접 돌리지 못했다 — 대신 `scripts/smoke_local.sh`(venv
-기반 동일 로직: uvicorn 기동 → rate limit 경계 → 대화 3턴 → JSON 저장 →
-배치 적재 → SQLite 조회)로 Dockerfile이 감싸는 애플리케이션 동작 자체는
-확인했다. 실제 플랫폼 배포 전에는 이 절 명령으로 이미지 자체도 한 번
-확인 권장.
+`ANTHROPIC_API_KEY`를 전달하지 않는다. 이 리포 워커 환경(2026-07-11 Phase 8
+실행분)에는 docker CLI가 설치돼 있지 않아 당시 Docker 스모크는 직접 실행하지
+못했다. 공개 배포·유료 호출·외부 플랫폼 검증은 별도 no-tool 아키텍처/API
+adapter와 재승인 전까지 차단 상태다.
 
-### 상담 페르소나 배포 전 게이트
+### 향후 공개 재승인 시 상담 페르소나 게이트
 
-실모델 60회 평가가 구독 사용량 한도에 두 번 걸렸기 때문에, 배포 전 기본
-게이트는 **구독 무소모 deterministic 400회**로 잡는다. 이 게이트는 지식 스키마,
-트랙 라우팅, 위기 재현율, fake 데모 루프의 회귀를 빠르게 잡는다. 모델 기반 환자
-시뮬레이션은 그 다음 소규모 파일럿으로만 돌린다. Claude 한도 문구가 나오면
-하네스가 fail-fast로 추가 작업 제출을 멈춘다. Codex 환자 파일럿은 Claude 한도를
-우회할 수 있지만 Codex 사용량은 별도로 소모하므로 20회 이하에서 시작한다.
+현재 Luna CLI 허용은 개인 Mac의 loopback 테스트에만 해당한다. 공개 배포나
+제3자 접근으로 확대하려면 별도 진짜 no-tool 아키텍처 또는 API adapter의
+보안·운영 재승인이 필요하다. 아래 기록과 명령은 과거 평가 근거 및 향후 공개
+재승인 참고용이다.
 
-```bash
-.venv/bin/python -m pytest -q
-bash scripts/smoke_local.sh
-(cd scripts/gui-smoke && node gui-smoke.mjs)
-.venv/bin/python scripts/persona_eval.py --runs 20 --workers 8 --patient-mode scripted --bot-model fake
-
-# 선택: Codex 환자 시뮬레이터 파일럿(Codex 사용량 소모, 봇은 fake로 격리)
-.venv/bin/python scripts/persona_eval.py --runs 1 --workers 1 --persona crisis-hidden --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake
-
-# 선택: Claude 실모드 축소 파일럿(Claude 구독/비용 소모)
-.venv/bin/python scripts/persona_eval.py --runs 2 --workers 2 --patient-mode scripted --bot-model claude-cli
-```
-
-2026-07-13 기준 scripted 400회 게이트 결과: 400/400 성공, 트랙 정확도 400/400,
-위기 재현율 80/80.
-2026-07-13 기준 Codex 파일럿(`crisis-hidden` 1회, `gpt-5.6-luna`, bot=fake) 결과:
-1/1 성공, 위기 재현 1/1, 소요 91초.
+과거 scripted 400회 게이트 결과(2026-07-13): 400/400 성공, 트랙 정확도
+400/400, 위기 재현율 80/80. 과거 Codex 파일럿(`crisis-hidden` 1회,
+`gpt-5.6-luna`, bot=fake): 1/1 성공, 위기 재현 1/1, 소요 91초.

@@ -7,7 +7,11 @@
 
 from dataclasses import dataclass
 
-CENTER_DIRECTORY_URL = "https://www.mohw.go.kr/menu.es?hl=ko-KR&mid=a10706040400"
+from app import safety
+
+CENTER_DIRECTORY_URL = "https://www.nhis.or.kr/magazin/151/html/sub6.html"
+MENTAL_HEALTH_PHONE = "1577-0199"
+WELFARE_PHONE = "129"
 
 _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -19,6 +23,11 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "스포츠토토",
             "사설토토",
             "슬롯머신",
+            "선물 거래",
+            "코인",
+            "몰빵",
+            "풀배팅",
+            "꼬라박",
         ),
     ),
     (
@@ -33,6 +42,18 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "처방약 중독",
             "약을 못 끊",
             "약에 의존",
+            "약물을 못 끊",
+            "약물을 끊",
+            "약물을 몇 번",
+            "혼자 끊기",
+            "다시 찾게",
+            "본드",
+            "부탄",
+            "가스 흡입",
+            "야바",
+            "아이스",
+            "엑스터시",
+            "케타민",
         ),
     ),
     (
@@ -46,7 +67,11 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "게임 중독",
             "게임 과몰입",
             "게임을 못 끊",
+            "게임 때문에",
+            "게임을 끄",
             "밤새 게임",
+            "밤새 하",
+            "하루 8시간",
             "폰을 못 놓",
         ),
     ),
@@ -62,9 +87,18 @@ _TYPE_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "술 중독",
             "술을 못 끊",
             "술을 끊지 못",
+            "술을 줄",
             "술 때문에",
             "매일 술",
             "술 없이는",
+            "계속 마시",
+            "다음 날 후회",
+            "다시 마실",
+            "재발",
+            "혼술",
+            "맨날 술",
+            "필름 끊",
+            "두 병",
         ),
     ),
 )
@@ -76,6 +110,50 @@ _GENERIC_SIGNALS = (
     "중독 상담",
     "중독센터",
     "중독 센터",
+)
+
+_GENERIC_PROBLEM_SIGNALS = (
+    "통제가 안",
+    "조절이 안",
+    "끊기 어렵",
+    "끊기가 어렵",
+    "끊어야",
+    "못 끊",
+    "생활이 무너",
+    "생활 균형",
+    "재발",
+    "다시 하게",
+    "다시 찾게",
+    "손이 떨",
+    "필름 끊",
+    "꼬라박",
+)
+
+_THIRD_PARTY_SIGNALS = (
+    "남편",
+    "아내",
+    "배우자",
+    "남자친구",
+    "여자친구",
+    "아들",
+    "딸",
+    "자녀",
+    "부모",
+    "엄마",
+    "아빠",
+    "형제",
+    "자매",
+    "친구",
+    "동료",
+)
+_SELF_INVOLVEMENT_SIGNALS = (
+    "나도",
+    "저도",
+    "나 역시",
+    "저 역시",
+    "함께 못 끊",
+    "같이 못 끊",
+    "둘 다",
 )
 
 _EMERGENCY_SIGNALS = (
@@ -95,6 +173,23 @@ _EMERGENCY_SIGNALS = (
     "심한 금단",
     "환각이 보",
     "환청이 들",
+    "한 통 다",
+    "한통 다",
+    "한통다",
+    "다 삼켰",
+    "여러 알",
+    "한 움큼",
+    "남은 약 다",
+    "술이랑 약",
+    "술과 약",
+    "약을 같이",
+    "정신을 잃",
+    "기절",
+    "쓰러졌",
+    "깨어나지",
+    "숨쉬기 힘",
+    "숨쉬기가 힘",
+    "숨이 가쁘",
 )
 
 _HIGH_RISK_SIGNALS = (
@@ -114,6 +209,13 @@ _HIGH_RISK_SIGNALS = (
     "직장을 못",
     "학교를 못",
     "가족이 떠",
+    "재발",
+    "끊기 어렵",
+    "끊기가 어렵",
+    "계속 마시",
+    "다음 날 후회",
+    "하루 8시간",
+    "밤새",
 )
 
 
@@ -124,22 +226,35 @@ class AddictionAssessment:
 
 
 def _contains_any(message: str, signals: tuple[str, ...]) -> bool:
-    normalized = message.casefold()
-    return any(signal.casefold() in normalized for signal in signals)
+    normalized = safety.normalize_for_signal(message)
+    return any(safety.normalize_for_signal(signal) in normalized for signal in signals)
 
 
 def detect_kind(message: str) -> str | None:
-    """명시적인 문제 표현이 있을 때만 중독 유형을 반환한다.
-
-    평범한 "술 한잔"이나 "게임을 했다"를 중독으로 과탐지하지 않도록 단독 명사는
-    피하고 문제·통제 상실이 드러나는 복합 표현을 사용한다.
-    """
+    """명시적인 문제 표현이 있을 때만 중독 유형을 반환한다."""
     for kind, signals in _TYPE_SIGNALS:
         if _contains_any(message, signals):
             return kind
+    if _contains_any(message, _GENERIC_PROBLEM_SIGNALS):
+        text = safety.normalize_for_signal(message)
+        if any(word in text for word in ("술", "음주", "알코올", "마시", "혼술")):
+            return "알코올"
+        if any(word in text for word in ("약물", "마약", "처방약", "본드", "부탄", "야바", "아이스")):
+            return "마약·약물"
+        if any(word in text for word in ("도박", "베팅", "토토", "코인", "선물거래", "몰빵", "풀배팅")):
+            return "도박"
+        if any(word in text for word in ("게임", "스마트폰", "휴대폰", "인터넷")):
+            return "인터넷·스마트폰·게임"
     if _contains_any(message, _GENERIC_SIGNALS):
         return "기타·미확인"
     return None
+
+
+def is_third_party_only(message: str) -> bool:
+    """가족·지인의 사용 문제를 내담자 본인의 중독으로 오분류하지 않는다."""
+    return _contains_any(message, _THIRD_PARTY_SIGNALS) and not _contains_any(
+        message, _SELF_INVOLVEMENT_SIGNALS
+    )
 
 
 def assess(
@@ -155,8 +270,11 @@ def assess(
     """
     kind = detect_kind(message) or previous_kind
     emergency = _contains_any(message, _EMERGENCY_SIGNALS)
+    if is_third_party_only(message) and not emergency:
+        return None
     if kind is None and emergency:
-        kind = "마약·약물"
+        normalized = safety.normalize_for_signal(message)
+        kind = "마약·약물" if any(word in normalized for word in ("약", "약물", "처방약", "수면제")) else "기타·미확인"
     if kind is None and not active:
         return None
     kind = kind or "기타·미확인"
@@ -188,8 +306,11 @@ def build_reply(assessment: AddictionAssessment, *, followup: bool = False) -> s
     contact = _specialized_contact(assessment.kind)
     contact_line = f" 유형별 전문창구는 {contact}입니다." if contact else ""
     center_line = (
-        "가까운 중독관리통합지원센터는 본인과 가족에게 전화·방문 상담, 단기개입, "
-        f"치료·재활 연계를 제공합니다. 센터 목록: {CENTER_DIRECTORY_URL}"
+        "중독은 혼자 의지만으로 해결하기 어려울 수 있어 가능한 빨리 전문 도움을 받는 것이 "
+        "중요합니다. 중독관리통합지원센터는 본인과 가족에게 상담, 단기개입, 치료·재활과 "
+        f"사회복귀 연계를 제공합니다. 가까운 센터는 보건복지상담센터 {WELFARE_PHONE} 또는 "
+        f"정신건강상담전화 {MENTAL_HEALTH_PHONE}에서 확인할 수 있습니다. "
+        f"기관·치료 정보: {CENTER_DIRECTORY_URL}"
     )
 
     if assessment.severity == "응급":
@@ -197,7 +318,9 @@ def build_reply(assessment: AddictionAssessment, *, followup: bool = False) -> s
             "지금 말씀은 의식 저하·호흡 이상·경련·과다복용·심한 금단 같은 응급 신호일 수 "
             "있습니다. 중독센터 상담을 기다리지 말고 119 또는 가까운 응급실로 바로 도움을 "
             "요청하고, 가능하면 혼자 있거나 직접 운전하지 마세요. 급한 위험이 가라앉은 뒤에는 "
-            f"중독 전문기관으로 이어가는 것이 맞습니다.{contact_line} {center_line}"
+            f"중독 전문기관으로 이어가는 것이 맞습니다.{contact_line} {center_line} "
+            "의도적 복용이었거나 스스로를 해칠까 걱정된다면 자살예방상담전화 109 또는 "
+            "생명의전화 1588-9191에도 바로 연락해 주세요."
         )
 
     if followup and assessment.severity == "고위험":

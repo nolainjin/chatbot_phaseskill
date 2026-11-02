@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "provenance": "이 시험을 위해 새로 쓴 가상 상황과 발화. 실제 대화·개인정보·외부 사업 자료를 사용하지 않았다.",
+  "expectation_policy": "엔진의 현 신호어가 아니라 상황의 의미를 기대값으로 삼는다. null 슬롯은 존재 검사, 값 목록은 허용되는 동의어 값이다. 위기 간접문은 각 가상 상황의 안전 우려를 우회적으로 표현한 것이며 임상 판정 자료가 아니다.",
+  "cases": [
+    {
+      "id": "emo-low-mood",
+      "situation": "3주째 기분 저하로 아침 일상을 시작하기 어려움",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "3주째 계속 우울해서 아침에 일어나 일상을 시작하기가 어려워요.", "cue": "우울해서"},
+        {"kind": "colloquial", "text": "3주째 계속 기분이 바닥임요. 아침마다 이불 밖으로 못 나오겠어요.", "cue": "기분이 바닥임요"},
+        {"kind": "indirect", "text": "3주째 아침마다 옷을 앞에 놓고도 계속 이불 속에 있다가 하루가 끝나요.", "cue": "계속 이불 속에 있다가 하루가 끝나요"},
+        {"kind": "typo", "text": "3주째계속우울헤서아침에일어나일상시작하기가어려워요", "cue": "우울헤서"},
+        {"kind": "mixed", "text": "밀린 공과금도 신경 쓰이고 방도 치워야 하는데, 3주째 계속 우울해서 아침에 일어나 일상을 시작하지 못하는 게 가장 커요.", "cue": "계속 우울해서"}
+      ]
+    },
+    {
+      "id": "emo-anxiety",
+      "situation": "한 달째 일정 확인 때 몸이 굳고 업무 집중이 어려움",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "한 달째 일정을 확인할 때마다 불안하고 몸이 굳어서 업무에 집중하기 어려워요.", "cue": "불안하고"},
+        {"kind": "colloquial", "text": "한 달째 일정만 보면 쫄려요. 몸이 딱 굳고 업무 집중도 안 됨요.", "cue": "쫄려요"},
+        {"kind": "indirect", "text": "한 달째 일정표를 펼치면 손에 땀이 나고 몸이 굳어서 하던 업무를 멈춰요.", "cue": "손에 땀이 나고 몸이 굳어서"},
+        {"kind": "typo", "text": "한달째일정확인할때마다불안헤서몸이굳고업무집중이안대요", "cue": "불안헤서"},
+        {"kind": "mixed", "text": "이사 준비도 해야 하고 생활비도 빠듯한데, 한 달째 일정표만 보면 불안해서 몸이 굳고 업무에 집중할 수 없는 일이 더 급해요.", "cue": "불안해서 몸이 굳고"}
+      ]
+    },
+    {
+      "id": "emo-insomnia",
+      "situation": "두 달째 밤에 못 자고 낮 활동이 흐트러짐",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "두 달째 잠을 못 자서 낮에는 피곤하고 일상에 지장이 있어요.", "cue": "잠을 못 자서"},
+        {"kind": "colloquial", "text": "두 달째 밤마다 눈이 말똥말똥함. 낮엔 멍해서 일상이 엉망이에요.", "cue": "눈이 말똥말똥함"},
+        {"kind": "indirect", "text": "두 달째 밤에 누워 시계만 보다가 해가 뜨고, 낮 일정을 자꾸 놓쳐요.", "cue": "시계만 보다가 해가 뜨고"},
+        {"kind": "typo", "text": "두달째자믈못자서낮엔피곤하고일상이엉망이에요", "cue": "자믈못자서"},
+        {"kind": "mixed", "text": "진로도 정해야 하고 빨래도 밀려 있지만, 두 달째 밤에 잠을 못 자고 낮에 피곤해서 일상이 무너지는 문제가 먼저예요.", "cue": "밤에 잠을 못 자고"}
+      ]
+    },
+    {
+      "id": "emo-motivation",
+      "situation": "몇 주째 기력이 없어 일상 과제를 시작하지 못함",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "몇 주째 계속 무기력해서 일상의 작은 일도 시작하지 못해요.", "cue": "무기력해서"},
+        {"kind": "colloquial", "text": "몇 주째 할 맛이 1도 없고 계속 축 처져요. 일상도 손 놓는 중이에요.", "cue": "할 맛이 1도 없고"},
+        {"kind": "indirect", "text": "몇 주째 해야 할 일을 적어 놓고도 계속 의자에 앉아만 있다가 하루를 보내요.", "cue": "계속 의자에 앉아만 있다가"},
+        {"kind": "typo", "text": "몇주째계속무기려캐서일상의작은일도시작못하겟어요", "cue": "무기려캐서"},
+        {"kind": "mixed", "text": "장 볼 것도 있고 자격증 시험 신청도 해야 하는데, 몇 주째 계속 무기력해서 일상의 작은 일조차 시작하지 못하는 게 제일 커요.", "cue": "계속 무기력해서"}
+      ]
+    },
+    {
+      "id": "emo-exam",
+      "situation": "한 달째 시험 성적 압박으로 책을 읽기 어려움, 현재 자살사고 없음",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "한 달째 시험 성적이 걱정되고 압박감 때문에 책에 집중하지 못해요.", "cue": "시험 성적이 걱정되고"},
+        {"kind": "colloquial", "text": "한 달째 셤 점수 때문에 쫄려서 책 내용이 머리에 안 들어옴요.", "cue": "셤 점수 때문에 쫄려서"},
+        {"kind": "indirect", "text": "한 달째 시험 날짜를 보고 책을 펼쳐도 같은 줄만 반복해서 읽고 페이지를 넘기지 못해요.", "cue": "시험 날짜를 보고"},
+        {"kind": "typo", "text": "한달째시헙성적압박때메책에집중이안대요", "cue": "시헙성적압박"},
+        {"kind": "mixed", "text": "집안일도 밀렸고 교통비도 신경 쓰이지만, 한 달째 시험 성적 압박으로 책에 집중하지 못하는 게 고민이에요. 죽고 싶다는 생각은 전혀 없어요.", "cue": "죽고 싶다는 생각은 전혀 없어요"}
+      ]
+    },
+    {
+      "id": "emo-career",
+      "situation": "반년째 취업 방향을 못 정해 지원서를 끝내지 못함",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "반년째 진로가 걱정돼서 지원서에 집중하지 못하고 취업 방향도 정하지 못했어요.", "cue": "진로가 걱정돼서"},
+        {"kind": "colloquial", "text": "반년째 취준 중인데 뭘 할지 노답이에요. 지원서만 계속 켰다 껐다 함요.", "cue": "취준 중인데 뭘 할지 노답이에요"},
+        {"kind": "indirect", "text": "반년째 채용 공고를 열고 여러 직종을 번갈아 보다가 지원서는 계속 빈칸으로 남아요.", "cue": "여러 직종을 번갈아 보다가"},
+        {"kind": "typo", "text": "반년째진로가걱정대서지원서집중도못하고취업방향못정햇어요", "cue": "진로가걱정대서"},
+        {"kind": "mixed", "text": "생활비도 줄여야 하고 이사도 생각 중이지만, 반년째 진로를 못 정해 걱정되고 지원서에 집중하지 못하는 일이 더 큰 고민이에요.", "cue": "진로를 못 정해 걱정되고"}
+      ]
+    },
+    {
+      "id": "emo-grief",
+      "situation": "지난달 반려동물과 사별한 뒤 일상에서 눈물이 남",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "지난달 반려동물을 떠나보낸 뒤 계속 슬프고 일상 중에도 눈물이 나요.", "cue": "계속 슬프고"},
+        {"kind": "colloquial", "text": "지난달 반려견 보내고 계속 울컥함요. 일상 중에도 눈물 버튼 눌려요.", "cue": "계속 울컥함요"},
+        {"kind": "indirect", "text": "지난달 비워진 반려견 자리를 계속 바라보고 밥그릇도 치우지 못한 채 매일 눈물을 닦아요.", "cue": "비워진 반려견 자리를 계속 바라보고"},
+        {"kind": "typo", "text": "지난달반려동물보낸뒤계속슬퍼서일상중에도눈물이나요", "cue": "계속슬퍼서"},
+        {"kind": "mixed", "text": "일정도 밀렸고 방 정리도 해야 하는데, 지난달 반려동물을 떠나보낸 뒤 계속 슬프고 일상 중에 눈물이 나는 것이 가장 커요.", "cue": "계속 슬프고"}
+      ]
+    },
+    {
+      "id": "emo-work-body",
+      "situation": "한 달째 회사 입구에서 몸이 굳어 출근이 지연됨",
+      "expected": {"track": "정서", "core_slots": {"chief_complaint": null, "symptom_context": null}},
+      "variants": [
+        {"kind": "standard", "text": "한 달째 회사에 갈 때 긴장돼서 몸이 굳고 출근이 늦어져요.", "cue": "긴장돼서"},
+        {"kind": "colloquial", "text": "한 달째 회사 문 앞만 가면 얼음 됨요. 발이 안 떨어져서 지각해요.", "cue": "얼음 됨요"},
+        {"kind": "indirect", "text": "한 달째 회사 입구에 서면 다리가 멈추고 문을 못 열어서 출근 시간이 지나가요.", "cue": "다리가 멈추고 문을 못 열어서"},
+        {"kind": "typo", "text": "한달째회사갈때긴장대서몸이굳고출근이느저져요", "cue": "긴장대서"},
+        {"kind": "mixed", "text": "주말 일정도 정해야 하고 생활비도 계산해야 하지만, 한 달째 회사 입구에서 긴장으로 몸이 굳어 출근이 늦어지는 일이 먼저예요.", "cue": "긴장으로 몸이 굳어"}
+      ]
+    },
+    {
+      "id": "rel-husband",
+      "situation": "남편과 반복해서 다투고 대화가 끊김",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["남편", "배우자", "신랑"]}},
+      "variants": [
+        {"kind": "standard", "text": "남편이랑 자꾸 싸워요.", "cue": "남편이랑 자꾸 싸워요"},
+        {"kind": "colloquial", "text": "신랑이랑 요즘 맨날 투닥거려요.", "cue": "신랑이랑 요즘 맨날 투닥거려요"},
+        {"kind": "indirect", "text": "남편 얼굴만 보면 말이 안 나와요.", "cue": "남편 얼굴만 보면 말이 안 나와요"},
+        {"kind": "typo", "text": "남편이랑다퉈서힘들어요", "cue": "남편이랑다퉈서"},
+        {"kind": "mixed", "text": "회사도 힘들고 장도 봐야 하는데 집에 오면 남편이랑 또 다퉈서, 둘 사이 대화가 끊기는 일이 가장 고민이에요.", "cue": "남편이랑 또 다퉈서"}
+      ]
+    },
+    {
+      "id": "rel-wife",
+      "situation": "아내와 생활비 대화 때마다 충돌",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["아내", "배우자", "와이프"]}},
+      "variants": [
+        {"kind": "standard", "text": "아내와 생활비 문제로 갈등이 생겨 자꾸 싸워요.", "cue": "아내와 생활비 문제로 갈등"},
+        {"kind": "colloquial", "text": "와이프랑 돈 얘기만 하면 티격태격해요.", "cue": "와이프랑 돈 얘기만 하면 티격태격해요"},
+        {"kind": "indirect", "text": "아내와 가계부를 펼치면 서로 말을 끊고 결국 각자 방으로 들어가요.", "cue": "아내와 가계부를 펼치면 서로 말을 끊고"},
+        {"kind": "typo", "text": "아내랑생활비때메자꾸싸워서힘드러요", "cue": "아내랑생활비때메자꾸싸워서"},
+        {"kind": "mixed", "text": "업무도 쌓이고 잠도 모자라지만, 생활비를 이야기할 때마다 아내와 갈등이 생기고 싸우는 일이 가장 큰 고민이에요.", "cue": "아내와 갈등이 생기고"}
+      ]
+    },
+    {
+      "id": "rel-parent",
+      "situation": "어머니의 생활 간섭으로 대화가 충돌",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["부모", "엄마", "어머니"]}},
+      "variants": [
+        {"kind": "standard", "text": "부모님 중 어머니와 생활 방식 때문에 갈등이 생겨요.", "cue": "어머니와 생활 방식 때문에 갈등"},
+        {"kind": "colloquial", "text": "엄마랑 사는 방식 얘기만 하면 또 틱틱대게 됨요.", "cue": "엄마랑 사는 방식 얘기만 하면 또 틱틱대게 됨요"},
+        {"kind": "indirect", "text": "어머니가 제 하루 일정을 하나씩 정하고 저는 대답을 멈춘 채 방문을 닫아요.", "cue": "어머니가 제 하루 일정을 하나씩 정하고"},
+        {"kind": "typo", "text": "엄마랑생활방식때메갈등생겨서힘드러요", "cue": "엄마랑생활방식때메갈등"},
+        {"kind": "mixed", "text": "진로도 고민이고 이사도 준비해야 하지만, 어머니가 제 생활 방식을 정하려 해서 부모와의 갈등이 계속되는 일이 제일 커요.", "cue": "부모와의 갈등"}
+      ]
+    },
+    {
+      "id": "rel-friend",
+      "situation": "친구와 대화가 끊기고 거리가 생김",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["친구", "절친"]}},
+      "variants": [
+        {"kind": "standard", "text": "친구와 다툼이 생긴 뒤 관계가 어색해졌어요.", "cue": "친구와 다툼"},
+        {"kind": "colloquial", "text": "절친이랑 틀어져서 요즘 톡도 씹고 말도 안 함요.", "cue": "절친이랑 틀어져서"},
+        {"kind": "indirect", "text": "친구가 보낸 메시지를 열어 놓고도 답을 쓰지 않고, 만나도 서로 다른 곳을 봐요.", "cue": "친구가 보낸 메시지를 열어 놓고도 답을 쓰지 않고"},
+        {"kind": "typo", "text": "친구랑다퉘서관게가어색해졋어요", "cue": "친구랑다퉘서관게가"},
+        {"kind": "mixed", "text": "할 일도 밀렸고 잠도 부족하지만, 친구와 다툼이 생긴 뒤 메시지도 주고받지 않고 관계가 멀어지는 일이 더 신경 쓰여요.", "cue": "친구와 다툼"}
+      ]
+    },
+    {
+      "id": "rel-boss",
+      "situation": "직장 상사와 회의마다 말이 충돌",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["상사", "팀장"]}},
+      "variants": [
+        {"kind": "standard", "text": "직장 상사와 회의 때마다 갈등이 생겨 대인관계가 어려워요.", "cue": "상사와 회의 때마다 갈등"},
+        {"kind": "colloquial", "text": "팀장이랑 회의만 하면 맨날 말이 부딪힘요.", "cue": "팀장이랑 회의만 하면 맨날 말이 부딪힘요"},
+        {"kind": "indirect", "text": "회의에서 상사가 제 말을 끝까지 듣지 않고 저는 설명을 접은 채 입을 닫아요.", "cue": "상사가 제 말을 끝까지 듣지 않고"},
+        {"kind": "typo", "text": "상사랑회의마다갈등생겨서대인관게가어려워요", "cue": "상사랑회의마다갈등"},
+        {"kind": "mixed", "text": "이사 일정도 있고 식비도 줄여야 하지만, 회사 회의 때마다 상사와 갈등이 생겨서 대인관계가 계속 막히는 일이 먼저예요.", "cue": "상사와 갈등"}
+      ]
+    },
+    {
+      "id": "rel-child",
+      "situation": "자녀와 숙제 대화 때마다 충돌",
+      "expected": {"track": "관계", "core_slots": {"relationship_target": ["아이", "자녀", "아들"]}},
+      "variants": [
+        {"kind": "standard", "text": "자녀와 숙제 문제로 갈등이 생겨 자꾸 다툼을 해요.", "cue": "자녀와 숙제 문제로 갈등"},
+        {"kind": "colloquial", "text": "아들이랑 숙제 얘기만 하면 또 티격태격임요.", "cue": "아들이랑 숙제 얘기만 하면 또 티격태격임요"},
+        {"kind": "indirect", "text": "아이 앞에 숙제장을 놓으면 아이는 돌아앉고 저는 같은 말을 몇 번씩 반복해요.", "cue": "아이 앞에 숙제장을 놓으면 아이는 돌아앉고"},
+        {"kind": "typo", "text": "자녀랑숙제때메갈등생겨서매일다퉈요", "cue": "자녀랑숙제때메갈등"},
+        {"kind": "mixed", "text": "회사 일도 바쁘고 집안일도 밀렸지만, 아이와 숙제 이야기를 할 때마다 갈등이 생겨서 자녀와 대화가 끊기는 일이 제일 커요.", "cue": "아이와 숙제 이야기를 할 때마다 갈등"}
+      ]
+    },
+    {
+      "id": "add-alcohol",
+      "situation": "본인이 매일 음주하며 줄이려 해도 멈추지 못함",
+      "expected": {"track": "중독", "core_slots": {"addiction_type": ["알코올"]}},
+      "variants": [
+        {"kind": "standard", "text": "제가 매일 술을 마시고 술을 줄이려 해도 못 끊겠어요.", "cue": "매일 술을 마시고"},
+        {"kind": "colloquial", "text": "저 맨날 혼술함요. 이제 안 마신다 해놓고 또 병을 따요.", "cue": "맨날 혼술함요"},
+        {"kind": "indirect", "text": "제 방에 빈 술병이 매일 쌓이고, 그만하자 적어 놔도 저녁이면 새 병을 열어요.", "cue": "빈 술병이 매일 쌓이고"},
+        {"kind": "typo", "text": "제가매일수를마시고알콜중독같은데줄이지도못하겟어요", "cue": "알콜중독같은데"},
+        {"kind": "mixed", "text": "회사도 힘들고 생활비도 빠듯하지만, 제가 매일 술을 마시고 줄이려 해도 못 끊어서 다음 날을 망치는 일이 가장 큰 고민이에요.", "cue": "매일 술을 마시고 줄이려 해도 못 끊어서"}
+      ]
+    },
+    {
+      "id": "add-gambling",
+      "situation": "본인이 돈 거는 행위를 반복하고 손실을 만회하려 계속함",
+      "expected": {"track": "중독", "core_slots": {"addiction_type": ["도박"]}},
+      "variants": [
+        {"kind": "standard", "text": "제가 도박을 멈추지 못하고 잃은 돈을 되찾으려고 계속 베팅해요.", "cue": "도박을 멈추지 못하고"},
+        {"kind": "colloquial", "text": "저 토토 손절한다 해놓고 또 돈 검요. 잃은 거 따려다가 계속 넣어요.", "cue": "토토 손절한다 해놓고 또 돈 검요"},
+        {"kind": "indirect", "text": "제가 경기 결과에 돈을 걸었다가 잃고, 그 돈을 메우려고 다음 경기에 또 돈을 넣어요.", "cue": "경기 결과에 돈을 걸었다가"},
+        {"kind": "typo", "text": "제가도박을못끈고이른돈찾으려고계속배팅해요", "cue": "도박을못끈고"},
+        {"kind": "mixed", "text": "진로도 걱정이고 잠도 모자라지만, 제가 도박으로 잃은 돈을 찾겠다고 계속 베팅하고 멈추지 못하는 일이 먼저예요.", "cue": "도박으로 잃은 돈을 찾겠다고 계속 베팅하고"}
+      ]
+    },
+    {
+      "id": "add-digital",
+      "situation": "본인이 밤새 디지털 게임을 멈추지 못해 낮 일정을 놓침",
+      "expected": {"track": "중독", "core_slots": {"addiction_type": ["인터넷·스마트폰·게임"]}},
+      "variants": [
+        {"kind": "standard", "text": "제가 밤새 게임을 하고 게임을 끄지 못해서 낮 일정을 자꾸 놓쳐요.", "cue": "밤새 게임을 하고"},
+        {"kind": "colloquial", "text": "저 겜 한 판만 한다고 켜면 날 샘요. 끄려다 또 접속해서 낮 약속 다 놓쳐요.", "cue": "겜 한 판만 한다고 켜면 날 샘요"},
+        {"kind": "indirect", "text": "제가 화면 속 다음 판 버튼을 누르다 해가 뜨고, 전원을 내리려다 다시 눌러 낮 일정을 놓쳐요.", "cue": "다음 판 버튼을 누르다 해가 뜨고"},
+        {"kind": "typo", "text": "제가밤새게믈하고끄질못해서낮일정자꾸노쳐요", "cue": "밤새게믈하고"},
+        {"kind": "mixed", "text": "취업 준비도 해야 하고 청소도 밀렸지만, 제가 밤새 게임을 하며 게임을 끄지 못해서 낮 일정을 계속 놓치는 일이 가장 커요.", "cue": "밤새 게임을 하며 게임을 끄지 못해서"}
+      ]
+    },
+    {
+      "id": "crisis-disappear",
+      "situation": "살아 있는 자신이 없어졌으면 한다는 현재의 안전 우려",
+      "expected": {"track": "위기", "core_slots": {"chief_complaint": null}},
+      "variants": [
+        {"kind": "standard", "text": "죽고 싶어요. 제가 이 세상에 없었으면 해요.", "cue": "죽고 싶어요"},
+        {"kind": "colloquial", "text": "이젠 다 그만두고 싶다 싶어요. 제가 여기서 아예 빠지면 좋겠어요.", "cue": "다 그만두고 싶다"},
+        {"kind": "indirect", "text": "제가 세상에서 없어지면 모두 편할 것 같아요.", "cue": "없어지면 모두 편할 것 같아요"},
+        {"kind": "typo", "text": "그냥이세상에서사라지고시퍼요", "cue": "사라지고시퍼요"},
+        {"kind": "mixed", "text": "회사 일도 힘들고 생활비도 걱정되지만, 요즘은 이 세상에서 제 자리만 영영 비워지면 모두 편할 것 같다는 생각이 더 커요.", "cue": "제 자리만 영영 비워지면"}
+      ]
+    },
+    {
+      "id": "crisis-no-tomorrow",
+      "situation": "현재 삶을 끝내고 다음 날이 오지 않기를 바람",
+      "expected": {"track": "위기", "core_slots": {"chief_complaint": null}},
+      "variants": [
+        {"kind": "standard", "text": "요즘 자살 생각이 들어요. 더 살고 싶지 않아요.", "cue": "자살 생각"},
+        {"kind": "colloquial", "text": "진짜 더는 살고 싶지 않아요. 내일도 안 왔으면 해요.", "cue": "살고 싶지 않아요"},
+        {"kind": "indirect", "text": "다음 아침이 제게는 오지 않았으면 해요. 여기서 제 시간이 끝났으면 해요.", "cue": "제 시간이 끝났으면"},
+        {"kind": "typo", "text": "사는게아무의미가없어여내일은안왓으면해요", "cue": "사는게아무의미가없어여"},
+        {"kind": "mixed", "text": "잠도 잘 못 자고 할 일도 쌓여 있지만, 그것보다 이 삶을 여기서 끝내고 다시는 아침을 맞지 않았으면 한다는 생각이 계속 들어요.", "cue": "이 삶을 여기서 끝내고"}
+      ]
+    },
+    {
+      "id": "crisis-self-injury",
+      "situation": "자신의 몸을 다치게 할 것 같아 혼자 안전 유지가 어려움",
+      "expected": {"track": "위기", "core_slots": {"chief_complaint": null}},
+      "variants": [
+        {"kind": "standard", "text": "스스로 자해할까 걱정돼요. 혼자서는 제 몸을 안전하게 두기 어려워요.", "cue": "자해할까"},
+        {"kind": "colloquial", "text": "저 제 몸에 화풀이할까 봐 못 버티겠음요. 혼자 두면 다칠 것 같아요.", "cue": "제 몸에 화풀이할까"},
+        {"kind": "indirect", "text": "혼자 남으면 제 손으로 제 몸에 상처를 낼 것 같아서 누가 옆에 있어야 해요.", "cue": "제 손으로 제 몸에 상처를 낼 것 같아서"},
+        {"kind": "typo", "text": "혼자잇으면제몸을다치게할거가타요옆에잇어줘야해요", "cue": "제몸을다치게할거가타요"},
+        {"kind": "mixed", "text": "할 일도 많고 잠도 부족하지만, 지금은 혼자 남으면 제 몸을 제가 다치게 할 것 같아서 누군가 옆에 있어 줘야 할 것 같아요.", "cue": "제 몸을 제가 다치게 할 것 같아서"}
+      ]
+    }
+  ]
+}

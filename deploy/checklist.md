@@ -1,52 +1,32 @@
-# 실배포 후 검증 체크리스트
+# 운영 검증 체크리스트
 
-플랫폼 확정 + 실배포(체크리스트 항목 5) 완료 후, 아래 항목을 **공개 URL에
-대고** 순서대로 확인한다. `$URL`은 실제 배포된 공개 주소로 치환한다(예:
-`https://lmwiki-chatbot.up.railway.app`).
+## 현재 승인 범위: 1주일 개인 Mac local-only 운영
 
-## 배포 전 로컬 게이트
+안전 기본값은 `MODEL=fake`이며, 실제 개인 테스트는
+`MODEL=codex-cli:gpt-5.6-luna`와 `high` 강도를 사용한다. 두 경로 모두 private
+loopback 전용이다. 공개 URL·공개 ingress·Railway/Cloudflare 배포는 현재
+차단한다. API 키를 설정·전달·기록하지 않는다.
 
-- [ ] `.venv/bin/python -m pytest -q` → 전체 통과
-- [ ] `bash scripts/smoke_local.sh` → rate limit·JSON 저장·SQLite 배치 통과
-- [ ] `(cd scripts/gui-smoke && node gui-smoke.mjs)` → 20개 브라우저 단언 통과
-- [ ] `.venv/bin/python scripts/persona_eval.py --runs 20 --workers 8 --patient-mode scripted --bot-model fake`
-      → 400/400 성공, 트랙 정확도 400/400, 위기 재현율 80/80
-- [ ] 선택 Codex 환자 파일럿:
-      `.venv/bin/python scripts/persona_eval.py --runs 1 --workers 1 --persona crisis-hidden --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake`
-      (Codex 사용량 소모. 봇은 fake로 격리)
-- [ ] 선택 Claude 실모드 파일럿:
-      `.venv/bin/python scripts/persona_eval.py --runs 2 --workers 2 --patient-mode scripted --bot-model claude-cli`
-      (Claude 구독/비용 소모. 사용량 한도 감지 시 기본 fail-fast)
+- [ ] 프로세스가 loopback에만 바인딩되고 공개 포트/도메인/ingress가 없는지 확인
+- [ ] LaunchAgent가 `codex-cli:gpt-5.6-luna`와 `high` 강도로 기동되는지 확인
+- [ ] 지정 fixture와 전체 회귀 테스트가 통과하는지 확인
+- [ ] bounded loopback API에서 차단 입력 마스킹, 10턴 상한, 새 세션 1턴을 확인
+- [ ] 비공개 Luna 응답이 비어 있지 않고 내부 런타임 정보를 노출하지 않는지 확인
 
-## 실배포 후 공개 URL 검증
+## 향후 공개 배포 검증 (격리됨 — 현재 실행 금지)
 
-- [ ] **공개 URL 응답**: `curl -s -o /dev/null -w '%{http_code}\n' "$URL/"` →
-      `200` (또는 `curl -s -o /dev/null -w '%{http_code}\n' "$URL/api/chat" -X POST -d '{}'`
-      로 최소 애플리케이션이 라우팅에 응답하는지 확인)
-- [ ] **실대화**: `curl -s -X POST "$URL/api/chat" -H 'Content-Type: application/json'
-      -d '{"session_id": "deploy-check-1", "message": "안녕하세요"}'` → `reply`
-      필드가 담긴 200 응답(실 모델 호출이므로 API 비용 발생 — 확정 후 1회만)
-- [ ] **JSON 저장 확인**: 배포 환경의 `/app/data/conversations/<오늘날짜>/deploy-check-1.json`
-      이 실제로 존재하고 방금 보낸 턴이 들어있는지 확인(플랫폼 콘솔의 볼륨
-      브라우저 또는 `docker exec`/SSH로 직접 조회)
-- [ ] **배치 수동 1회 + SQLite 확인**: 배포 환경에서
-      `python scripts/load_to_sqlite.py --date <오늘날짜>` 를 수동 실행 →
-      `data/chatlog.db`가 생성/갱신되고 `sqlite3 data/chatlog.db "SELECT
-      COUNT(*) FROM turns WHERE session_id='deploy-check-1';"` 가 방금 보낸
-      턴 수(2, user+assistant)를 반환하는지 확인
-- [ ] **6번째 세션 차단**: 같은 IP에서 `session_id`를 5개(`deploy-check-2`~`6`)
-      새로 만들며 각각 `POST /api/chat` → 5개 전부 200, 6번째 신규
-      `session_id`는 429 + rate limit 메시지인지 확인 (`scripts/smoke_local.sh`
-      1번 블록과 동일한 로직을 공개 URL에 대고 재현)
-- [ ] **TRUST_PROXY_HOPS 플랫폼 권장값 확인**: `deploy/README.md`의 플랫폼별
-      권장값(Railway/Fly.io=1, Oracle/Hetzner=0 또는 리버스 프록시 사용 시 1)이
-      실제 배포 환경변수에 그 값으로 설정돼 있는지 확인 — 틀리면 rate limit이
-      스푸핑으로 우회되거나 서로 다른 클라이언트가 한 IP로 뭉뚱그려짐
-- [ ] **서로 다른 두 클라이언트 독립 카운트**: PC(고정 IP/와이파이)와 폰
-      LTE(별도 공인 IP) 두 네트워크에서 각각 새 `session_id`로 대화를 걸어,
-      한쪽에서 rate limit 윈도우를 소진해도 다른 쪽 IP는 영향받지 않는지
-      확인(반대로 TRUST_PROXY_HOPS가 틀렸다면 두 클라이언트가 같은 카운터를
-      공유하는 증상으로 드러남 — 위 항목과 교차 검증)
+다음 항목은 Railway/Cloudflare 등을 포함한 공개 전환이 별도의 진짜 **no-tool**
+아키텍처 또는 API adapter로 설계되고 보안·운영 재승인을 받은 뒤에만 사용한다.
+read-only sandbox 표기는 도구 부재를 보장하지 않으므로, 해당 전환에서 도구
+권한의 명시적 제거와 검증이 선행되어야 한다. 시크릿은 문서·명령행·이미지·로그에
+기록하지 않고 승인된 secret store로만 주입한다.
 
-체크 완료 후 `docs/planning/lmwiki-chatbot-proto/phase-08-deploy.md`
-체크리스트 항목 5를 완료 처리하고 실행 결과에 기록한다.
+- [ ] 재승인된 공개 아키텍처/API adapter가 no-tool 경계를 명시하고 검증함
+- [ ] Railway: 승인된 secret store와 `/app/data` 영속 볼륨을 연결하고, 키 값을
+      콘솔 캡처·명령행·로그에 노출하지 않음
+- [ ] Cloudflare: 공개 경로·TLS·원본 접근 제한 및 실제 프록시 hop 수를 설계
+      검토에 기록하고 `TRUST_PROXY_HOPS` 검증에 반영함
+- [ ] 플랫폼의 영속 볼륨이 `/app/data`에 연결되고 보존·삭제·접근 통제가 검토됨
+- [ ] 실제 프록시 구조에 맞는 `TRUST_PROXY_HOPS`가 검증됨
+- [ ] 공개 URL health 및 live-chat 검증은 재승인 범위와 비용 통제 안에서만 수행됨
+- [ ] 공개 전환 결과와 보안 검토를 별도 변경 기록에 남김

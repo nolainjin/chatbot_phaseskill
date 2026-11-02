@@ -8,12 +8,14 @@ from typing import cast
 
 import yaml
 
+from app.referral import MAP_FILENAME, MapValidationError, load_map
+
 REQUIRED_FILES = (
     "_persona.md",
     "_tone.md",
     "_safety_protocol.md",
 )
-OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json")
+OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json", "_privacy.md")
 RESERVED_PREFIX = "_"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SAFE_WHEN_RE = re.compile(r"^[A-Za-z0-9_-]+=[^=\n]+$")
@@ -166,6 +168,12 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
     if not _is_nonempty_str(schema.get("opening_question")):
         errors.append(ValidationIssue("SCHEMA_OPENING_QUESTION", "schema.opening_question", "opening_question이 필요합니다."))
 
+    from app.intake import HandoffConfigError, validate_handoff_config
+    try:
+        validate_handoff_config(schema, uses_exit=(root / MAP_FILENAME).exists())
+    except HandoffConfigError as exc:
+        errors.append(ValidationIssue("HANDOFF_CONFIG", "schema.ui.handoff_mode", str(exc)))
+
     slots = _as_list(schema.get("slots"))
     if not slots:
         errors.append(ValidationIssue("SCHEMA_SLOTS", "schema.slots", "slots는 비어있지 않은 목록이어야 합니다."))
@@ -213,12 +221,19 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
             errors.append(ValidationIssue("SLOT_ASK_TYPE", f"{path}.ask", "ask는 문자열이어야 합니다."))
         if "capture" in slot and slot["capture"] != "full_message":
             errors.append(ValidationIssue("SLOT_CAPTURE_VALUE", f"{path}.capture", "capture는 full_message만 허용합니다."))
+        if "extract" in slot and slot["extract"] != "when_asked":
+            errors.append(ValidationIssue("SLOT_EXTRACT_VALUE", f"{path}.extract", "extract는 when_asked만 허용합니다."))
 
     known_ids = set(ids)
     for index, slot in enumerate(slot_maps):
         path = f"schema.slots[{index}]"
-        for key in ("when", "unless"):
-            condition = slot.get(key)
+        conditions = [(key, slot.get(key)) for key in ("when", "unless")]
+        if "when_any" in slot:
+            if not _list_of_strings(slot["when_any"]) or not slot["when_any"]:
+                errors.append(ValidationIssue("SLOT_CONDITION_SYNTAX", f"{path}.when_any", "when_any는 비어있지 않은 조건 목록이어야 합니다."))
+            else:
+                conditions.extend(("when_any", condition) for condition in slot["when_any"])
+        for key, condition in conditions:
             if condition is None:
                 continue
             if not isinstance(condition, str) or not _SAFE_WHEN_RE.fullmatch(condition):
@@ -266,6 +281,13 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
 
     if (root / "_intake_schema.md").is_file():
         _validate_schema(root, errors)
+
+    map_path = root / MAP_FILENAME
+    if map_path.exists() and not map_path.is_symlink():
+        try:
+            load_map(map_path)
+        except (MapValidationError, OSError) as exc:
+            errors.append(ValidationIssue("REFERRAL_MAP_INVALID", MAP_FILENAME, str(exc)))
 
     docs = [path for path in sorted(root.glob("*.md")) if not path.name.startswith(RESERVED_PREFIX)]
     if not docs:

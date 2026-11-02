@@ -84,85 +84,108 @@
 
 ## 빠른 시작
 
-요구 사항은 Python 3.11 이상입니다.
+요구 사항은 Python 3.11 이상입니다. Windows, macOS, Linux에서 동일하게 동작합니다.
+`DATA_DIR`은 모든 저장 파일의 기준 폴더이며, 생략하면 기존 `data/` 경로를 사용합니다.
+
+### 더블클릭으로 실행 (설치 지식 없이)
+
+파이썬만 설치되어 있으면 됩니다. 나머지는 런처가 알아서 준비합니다.
+
+| 운영체제 | 실행할 파일 |
+|---|---|
+| Windows | `시작하기-윈도우.bat` |
+| macOS | `시작하기-맥.command` |
+
+처음 실행하면 필요한 구성요소를 자동으로 내려받습니다(몇 분 소요, 인터넷 필요).
+준비가 끝나면 브라우저가 자동으로 열립니다. 종료는 검은 창에서 `Ctrl+C`입니다.
+
+파이썬이 없으면 런처가 설치 안내를 띄웁니다. Windows 설치 화면에서
+**"Add python.exe to PATH"** 체크를 빠뜨리면 설치해도 다시 막히므로 주의하세요.
+
+macOS에서 "권한이 없습니다"가 뜨면 터미널에서 한 번만:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
+chmod +x "시작하기-맥.command"
 ```
+
+### 명령줄로 실행
+
+```bash
+python run.py --model fake       # 환경 준비 후 private loopback 서버 실행
+python run.py --check            # 환경 점검만 (아무것도 바꾸지 않음)
+python run.py --port 9000 --knowledge knowledge --reload
+python run.py --no-browser       # 브라우저 자동 열기 끄기
+```
+
+Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를 씁니다.
+
+- 챗봇: http://127.0.0.1:8000/
+- 관리자 통계: http://127.0.0.1:8000/stats.html
+### 현재 운영 경로: 1주 로컬 데모
+
+`.env.example`은 `MODEL=auto`, `PRIVATE_LOCAL_UI=1`입니다. Codex 기본 모델은
+`app/llm.py`의 `CODEX_DEFAULT_MODEL = "gpt-6.1-sol"`에서 관리합니다. 기본 체인은
+`codex-cli:gpt-6.1-sol,claude-cli,fake`이며 `MODEL=fake`로 오프라인 검증할 수 있습니다. 현재
+승인된 1주 개인 테스트에서는 Mac의 개인 Codex 로그인으로
+`codex-cli:gpt-6.1-sol`를 `high` 강도로 사용합니다. `run.py`와 스모크 실행기는
+`127.0.0.1`·`::1`·`localhost`에만 바인딩하며, 외부 IP, `0.0.0.0`, 리버스
+프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
+
+현재 개인 테스트 명령은 다음과 같습니다.
+
+```bash
+python run.py --model codex-cli:gpt-6.1-sol
+```
+
+브라우저에서 한 세션은 10턴까지 진행할 수 있습니다. 한도를 채웠거나 새 사례를
+시작할 때는 화면의 **새 대화 시작**을 눌러 세션을 재설정합니다. 서버를 완전히
+초기화하려면 `Ctrl+C`로 종료한 뒤 같은 명령으로 다시 시작합니다.
+
+
+### 수동 설치
+
+런처 없이 직접 구성할 때는 가상환경 경로가 OS마다 다릅니다.
+
+| | macOS · Linux | Windows |
+|---|---|---|
+| 가상환경 생성 | `python3 -m venv .venv` | `py -3 -m venv .venv` |
+| 파이썬 경로 | `.venv/bin/python` | `.venv\Scripts\python.exe` |
+| 설정 파일 복사 | `cp .env.example .env` | `copy .env.example .env` |
+
+이 문서의 나머지 예시는 `.venv/bin/python`으로 적혀 있습니다. Windows에서는
+`.venv\Scripts\python.exe`로 바꿔 읽으세요.
 
 ### API 호출 없이 기능 확인
 
 `fake`는 LLM 품질 시연용이 아니라 슬롯·저장·UI 테스트용 결정론 모드입니다.
 기본 데모는 synthetic data, localhost-only, no-PII, non-production 교육 환경을
-전제로 합니다.
+전제로 하며 `PRIVATE_LOCAL_UI=1`인 loopback 요청에서만 UI/API를 엽니다.
 
 ```bash
-MODEL=fake KNOWLEDGE_DIR=knowledge \
-  .venv/bin/python -m uvicorn app.main:app --reload
+python run.py --model fake --knowledge knowledge --reload
 ```
 
-브라우저에서 다음 주소를 엽니다.
 
-- 챗봇: http://127.0.0.1:8000/
-- 관리자 통계: http://127.0.0.1:8000/stats.html
+### 크로스플랫폼 지원 범위
 
-### 로컬 음성 모드로 실행 (선택)
+`.github/workflows/cross-platform.yml`이 windows / ubuntu / macOS × Python
+3.11·3.13 매트릭스에서 테스트와 한글 왕복 스모크를 돌립니다. 윈도우 전용
+실패(POSIX 전용 API, cp949 인코딩)는 개발 머신에서 재현되지 않으므로 이
+매트릭스가 실질적인 회귀 가드입니다.
 
-기존 text-only 실행과 별개로 local voice launcher를 사용하면 같은 화면에서
-`Chat Mode`와 `Voice Mode`를 고를 수 있습니다. 두 항목은 입력 방식을 고르는
-클라이언트 `interactionMode`(`interaction mode`)이고, 지식팩이 정하는
-coaching/intake는 대화 내용의 서버 `contentMode`(`content mode`)입니다. 어느 입력
-방식을 쓰더라도 같은 session/history와 기존 `/api/chat`을 공유합니다.
+### 로컬 전용 제한
 
-로컬 음성 런타임과 모델 캐시를 준비한 뒤 도움말을 확인하고 launcher를 실행합니다.
-
-```bash
-.venv/bin/python scripts/run_local_voice.py --help
-.venv/bin/python scripts/run_local_voice.py --host 127.0.0.1 --port 8767
-```
-
-브라우저에서 localhost URL http://127.0.0.1:8767/ 을 엽니다. launcher는
-loopback에만 bind하고 network deny를 강제하며, 로컬 캐시의 STT
-`qwen3-asr-0.6b-8bit`와 TTS config `macos-say:Yuna`를 사용합니다. 캐시나
-provider가 준비되지 않으면 음성 기능을 성공으로 광고하지 않습니다. 이때는 위의
-text-only 명령으로 돌아가 `Chat Mode`를 계속 사용할 수 있습니다.
-
-녹음·전사 확인·자동 TTS와 권한/실패 복구 절차는
-[`docs/voice-local-demo.md`](docs/voice-local-demo.md)를 따르세요.
-
-관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
-관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로 설정한
-뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는 fail-closed로 503을
-반환합니다.
-
-### Codex GPT로 대화 시연
-
-첫 안내문은 팩 모드에 맞춰 표시되고, 이후 접수 응답 또는 지식 코칭은 Codex GPT가 생성합니다.
-위기·중독·인젝션 응답은 모델을 호출하지 않는 안전 경로를 사용합니다.
-
-```bash
-MODEL=codex-cli CODEX_MODEL=gpt-5.4 KNOWLEDGE_DIR=knowledge \
-  .venv/bin/python -m uvicorn app.main:app --reload
-```
-
-### 모델 제공자
-
-`MODEL` 값으로 응답 백엔드를 고릅니다.
-
-| 설정 | 용도 |
-|---|---|
-| `auto` | Codex CLI gpt-5.4를 먼저 시도하고 실패 시 Claude CLI, 둘 다 실패하면 fake |
-| `fake` | API 없이 테스트하는 결정론 스텁 |
-| `codex-cli` 또는 `codex-cli:<model>` | 로컬에 로그인된 Codex CLI 호출 |
-| `claude-cli` | 로컬에 로그인된 Claude CLI 호출 |
-| Anthropic 모델명 | `ANTHROPIC_API_KEY`를 사용하는 Anthropic API 호출 |
-
-Codex CLI와 Claude CLI는 로컬 명령을 사용하지만 **완전한 오프라인 로컬 모델은
-아닙니다**. Ollama, llama.cpp 같은 로컬 추론기를 붙이려면 `app/llm.py`에
-동일한 `ask()` 계약을 구현하면 됩니다. 접수 엔진, DB, UI는 그대로 재사용할 수
-있습니다.
+- 자식 프로세스 파이프와 파일 입출력은 UTF-8로 고정돼 있습니다. 로케일에
+  맡기면 한국어 Windows(cp949)에서 한글이 깨집니다.
+- canonical launcher는 기본적으로 `fake`를 사용하며, 로컬 Mac에서만 명시적인
+  `codex-cli:<model>` 값을 허용합니다. 현재 개인 테스트 설정은
+  `codex-cli:gpt-6.1-sol`와 `high` 추론 강도입니다.
+- CLI 모델 경로는 `127.0.0.1`·`::1`·`localhost` 바인딩에서만 허용합니다.
+  외부 IP, 리버스 프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
+- 관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
+  관리자 토큰을 `sessionStorage.setItem('lmwiki_stats_token', '...')`으로
+  설정한 뒤 통계 페이지를 새로고침해야 합니다. 토큰이 없으면 API는
+  fail-closed로 503을 반환합니다.
 
 ## 다른 업종으로 바꾸는 방법
 
@@ -260,7 +283,7 @@ cluster: optional-cluster-name
 말투 평가는 비공개 원문을 읽지 않는 합성 문장만 사용합니다.
 
 ```bash
-.venv/bin/python scripts/voice_eval.py --model codex-cli:gpt-5.4
+.venv/bin/python scripts/tone_eval.py --model codex-cli:gpt-6.1-sol
 ```
 
 ## 데이터 저장 구조
@@ -348,7 +371,7 @@ node gui-smoke.mjs
 ```bash
 .venv/bin/python scripts/persona_eval.py \
   --runs 1 --workers 1 --persona crisis-hidden \
-  --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake
+  --patient-mode codex --patient-model gpt-6.1-sol --bot-model fake
 ```
 
 ## 프로젝트 지도
@@ -386,3 +409,23 @@ tests/             단위·통합 회귀 테스트
 - [배포 체크리스트](deploy/checklist.md)
 - [발표 슬라이드 원고](docs/slides/chatbot_phaseskill_keynote.md)
 - [Keynote에서 열 수 있는 PPTX](docs/slides/chatbot_phaseskill_keynote.pptx)
+
+### 센터 관리번호 링크 (`knowledge-maeum`)
+
+통계 인증이 된 내부 `/stats.html`의 **링크 만들기**에 `1`, `2`, `2026-003`처럼
+센터 관리번호를 넣습니다. `POST /api/admin/links`는 기존 통계 토큰 또는 쿠키를
+검증하고 요청 호스트 기준의 `/?management_id=…&link_ticket=…` 링크를 반환합니다.
+번호는 영문·숫자로 시작하는 1~32자의 영문·숫자·하이픈이며, 전화번호·주민번호는
+거부합니다. 센터가 직접 문자로 보내며 서버는 문자를 보내지 않습니다.
+
+화면은 링크의 두 값을 주소창에서 지우고 동의 요청에 전달합니다. 서버 서명이
+맞을 때만 해당 관리번호로 세션을 연결합니다. 링크 없이 직접 접속하면 `p_…`
+번호를 새로 발급합니다. 발급 기록에는 관리번호의 해시만 저장합니다.
+`PARTICIPANT_TICKET_SECRET`을 32바이트 이상으로 고정하면 재시작 후에도 링크를
+검증할 수 있습니다. 비워 두면 프로세스별 키를 써 재시작 때 이전 링크가 무효가 됩니다.
+
+`knowledge-maeum`은 `ui.handoff_mode: center`로, 원문과 요약표를 센터 확인 화면에
+저장합니다. 마지막에 센터에 바라는 점·질문을 최대 두 개 받고, 전달 완료와 위기
+번호·삭제 코드 안내를 보여 줍니다. 센터가 관리번호로 직접 식별하고 상담사를
+배정합니다. 이 도구는 매칭이나 센터 결정을 보조하지 않습니다. `referral` 모드는
+코드에 남아 있으며, 출구 기능을 쓰는 팩은 종료 모드를 명시해야 합니다.

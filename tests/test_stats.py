@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app import stats
+from app import stats, storage
 from app.main import app
 
 client = TestClient(app)
@@ -64,9 +64,29 @@ def test_read_stats_returns_dashboard_shape(tmp_path):
     assert result["track_counts"] == [{"track": "정서", "count": 1}]
     assert result["slot_completion"][0]["completed"] >= 1
     assert result["recent_sessions"][0]["participant_id"] == "demo-person-001"
+    assert result["recent_sessions"][0]["chief_complaint"] == "[recorded]"
+    assert result["recent_sessions"][0]["summary_available"] is True
+    assert "지지체계" in result["recent_sessions"][0]["missing"]
     assert result["totals"]["notable_sessions"] == 1
     assert result["individual_flags"][0]["participant_id"] == "demo-person-001"
     assert result["individual_flags"][0]["flags"][0]["label"] == "지지체계 미확인"
+
+
+def test_read_session_detail_returns_ordered_conversation(tmp_path):
+    db_path = tmp_path / "chatlog.db"
+    _make_db(db_path)
+
+    detail = stats.read_session_detail(
+        "2026-07-14",
+        "demo-session-001",
+        db_path,
+    )
+
+    assert detail is not None
+    assert detail["participant_id"] == "demo-person-001"
+    assert [turn["seq"] for turn in detail["turns"]] == [0, 1, 2]
+    assert detail["turns"][0]["role"] == "user"
+    assert detail["turns"][0]["text"] == "우울해서 잠을 못 자요"
 
 
 def test_addiction_handoff_is_flagged_without_false_missing_support():
@@ -98,8 +118,23 @@ def test_addiction_handoff_is_flagged_without_false_missing_support():
     assert record["addiction_referral"] == "전문기관 정보 제공"
 
 
+def test_sync_today_makes_current_json_visible(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    storage.append_turn(
+        "managed-session",
+        "user",
+        "상담을 신청합니다.",
+        participant_id="BX-2026-001",
+    )
+
+    assert stats.sync_today() == 1
+    result = stats.read_stats()
+
+    assert result["recent_sessions"][0]["participant_id"] == "BX-2026-001"
+
 def test_api_stats_returns_json(monkeypatch):
     monkeypatch.setenv("STATS_API_TOKEN", "stats-test-token")
+    monkeypatch.setattr(stats, "sync_today", lambda: 0)
     monkeypatch.setattr(
         stats,
         "read_stats",
@@ -118,3 +153,53 @@ def test_api_stats_rejects_anonymous_requests(monkeypatch):
     response = client.get("/api/stats")
 
     assert response.status_code == 401
+
+
+def test_loopback_dashboard_bootstraps_httponly_admin_session(monkeypatch):
+    monkeypatch.setenv("STATS_API_TOKEN", "stats-test-token")
+    monkeypatch.setattr(stats, "sync_today", lambda: 0)
+    monkeypatch.setattr(
+        stats,
+        "read_stats",
+        lambda **_kwargs: {"totals": {"participants": 1}, "track_counts": []},
+    )
+    local_client = TestClient(app)
+
+    dashboard = local_client.get("/stats.html")
+    assert dashboard.status_code == 200
+    assert "httponly" in dashboard.headers["set-cookie"].lower()
+    assert "samesite=strict" in dashboard.headers["set-cookie"].lower()
+
+    response = local_client.get("/api/stats")
+    assert response.status_code == 200
+    assert response.json()["totals"]["participants"] == 1
+
+
+def test_api_stats_session_requires_auth_and_returns_detail(monkeypatch):
+    monkeypatch.setenv("STATS_API_TOKEN", "stats-test-token")
+    monkeypatch.setattr(stats, "sync_today", lambda: 0)
+    monkeypatch.setattr(
+        stats,
+        "read_session_detail",
+        lambda day, session_id: {
+            "date": day,
+            "session_id": session_id,
+            "participant_id": "BX-2026-001",
+            "turns": [{"seq": 0, "role": "user", "text": "상담을 신청합니다."}],
+        },
+    )
+
+    anonymous = TestClient(app).get(
+        "/api/stats/session",
+        params={"day": "2026-07-14", "session_id": "managed-session"},
+    )
+    assert anonymous.status_code == 401
+
+    response = TestClient(app).get(
+        "/api/stats/session",
+        params={"day": "2026-07-14", "session_id": "managed-session"},
+        headers={"X-Stats-Token": "stats-test-token"},
+    )
+    assert response.status_code == 200
+    assert response.json()["participant_id"] == "BX-2026-001"
+    assert response.json()["turns"][0]["text"] == "상담을 신청합니다."

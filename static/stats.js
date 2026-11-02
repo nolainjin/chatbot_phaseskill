@@ -1,407 +1,414 @@
-const metricGrid = document.querySelector('#metric-grid');
-const trackBars = document.querySelector('#track-bars');
-const slotBars = document.querySelector('#slot-bars');
-const dailyBars = document.querySelector('#daily-bars');
-const recentSessions = document.querySelector('#recent-sessions');
-const individualFlags = document.querySelector('#individual-flags');
-const individualCount = document.querySelector('#individual-count');
-const tabButtons = [...document.querySelectorAll('[data-tab]')];
-const overviewPanel = document.querySelector('#overview-panel');
-const triagePanel = document.querySelector('#triage-panel');
-const filterButtons = [...document.querySelectorAll('[data-filter]')];
-const triageTitle = document.querySelector('#triage-title');
-const triageDescription = document.querySelector('#triage-description');
-const triageSearch = document.querySelector('#triage-search');
-const triageSort = document.querySelector('#triage-sort');
-const toggleDetailsButton = document.querySelector('#toggle-details');
-const exportCsvButton = document.querySelector('#export-csv');
+(function () {
+  "use strict";
 
-let currentData = null;
-let activeTab = 'overview';
-let activeFilter = 'all';
-let searchQuery = '';
-let sortMode = 'priority';
-let detailsExpanded = false;
-let visibleRecords = [];
-const statusEl = document.querySelector('#stats-status');
+  var clientListEl = document.getElementById("client-list");
+  var emptyClientsEl = document.getElementById("empty-clients");
+  var clientCountEl = document.getElementById("client-count");
+  var resultDescriptionEl = document.getElementById("result-description");
+  var searchFormEl = document.getElementById("client-search-form");
+  var searchEl = document.getElementById("client-search");
+  var clearSearchEl = document.getElementById("clear-search");
+  var exportEl = document.getElementById("export-clients");
+  var printEl = document.getElementById("print-clients");
+  var statusEl = document.getElementById("stats-status");
+  var summaryClientsEl = document.getElementById("summary-clients");
+  var summaryRecordsEl = document.getElementById("summary-records");
+  var summaryCompleteEl = document.getElementById("summary-complete");
+  var tagFiltersEl = document.querySelector(".client-tag-filter");
+  var conversationDialogEl = document.getElementById("conversation-dialog");
+  var conversationTitleEl = document.getElementById("conversation-title");
+  var conversationMetaEl = document.getElementById("conversation-meta");
+  var conversationTurnsEl = document.getElementById("conversation-turns");
+  var conversationStatusEl = document.getElementById("conversation-status");
+  var closeConversationEl = document.getElementById("close-conversation");
+  var reviewPendingEl = document.getElementById("review-pending");
+  var linkFormEl = document.getElementById("link-form");
+  var linkIdEl = document.getElementById("link-management-id");
+  var issueLinkEl = document.getElementById("issue-link");
+  var issuedLinkEl = document.getElementById("issued-link");
+  var copyLinkEl = document.getElementById("copy-issued-link");
+  var linkStatusEl = document.getElementById("link-status");
 
-function number(value) {
-  return new Intl.NumberFormat('ko-KR').format(value ?? 0);
-}
+  var allRecords = [];
+  var visibleRecords = [];
+  var activeTag = "all";
+  var slotLabels = {};
 
-function percent(value) {
-  return `${Math.round((value ?? 0) * 100)}%`;
-}
-
-function clear(node) {
-  while (node.firstChild) node.removeChild(node.firstChild);
-}
-
-function appendMetric(label, value, hint) {
-  const card = document.createElement('article');
-  card.className = 'metric-card';
-  const strong = document.createElement('strong');
-  strong.textContent = value;
-  const span = document.createElement('span');
-  span.textContent = label;
-  const small = document.createElement('small');
-  small.textContent = hint;
-  card.append(strong, span, small);
-  metricGrid.appendChild(card);
-}
-
-function appendBar(container, label, value, max, suffix = '명') {
-  const row = document.createElement('div');
-  row.className = 'bar-row';
-  const top = document.createElement('div');
-  top.className = 'bar-top';
-  const name = document.createElement('span');
-  name.textContent = label;
-  const count = document.createElement('b');
-  count.textContent = `${number(value)}${suffix}`;
-  top.append(name, count);
-  const track = document.createElement('div');
-  track.className = 'bar-track';
-  const fill = document.createElement('div');
-  fill.className = 'bar-fill';
-  fill.style.width = `${max ? Math.max(4, Math.round((value / max) * 100)) : 0}%`;
-  track.appendChild(fill);
-  row.append(top, track);
-  container.appendChild(row);
-}
-
-function severityLabel(value) {
-  return { high: '긴급', medium: '주의', low: '관찰' }[value] || value || '관찰';
-}
-
-function appendIndividualFlag(record) {
-  const card = document.createElement('article');
-  card.className = `individual-item severity-${record.severity || 'low'}`;
-
-  const head = document.createElement('div');
-  head.className = 'individual-head';
-
-  const title = document.createElement('div');
-  const strong = document.createElement('strong');
-  strong.textContent = `${record.participant_id} · ${record.track}`;
-  const meta = document.createElement('span');
-  meta.textContent = `${record.session_id} · 사용자 ${record.user_turns}턴`;
-  title.append(strong, meta);
-
-  const severity = document.createElement('span');
-  severity.className = `severity-pill severity-${record.severity || 'low'}`;
-  severity.textContent = severityLabel(record.severity);
-  head.append(title, severity);
-
-  const disclosure = document.createElement('details');
-  disclosure.className = 'individual-disclosure';
-  disclosure.open = detailsExpanded;
-
-  const summary = document.createElement('summary');
-  summary.textContent = `특이사항 ${(record.flags || []).length}개 · 세부 정보 보기`;
-  disclosure.appendChild(summary);
-
-  const flags = document.createElement('ul');
-  flags.className = 'flag-list';
-  (record.flags || []).forEach((flag) => {
-    const li = document.createElement('li');
-    const label = document.createElement('b');
-    label.textContent = flag.label;
-    const detail = document.createElement('span');
-    detail.textContent = flag.detail;
-    li.append(label, detail);
-    flags.appendChild(li);
-  });
-
-  const details = document.createElement('dl');
-  details.className = 'individual-details';
-  const detailRows = [
-    ['호소', record.chief_complaint || '미확인'],
-    ['지지', record.support || '미확인'],
-    ['기대', record.expectation || '미확인'],
-    ['미확인', record.missing && record.missing.length ? record.missing.join(', ') : '없음'],
-  ];
-  if (record.track === '중독') {
-    detailRows.splice(1, 0,
-      ['중독 유형', record.addiction_type || '미확인'],
-      ['안내 긴급도', record.addiction_severity || '미확인'],
-      ['전문기관 연결', record.addiction_referral || '미확인'],
-    );
+  function missingLabels(record) {
+    return Array.isArray(record.missing) ? record.missing.map(function (id) {
+      return slotLabels[id] || id;
+    }) : [];
   }
-  detailRows.forEach(([label, value]) => {
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    dd.textContent = value;
-    details.append(dt, dd);
-  });
 
-  disclosure.append(flags, details);
-  card.append(head, disclosure);
-  individualFlags.appendChild(card);
-}
+  function text(value, fallback) {
+    var normalized = String(value == null ? "" : value).trim();
+    return normalized || fallback || "미확인";
+  }
 
-function isCrisisRecord(record) {
-  const labels = (record.flags || []).map((flag) => flag.label).join(' ');
-  return record.track === '위기' || record.severity === 'high' || labels.includes('위기');
-}
+  function clear(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
 
-function matchesFilter(record, filter) {
-  const labels = (record.flags || []).map((flag) => flag.label).join(' ');
-  if (filter === 'all') return true;
-  if (filter === 'crisis') return isCrisisRecord(record);
-  if (filter === 'addiction') return record.track === '중독' || labels.includes('중독');
-  if (filter === 'high') return record.severity === 'high';
-  if (filter === 'medium') return record.severity === 'medium';
-  if (filter === 'support') return labels.includes('지지체계') || labels.includes('지지');
-  if (filter === 'missing') return labels.includes('미확인') || (record.missing || []).length > 0;
-  if (filter === 'early') return labels.includes('이탈');
-  return true;
-}
+  function detailRow(label, value) {
+    var row = document.createElement("div");
+    row.className = "client-detail-row";
+    var term = document.createElement("dt");
+    term.textContent = label;
+    var description = document.createElement("dd");
+    description.textContent = text(value);
+    row.append(term, description);
+    return row;
+  }
+  function recordMatchesTag(record) {
+    if (activeTag === "all") return true;
+    if (activeTag === "summary") return Boolean(record.summary_available);
+    if (activeTag === "progress") return !record.summary_available;
+    if (activeTag === "위기") return Boolean(record.review_required);
+    if (activeTag === "review-pending") return Boolean(record.review_required) && record.review_status === "대기";
+    return text(record.track, "미확인") === activeTag;
+  }
 
-function recordSearchText(record) {
-  return [
-    record.participant_id,
-    record.session_id,
-    record.track,
-    record.chief_complaint,
-    record.support,
-    record.expectation,
-    ...(record.missing || []),
-    ...(record.flags || []).flatMap((flag) => [flag.label, flag.detail]),
-  ].join(' ').toLocaleLowerCase('ko-KR');
-}
+  function turnLabel(role) {
+    if (role === "user") return "내담자";
+    if (role === "assistant") return "챗봇";
+    return "접수 요약";
+  }
 
-function sortRecords(records) {
-  const severity = { high: 0, medium: 1, low: 2 };
-  return [...records].sort((a, b) => {
-    if (sortMode === 'participant') {
-      return a.participant_id.localeCompare(b.participant_id, 'ko-KR');
+  function renderConversation(detail) {
+    clear(conversationTurnsEl);
+    if (detail.summary) {
+      var summary = document.createElement("section");
+      var heading = document.createElement("h3");
+      heading.textContent = "접수 요약표";
+      var rows = document.createElement("dl");
+      Object.entries(detail.summary.slots || {}).forEach(function (entry) {
+        rows.appendChild(detailRow(slotLabels[entry[0]] || entry[0], entry[1]));
+      });
+      var requests = Array.isArray(detail.summary.center_requests) ? detail.summary.center_requests : [];
+      if (!requests.length) rows.appendChild(detailRow("센터에 바라는 점·질문", "없음"));
+      requests.forEach(function (item) { rows.appendChild(detailRow(item.label, item.text)); });
+      summary.append(heading, rows);
+      conversationTurnsEl.appendChild(summary);
     }
-    if (sortMode === 'track') {
-      return a.track.localeCompare(b.track, 'ko-KR') ||
-        a.participant_id.localeCompare(b.participant_id, 'ko-KR');
-    }
-    return (severity[a.severity] ?? 9) - (severity[b.severity] ?? 9) ||
-      a.participant_id.localeCompare(b.participant_id, 'ko-KR');
-  });
-}
-
-function exportVisibleCsv() {
-  if (!visibleRecords.length) return;
-  const header = [
-    '개인번호', '세션', '트랙', '심각도', '특이사항', '호소',
-    '중독 유형', '중독 안내 긴급도', '전문기관 연결', '지지', '기대', '미확인',
-  ];
-  const rows = visibleRecords.map((record) => [
-    record.participant_id,
-    record.session_id,
-    record.track,
-    severityLabel(record.severity),
-    (record.flags || []).map((flag) => flag.label).join(' | '),
-    record.chief_complaint,
-    record.addiction_type,
-    record.addiction_severity,
-    record.addiction_referral,
-    record.support,
-    record.expectation,
-    (record.missing || []).join(' | '),
-  ]);
-  const csv = [header, ...rows].map((row) => row.map(window.csvCell).join(',')).join('\n');
-  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `intake-triage-${activeTab}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function setFilter(filter) {
-  activeFilter = filter;
-  filterButtons.forEach((button) => {
-    const active = button.dataset.filter === filter;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', active ? 'true' : 'false');
-  });
-  renderIndividualFlags();
-}
-
-function setTab(tab) {
-  activeTab = tab;
-  tabButtons.forEach((button) => {
-    const active = button.dataset.tab === tab;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-
-  const overview = tab === 'overview';
-  overviewPanel.hidden = !overview;
-  triagePanel.hidden = overview;
-
-  window.history.replaceState(null, '', `#${tab}`);
-  const visiblePanel = overview ? overviewPanel : triagePanel;
-  visiblePanel.classList.remove('panel-enter');
-  void visiblePanel.offsetWidth;
-  visiblePanel.classList.add('panel-enter');
-
-  if (tab === 'crisis') {
-    triageTitle.textContent = '위기 우선 확인';
-    triageDescription.textContent = '위기 트랙·긴급 red flag 세션을 우선 모아 보여줍니다.';
-    if (activeFilter !== 'crisis' && activeFilter !== 'high') {
-      setFilter('crisis');
-      return;
-    }
-  } else if (tab === 'management') {
-    triageTitle.textContent = '관리 대상';
-    triageDescription.textContent = '지지체계 취약, 미확인, 조기 이탈 등 후속 관리가 필요한 세션입니다.';
-    if (activeFilter === 'crisis') {
-      setFilter('all');
-      return;
-    }
-  }
-
-  renderIndividualFlags();
-}
-
-function renderIndividualFlags() {
-  if (!currentData) return;
-  clear(individualFlags);
-
-  let flagged = currentData.individual_flags || [];
-  if (activeTab === 'crisis') {
-    flagged = flagged.filter(isCrisisRecord);
-  }
-  flagged = flagged.filter((record) => matchesFilter(record, activeFilter));
-  if (searchQuery) {
-    flagged = flagged.filter((record) => recordSearchText(record).includes(searchQuery));
-  }
-  flagged = sortRecords(flagged);
-  visibleRecords = flagged;
-  if (exportCsvButton) exportCsvButton.disabled = !flagged.length;
-
-  individualCount.textContent = `${number(flagged.length)}건`;
-  if (!flagged.length) {
-    const empty = document.createElement('p');
-    empty.className = 'empty-note';
-    empty.textContent = '현재 필터에서는 특이 사항이 감지된 세션이 없습니다.';
-    individualFlags.appendChild(empty);
-  } else {
-    flagged.forEach(appendIndividualFlag);
-  }
-}
-
-function renderStats(data) {
-  clear(metricGrid);
-  clear(trackBars);
-  clear(slotBars);
-  clear(dailyBars);
-  clear(recentSessions);
-  clear(individualFlags);
-  currentData = data;
-
-  const totals = data.totals || {};
-  appendMetric('개인번호', number(totals.participants), 'participants 테이블');
-  appendMetric('세션', number(totals.conversations), 'conversations 테이블');
-  appendMetric('대화 턴', number(totals.turns), 'user + assistant + summary');
-  appendMetric('위기 세션', number(totals.red_flag_sessions), 'red flag 요약 포함');
-  appendMetric('요약 생성', number(totals.summaries), 'intake_summary 적재');
-  appendMetric('특이 세션', number(totals.notable_sessions), '사람 검토 triage');
-  appendMetric('평균 사용자 턴', number(totals.avg_user_turns_per_conversation), '세션당 입력 수');
-
-  const trackMax = Math.max(1, ...data.track_counts.map((item) => item.count));
-  data.track_counts.forEach((item) => appendBar(trackBars, item.track, item.count, trackMax));
-  if (!data.track_counts.length) appendBar(trackBars, '아직 적재 없음', 0, 1);
-
-  const slotMax = Math.max(1, ...data.slot_completion.map((item) => item.completed));
-  data.slot_completion.slice(0, 9).forEach((item) => {
-    appendBar(slotBars, `${item.label} (${percent(item.rate)})`, item.completed, slotMax);
-  });
-
-  const dailyMax = Math.max(1, ...data.daily_counts.map((item) => item.conversations));
-  data.daily_counts.forEach((item) => {
-    appendBar(dailyBars, item.date, item.conversations, dailyMax, '세션');
-  });
-
-  data.recent_sessions.forEach((session) => {
-    const row = document.createElement('tr');
-    [
-      session.date,
-      session.session_id,
-      session.participant_id,
-      session.track,
-      session.red_flags && session.red_flags.length ? '있음' : '없음',
-    ].forEach((text) => {
-      const td = document.createElement('td');
-      td.textContent = text;
-      row.appendChild(td);
+    var turns = Array.isArray(detail.turns) ? detail.turns : [];
+    turns.forEach(function (turn) {
+      var item = document.createElement("article");
+      item.className = "conversation-turn conversation-turn-" + text(turn.role, "summary");
+      var label = document.createElement("strong");
+      label.textContent = turnLabel(turn.role);
+      var body = document.createElement("p");
+      body.textContent = text(turn.text, "내용 없음");
+      item.append(label, body);
+      conversationTurnsEl.appendChild(item);
     });
-    recentSessions.appendChild(row);
-  });
-
-  renderIndividualFlags();
-}
-
-async function loadStats() {
-  statusEl.textContent = '통계를 불러오는 중입니다.';
-  try {
-    const statsToken = sessionStorage.getItem('lmwiki_stats_token') || '';
-    const headers = statsToken ? { 'X-Stats-Token': statsToken } : {};
-    const response = await fetch('/api/stats?participant_prefix=demo-person-', { headers });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    renderStats(data);
-    statusEl.textContent = data.exists
-      ? `DB: ${data.database} · demo-person- 필터 적용`
-      : '아직 data/chatlog.db가 없습니다. scripts/generate_demo_population.py를 실행해 샘플을 적재하세요.';
-  } catch (error) {
-    statusEl.textContent = `통계를 불러오지 못했습니다: ${error.message}`;
+    conversationStatusEl.textContent = turns.length ? "" : "저장된 대화가 없습니다.";
   }
-}
 
-tabButtons.forEach((button) => {
-  button.addEventListener('click', () => setTab(button.dataset.tab));
-});
+  async function openConversation(record) {
+    conversationTitleEl.textContent = "관리번호 " + text(record.participant_id) + " 대화 내역";
+    conversationMetaEl.textContent = text(record.date, "날짜 미확인") + " · 상담자 내부 열람";
+    clear(conversationTurnsEl);
+    conversationStatusEl.textContent = "대화 내역을 불러오는 중입니다.";
+    conversationDialogEl.showModal();
+    try {
+      var params = new URLSearchParams({
+        day: String(record.date || ""),
+        session_id: String(record.session_id || "")
+      });
+      var response = await fetch("/api/stats/session?" + params.toString());
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      renderConversation(await response.json());
+    } catch (error) {
+      conversationStatusEl.textContent = "대화 내역을 불러오지 못했습니다.";
+    }
+  }
 
-filterButtons.forEach((button) => {
-  button.setAttribute('aria-pressed', button.classList.contains('active') ? 'true' : 'false');
-  button.addEventListener('click', () => setFilter(button.dataset.filter));
-});
+  function renderRecord(record) {
+    var article = document.createElement("article");
+    article.className = "client-record-card";
 
-if (triageSearch) {
-  triageSearch.addEventListener('input', () => {
-    searchQuery = triageSearch.value.trim().toLocaleLowerCase('ko-KR');
-    renderIndividualFlags();
+    var header = document.createElement("header");
+    var identity = document.createElement("div");
+    var eyebrow = document.createElement("span");
+    eyebrow.className = "client-record-date";
+    eyebrow.textContent = text(record.date, "날짜 미확인");
+    var title = document.createElement("h3");
+    title.textContent = "관리번호 " + text(record.participant_id);
+    identity.append(eyebrow, title);
+
+    var track = document.createElement("span");
+    track.className = "client-track";
+    track.textContent = text(record.track, "분류 전");
+    header.append(identity, track);
+
+    var complaint = document.createElement("p");
+    complaint.className = "client-chief-complaint";
+    complaint.textContent = text(record.chief_complaint, "아직 주 호소가 정리되지 않았습니다.");
+
+    var details = document.createElement("dl");
+    details.className = "client-record-details";
+    details.append(
+      detailRow("상황과 영향", record.symptom_context),
+      detailRow("현재 대처", record.coping),
+      detailRow("주변 도움", record.support),
+      detailRow("상담 기대", record.expectation),
+      detailRow("추가 확인", missingLabels(record).join(", ") || "없음")
+    );
+
+    var footer = document.createElement("footer");
+    var summaryState = document.createElement("span");
+    summaryState.textContent = record.summary_available
+      ? "접수 요약이 준비되었습니다."
+      : "접수가 진행 중이거나 요약 전입니다.";
+    var conversationButton = document.createElement("button");
+    conversationButton.type = "button";
+    conversationButton.className = "tool-button conversation-button no-print";
+    conversationButton.textContent = "대화 내역 보기";
+    conversationButton.addEventListener("click", function () {
+      openConversation(record);
+    });
+    footer.append(summaryState, conversationButton);
+
+    article.append(header, complaint, details, footer);
+    if (record.review_required) article.appendChild(renderReview(record));
+    return article;
+  }
+
+  function renderReview(record) {
+    var section = document.createElement("section");
+    section.className = "client-review";
+    var state = document.createElement("p");
+    state.className = "review-state";
+    state.textContent = "사람 확인: " + text(record.review_status, "대기");
+    var form = document.createElement("form");
+    form.className = "review-form no-print";
+    var actionLabel = document.createElement("label");
+    actionLabel.textContent = "확인 결과";
+    var select = document.createElement("select");
+    select.required = true;
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "결과 선택";
+    select.appendChild(placeholder);
+    ["안내 전화함", "기관 연결함", "해당 없음", "연락 불가"].forEach(function (action) {
+      var option = document.createElement("option");
+      option.value = action;
+      option.textContent = action;
+      select.appendChild(option);
+    });
+    actionLabel.appendChild(select);
+    var noteLabel = document.createElement("label");
+    noteLabel.textContent = "메모 (선택, 200자 이내)";
+    var note = document.createElement("textarea");
+    note.maxLength = 200;
+    note.rows = 2;
+    noteLabel.appendChild(note);
+    var button = document.createElement("button");
+    button.type = "submit";
+    button.className = "tool-button";
+    button.textContent = "확인 기록 저장";
+    var feedback = document.createElement("p");
+    feedback.setAttribute("role", "status");
+    form.append(actionLabel, noteLabel, button, feedback);
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      button.disabled = true;
+      feedback.textContent = "확인 기록을 저장하는 중입니다.";
+      try {
+        var response = await fetch("/api/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ day: record.date, session_id: record.session_id,
+            action: select.value, note: note.value })
+        });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        await loadStats();
+      } catch (error) {
+        feedback.textContent = "확인 기록을 저장하지 못했습니다. 다시 시도해 주세요.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+    section.append(state, form);
+    return section;
+  }
+
+  function renderRecords(records, query) {
+    clear(clientListEl);
+    visibleRecords = records;
+    records.forEach(function (record) {
+      clientListEl.appendChild(renderRecord(record));
+    });
+    emptyClientsEl.hidden = records.length !== 0;
+    clientCountEl.textContent = records.length + "건";
+    resultDescriptionEl.textContent = query
+      ? "관리번호 ‘" + query + "’ 검색 결과입니다."
+      : "최근 접수된 내담자부터 표시합니다.";
+  }
+
+  function applyFilters() {
+    var rawQuery = searchEl.value.trim();
+    var query = rawQuery.toLocaleLowerCase("ko-KR");
+    var records = allRecords.filter(function (record) {
+      var matchesQuery = !query || String(record.participant_id || "")
+        .toLocaleLowerCase("ko-KR")
+        .includes(query);
+      return matchesQuery && recordMatchesTag(record);
+    });
+    renderRecords(records, rawQuery);
+    if (activeTag !== "all") {
+      resultDescriptionEl.textContent = "‘" + activeTag + "’ 태그로 분류된 접수 기록입니다.";
+    }
+  }
+
+  function csvRows(records) {
+    var rows = [["관리번호", "접수일", "상담영역", "주호소", "상황과 영향", "현재 대처", "주변 도움", "상담 기대", "추가 확인"]];
+    records.forEach(function (record) {
+      rows.push([
+        record.participant_id,
+        record.date,
+        record.track,
+        record.chief_complaint,
+        record.symptom_context,
+        record.coping,
+        record.support,
+        record.expectation,
+        missingLabels(record).join(" / ")
+      ]);
+    });
+    return rows;
+  }
+
+  function exportCsv() {
+    if (!visibleRecords.length) return;
+    var csv = csvRows(visibleRecords).map(function (row) {
+      return row.map(window.csvCell).join(",");
+    }).join("\r\n");
+    var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = "내담자_접수_목록.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function renderSummary(records) {
+    var participantIds = new Set(records.map(function (record) {
+      return record.participant_id;
+    }));
+    summaryClientsEl.textContent = participantIds.size.toLocaleString("ko-KR");
+    summaryRecordsEl.textContent = records.length.toLocaleString("ko-KR");
+    summaryCompleteEl.textContent = records.filter(function (record) {
+      return record.summary_available;
+    }).length.toLocaleString("ko-KR");
+  }
+
+
+  function isCounselorRecord(record) {
+    var participantId = String(record.participant_id || "");
+    var sessionId = String(record.session_id || "");
+    return Boolean(record.review_required || (participantId && participantId !== sessionId));
+  }
+
+  async function loadStats() {
+    statusEl.textContent = "내담자 접수 기록을 불러오는 중입니다.";
+    try {
+      var responses = await Promise.all([
+        fetch("/api/stats"),
+        fetch("/api/config").then(function (response) {
+          return response.ok ? response.json() : {};
+        }).catch(function () { return {}; })
+      ]);
+      var response = responses[0];
+      slotLabels = responses[1].slot_labels || {};
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      var data = await response.json();
+      reviewPendingEl.textContent = "위기 확인 대기 " + Number(data.review_pending || 0).toLocaleString("ko-KR") + "건";
+      allRecords = Array.isArray(data.recent_sessions)
+        ? data.recent_sessions.filter(isCounselorRecord)
+        : [];
+      applyFilters();
+      renderSummary(allRecords);
+      statusEl.textContent = data.exists
+        ? "내부 접수 기록을 불러왔습니다."
+        : "아직 적재된 접수 기록이 없습니다.";
+    } catch (error) {
+      reviewPendingEl.textContent = "위기 확인 대기 조회 실패";
+      statusEl.textContent = "내담자 기록을 불러오지 못했습니다. 관리자 내부 접속 상태를 확인해 주세요.";
+    }
+  }
+
+  searchFormEl.addEventListener("submit", function (event) {
+    event.preventDefault();
+    applyFilters();
   });
-}
-
-if (triageSort) {
-  triageSort.addEventListener('change', () => {
-    sortMode = triageSort.value;
-    renderIndividualFlags();
+  searchEl.addEventListener("input", applyFilters);
+  clearSearchEl.addEventListener("click", function () {
+    searchEl.value = "";
+    activeTag = "all";
+    tagFiltersEl.querySelectorAll("[data-tag]").forEach(function (button) {
+      var selected = button.dataset.tag === "all";
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    applyFilters();
+    searchEl.focus();
   });
-}
-
-if (toggleDetailsButton) {
-  toggleDetailsButton.addEventListener('click', () => {
-    detailsExpanded = !detailsExpanded;
-    toggleDetailsButton.textContent = detailsExpanded ? '전체 접기' : '전체 펼치기';
-    renderIndividualFlags();
+  tagFiltersEl.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-tag]");
+    if (!button) return;
+    activeTag = button.dataset.tag;
+    tagFiltersEl.querySelectorAll("[data-tag]").forEach(function (candidate) {
+      var selected = candidate === button;
+      candidate.classList.toggle("active", selected);
+      candidate.setAttribute("aria-pressed", String(selected));
+    });
+    applyFilters();
   });
-}
+  closeConversationEl.addEventListener("click", function () {
+    conversationDialogEl.close();
+  });
+  conversationDialogEl.addEventListener("click", function (event) {
+    if (event.target === conversationDialogEl) conversationDialogEl.close();
+  });
+  exportEl.addEventListener("click", exportCsv);
+  printEl.addEventListener("click", function () {
+    window.print();
+  });
 
-if (exportCsvButton) {
-  exportCsvButton.addEventListener('click', exportVisibleCsv);
-}
+  if (linkFormEl) linkFormEl.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    issueLinkEl.disabled = true;
+    copyLinkEl.disabled = true;
+    issuedLinkEl.textContent = "";
+    linkStatusEl.textContent = "링크를 만드는 중입니다.";
+    try {
+      var response = await fetch("/api/admin/links", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({management_id: linkIdEl.value.trim()})
+      });
+      var data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "링크를 만들지 못했습니다.");
+      issuedLinkEl.textContent = data.url;
+      copyLinkEl.disabled = false;
+      linkStatusEl.textContent = "관리번호 " + data.management_id + " 링크를 만들었습니다. 센터에서 직접 보내 주세요.";
+    } catch (error) {
+      linkStatusEl.textContent = error.message;
+    } finally {
+      issueLinkEl.disabled = false;
+    }
+  });
+  if (copyLinkEl) copyLinkEl.addEventListener("click", async function () {
+    try {
+      await navigator.clipboard.writeText(issuedLinkEl.textContent);
+      linkStatusEl.textContent = "링크를 복사했습니다.";
+    } catch (error) {
+      linkStatusEl.textContent = "복사하지 못했습니다. 표시된 링크를 선택해 복사해 주세요.";
+    }
+  });
 
-tabButtons.forEach((button) => {
-  button.setAttribute('aria-selected', button.classList.contains('active') ? 'true' : 'false');
-});
-
-const initialTab = ['overview', 'management', 'crisis'].includes(location.hash.slice(1))
-  ? location.hash.slice(1)
-  : 'overview';
-setTab(initialTab);
-loadStats();
+  loadStats();
+})();

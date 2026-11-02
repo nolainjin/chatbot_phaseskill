@@ -12,6 +12,10 @@ from app.main import app
 client = TestClient(app)
 STATIC_DIR = Path(__file__).parents[1] / "static"
 
+# 음성 모드 제거 후 되살아나는 것을 막는 회귀 가드.
+# 텍스트 전용 제품이라는 결정을 셸/스타일시트 계약으로 고정한다.
+VOICE_MARKERS = ("voice", "tts", "interaction-mode", "마이크", "녹음", "전사")
+
 
 def _parse_index(source: str) -> ET.Element:
     html_source = (
@@ -33,70 +37,24 @@ def _element_by_id(document: ET.Element, element_id: str) -> ET.Element:
     return elements[0]
 
 
-def _assert_interaction_mode_radios(document: ET.Element) -> None:
-    mode_switch = _element_by_id(document, "interaction-mode-switch")
-    label_id = mode_switch.attrib.get("aria-labelledby", "")
-    radios = [
-        element
-        for element in mode_switch.iter("input")
-        if element.attrib.get("type") == "radio"
-    ]
-    radio_ids = [radio.attrib.get("id") for radio in radios]
-    radio_label_ids = [label.attrib.get("for") for label in mode_switch.iter("label")]
-
-    assert mode_switch.attrib.get("role") == "radiogroup"
-    assert "hidden" not in mode_switch.attrib
-    assert "inert" not in mode_switch.attrib
-    assert label_id and "".join(_element_by_id(document, label_id).itertext()).strip()
-    assert radio_ids == ["interaction-mode-chat", "interaction-mode-voice"]
-    assert radio_label_ids == radio_ids
-    assert len({radio.attrib.get("name") for radio in radios}) == 1
-    assert [radio.attrib.get("id") for radio in radios if "checked" in radio.attrib] == [
-        "interaction-mode-chat"
-    ]
-    labels = ["".join(label.itertext()).strip() for label in mode_switch.iter("label")]
-    assert labels == ["채팅 모드", "음성 모드"]
-
-
-def _assert_interaction_surfaces(document: ET.Element) -> None:
+def _assert_chat_surface(document: ET.Element) -> None:
+    """텍스트 입력 표면이 composer 안에 있고, 대화 기록은 그 밖에 있어야 한다."""
     parents = {child: parent for parent in document.iter() for child in parent}
     messages = _element_by_id(document, "messages")
     chat_surface = _element_by_id(document, "chat-surface")
-    voice_surface = _element_by_id(document, "voice-surface")
-    fallback = _element_by_id(document, "voice-text-fallback")
 
-    surfaces_parent = parents[chat_surface]
-    assert surfaces_parent is parents[voice_surface], "interaction surfaces must be siblings"
-    assert "composer" in surfaces_parent.attrib.get("class", "").split()
-    assert messages not in set(chat_surface.iter())
-    assert messages not in set(voice_surface.iter())
+    assert "composer" in parents[chat_surface].attrib.get("class", "").split()
+    assert messages not in set(chat_surface.iter()), "history must live outside the composer"
     assert "hidden" not in chat_surface.attrib
     assert "inert" not in chat_surface.attrib
-    assert "hidden" in voice_surface.attrib
-    assert "inert" in voice_surface.attrib
     assert all(
         _element_by_id(document, element_id) in set(chat_surface.iter())
-        for element_id in ("chat-form", "message-input")
+        for element_id in ("chat-form", "message-input", "send-button")
     )
     assert any(
         "composer-meta" in element.attrib.get("class", "").split()
         for element in chat_surface.iter()
     )
-    assert all(
-        _element_by_id(document, element_id) in set(voice_surface.iter())
-        for element_id in (
-            "voice-controls",
-            "voice-toggle",
-            "voice-review",
-            "voice-live-panel",
-            "voice-live-bars",
-            "voice-transcript",
-            "voice-send",
-        )
-    )
-    assert fallback.tag == "button"
-    assert fallback.attrib.get("type") == "button"
-    assert "".join(fallback.itertext()).strip() == "채팅 모드로 전환"
 
 
 def test_root_serves_index_html():
@@ -112,29 +70,18 @@ def test_root_serves_app_js():
     assert "sendMessage" in response.text
 
 
-def test_root_serves_labeled_interaction_mode_radios():
+def test_root_serves_chat_surface_inside_composer():
     # Given: the server-rendered application shell.
     response = client.get("/")
 
     # When: the static DOM contract is parsed.
     document = _parse_index(response.text)
 
-    # Then: one labeled radio group defaults exclusively to Chat.
-    _assert_interaction_mode_radios(document)
+    # Then: a single text composer owns the input controls.
+    _assert_chat_surface(document)
 
 
-def test_root_serves_chat_and_voice_as_sibling_surfaces():
-    # Given: the server-rendered application shell.
-    response = client.get("/")
-
-    # When: the static DOM contract is parsed.
-    document = _parse_index(response.text)
-
-    # Then: shared history stays outside the two non-nested interaction surfaces.
-    _assert_interaction_surfaces(document)
-
-
-def test_root_loads_interaction_scripts_in_dependency_order():
+def test_root_loads_only_the_app_shell_script():
     # Given: the server-rendered application shell.
     response = client.get("/")
 
@@ -146,65 +93,104 @@ def test_root_loads_interaction_scripts_in_dependency_order():
         if "src" in element.attrib
     ]
 
-    # Then: each interaction dependency loads before the canonical app shell.
-    assert script_names == ["voice.js", "interaction-mode.js", "tts.js", "app.js"]
+    # Then: no voice/tts/interaction-mode bundles remain.
+    assert script_names == ["app.js"]
 
 
-def test_dual_mode_css_has_accessible_states_and_mobile_overflow_guards():
+@pytest.mark.parametrize("filename", ["index.html", "app.js", "style.css"])
+def test_static_shell_is_free_of_voice_markers(filename: str):
+    """음성 모드는 제품에서 제거됐다 — 셸 자산에 흔적이 남으면 실패한다."""
+    source = (STATIC_DIR / filename).read_text(encoding="utf-8").lower()
+
+    found = [marker for marker in VOICE_MARKERS if marker in source]
+
+    assert not found, f"{filename}에 음성 잔재가 남아 있습니다: {found}"
+
+
+def test_voice_assets_are_not_served():
+    """삭제된 음성 번들은 404여야 한다 (정적 마운트에 남아 있으면 실패)."""
+    for path in ("/voice.js", "/tts.js", "/interaction-mode.js"):
+        assert client.get(path).status_code == 404, f"{path}가 아직 서빙되고 있습니다"
+
+
+def test_chat_surface_contract_rejects_history_inside_composer():
+    # Given: a valid shell mutated to nest the history inside the composer.
+    document = _parse_index((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+    parents = {child: parent for parent in document.iter() for child in parent}
+    messages = _element_by_id(document, "messages")
+    chat_surface = _element_by_id(document, "chat-surface")
+    parents[messages].remove(messages)
+    chat_surface.append(messages)
+
+    # When/Then: the contract identifies the invalid nested state.
+    with pytest.raises(AssertionError, match="history must live outside"):
+        _assert_chat_surface(document)
+
+
+def test_composer_css_keeps_mobile_overflow_guards():
     # Given: the static stylesheet.
     source = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
 
-    # When: the dual-mode selectors are inspected.
+    # When: the mobile breakpoint is inspected.
     mobile_source = source[source.index("@media (max-width: 520px)") :]
 
-    # Then: segmented, focus, disabled, error, and 360px-safe rules are present.
-    assert ".interaction-mode-options" in source
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in source
-    assert ".interaction-mode-option:focus-within" in source
-    assert ".interaction-mode-input:checked" in source
-    assert ".interaction-mode-input:disabled" in source
-    assert ".interaction-mode-switch[data-voice-available=\"false\"]" in source
-    assert all(
-        f'[data-voice-state="{state}"]' in source
-        for state in ("recording", "review", "ready", "error")
-    )
-    assert ".voice-live-bars" in source
+    # Then: 360px-safe rules survive the voice removal.
+    assert ".composer" in source
     assert "max-width: 100%;" in source
-    assert ".interaction-mode-option" in mobile_source
     assert "min-width: 0;" in mobile_source
-
-
-def test_interaction_mode_contract_rejects_two_checked_radios():
-    # Given: a valid shell mutated to select both radio controls.
-    document = _parse_index((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
-    voice_radio = _element_by_id(document, "interaction-mode-voice")
-    voice_radio.set("checked", "checked")
-
-    # When/Then: the contract identifies the invalid double-selected state.
-    with pytest.raises(AssertionError):
-        _assert_interaction_mode_radios(document)
-
-
-def test_interaction_surface_contract_rejects_nested_voice_surface():
-    # Given: a valid shell mutated to nest Voice inside Chat.
-    document = _parse_index((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
-    parents = {child: parent for parent in document.iter() for child in parent}
-    chat_surface = _element_by_id(document, "chat-surface")
-    voice_surface = _element_by_id(document, "voice-surface")
-    parents[voice_surface].remove(voice_surface)
-    chat_surface.append(voice_surface)
-
-    # When/Then: the contract identifies the invalid nested state.
-    with pytest.raises(AssertionError, match="siblings"):
-        _assert_interaction_surfaces(document)
 
 
 def test_stats_serves_csv_formula_neutralizer_before_dashboard_script():
     response = client.get("/stats.html")
 
     assert response.status_code == 200
-    assert response.text.index('src="csv.js?v=1"') < response.text.index('src="stats.js?v=6"')
+    assert response.text.index('src="csv.js?v=1"') < response.text.index('src="stats.js?v=8"')
     assert client.get("/csv.js?v=1").status_code == 200
+
+
+def test_stats_dashboard_is_counselor_first_without_triage_tabs():
+    response = client.get("/stats.html")
+
+    assert response.status_code == 200
+    assert "최근 내담자" in response.text
+    assert "내담자 관리번호 찾기" in response.text
+    assert "CSV 내보내기" in response.text
+    assert "인쇄하기" in response.text
+    assert "관리 대상" not in response.text
+    assert "위기 우선" not in response.text
+    assert "위기만 보기" in response.text
+    assert "요약 완료" in response.text
+    assert 'id="conversation-dialog"' in response.text
+    stats_script = client.get("/stats.js?v=8")
+    assert stats_script.status_code == 200
+    assert "/api/stats/session?" in stats_script.text
+    assert "대화 내역 보기" in stats_script.text
+
+
+def test_public_chat_page_has_no_stats_navigation():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "stats.html" not in response.text
+    assert "내담자 통계 보기" not in response.text
+
+def test_chat_client_supports_management_number_links():
+    response = client.get("/app.js?v=19")
+
+    assert response.status_code == 200
+    assert 'url.searchParams.get("management_id")' in response.text
+    assert "MANAGEMENT_ID_PATTERN" in response.text
+    assert "window.history.replaceState" in response.text
+
+
+def test_chat_client_linkifies_verified_support_resources():
+    response = client.get("/app.js?v=19")
+
+    assert response.status_code == 200
+    assert '"109": "tel:109"' in response.text
+    assert '"119": "tel:119"' in response.text
+    assert 'link.rel = "noopener noreferrer"' in response.text
+    assert "appendSupportLinks(bubble, text)" in response.text
 
 
 def test_csv_cell_neutralizes_formula_markers():

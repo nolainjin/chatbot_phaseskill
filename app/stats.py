@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB_PATH = Path("data/chatlog.db")
+from app import access_log, paths, review
 
 
 _SLOT_LABELS = {
@@ -26,6 +27,14 @@ _SLOT_LABELS = {
     "support": "지지체계",
     "expectation": "상담 기대",
 }
+_ALL_SLOT_LABELS = {**_SLOT_LABELS, "cause": "원인·계기"}
+
+
+def sync_today() -> int:
+    """현재 날짜의 JSON 접수 기록을 내부 대시보드 SQLite에 멱등 반영한다."""
+    from scripts import load_to_sqlite
+
+    return load_to_sqlite.load_day(date.today())
 
 
 def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) -> dict[str, Any]:
@@ -33,6 +42,7 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
         "database": str(db_path),
         "exists": db_path.exists(),
         "filters": filters or {},
+        "review_pending": 0,
         "totals": {
             "participants": 0,
             "conversations": 0,
@@ -52,6 +62,59 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
     }
 
 
+def read_session_detail(
+    day: str,
+    session_id: str,
+    db_path: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """상담자가 선택한 한 접수 세션의 대화 내역을 순서대로 반환한다."""
+    db_path = paths.db_path() if db_path is None else Path(db_path)
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(db_path)
+    try:
+        if not all(
+            _table_exists(conn, table)
+            for table in ("participants", "conversations", "turns")
+        ):
+            return None
+        conversation = conn.execute(
+            """
+            SELECT participant_id
+            FROM conversations
+            WHERE date=? AND session_id=?
+            """,
+            (day, session_id),
+        ).fetchone()
+        if conversation is None:
+            return None
+        turns = [
+            {"seq": int(seq), "role": str(role), "text": str(text)}
+            for seq, role, text in conn.execute(
+                """
+                SELECT seq, role, text
+                FROM turns
+                WHERE date=? AND session_id=?
+                ORDER BY seq
+                """,
+                (day, session_id),
+            ).fetchall()
+        ]
+        summary = next((item for item in _load_summaries(conn, None, session_id)
+                        if item["date"] == day and item["session_id"] == session_id), None)
+        result = {
+            "date": day,
+            "session_id": session_id,
+            "participant_id": str(conversation[0]),
+            "turns": turns,
+        }
+        if summary is not None and "center_requests" in summary:
+            result["summary"] = summary
+        return result
+    finally:
+        conn.close()
+
+
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -65,6 +128,10 @@ def _count(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> int:
     return int(row[0] or 0) if row else 0
 
 
+def _like_prefix(prefix: str) -> str:
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 def _conversation_filter(
     participant_prefix: str | None,
     session_prefix: str | None,
@@ -73,11 +140,11 @@ def _conversation_filter(
     clauses: list[str] = []
     params: list[str] = []
     if participant_prefix:
-        clauses.append(f"{alias}.participant_id LIKE ?")
-        params.append(f"{participant_prefix}%")
+        clauses.append(f"{alias}.participant_id LIKE ? ESCAPE '\\'")
+        params.append(_like_prefix(participant_prefix))
     if session_prefix:
-        clauses.append(f"{alias}.session_id LIKE ?")
-        params.append(f"{session_prefix}%")
+        clauses.append(f"{alias}.session_id LIKE ? ESCAPE '\\'")
+        params.append(_like_prefix(session_prefix))
     return (" WHERE " + " AND ".join(clauses), tuple(params)) if clauses else ("", ())
 
 
@@ -102,29 +169,45 @@ def _load_summaries(
     participant_prefix: str | None,
     session_prefix: str | None,
 ) -> list[dict[str, Any]]:
-    where, params = _turn_join_filter(participant_prefix, session_prefix, "intake_summary")
+    where, params = _turn_join_filter(participant_prefix, session_prefix)
+    role_clause = "t.role IN ('intake_summary', 'intake_snapshot')"
+    if where:
+        where = f"{where} AND {role_clause}"
+    else:
+        where = f" WHERE {role_clause}"
     rows = conn.execute(
         f"""
-        SELECT t.date, t.session_id, t.text
+        SELECT t.date, t.session_id, t.role, t.text
         FROM turns t
         JOIN conversations c
           ON c.date=t.date AND c.session_id=t.session_id
         {where}
-        ORDER BY t.date DESC, t.session_id ASC, t.seq ASC
+        ORDER BY t.date DESC, t.session_id ASC, t.role ASC, t.seq DESC
         """,
         params,
     ).fetchall()
-    summaries: list[dict[str, Any]] = []
-    for day, session_id, text in rows:
+    summaries_by_session: dict[tuple[str, str], dict[str, Any]] = {}
+    priority = {"intake_summary": 2, "intake_snapshot": 1}
+    chosen_priority: dict[tuple[str, str], int] = {}
+    for day, session_id, role, text in rows:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError:
             continue
         if isinstance(parsed, dict):
+            key = (day, session_id)
+            rank = priority.get(str(role), 0)
+            # Center snapshots are the current state, including safety signals
+            # received after delivery. A prior terminal summary must not hide them.
+            if role == "intake_snapshot" and "center_requests" in parsed:
+                rank = 3
+            if chosen_priority.get(key, -1) >= rank:
+                continue
             parsed["date"] = day
             parsed["session_id"] = session_id
-            summaries.append(parsed)
-    return summaries
+            summaries_by_session[key] = parsed
+            chosen_priority[key] = rank
+    return list(summaries_by_session.values())
 
 
 def _has_any(text: str, needles: tuple[str, ...]) -> bool:
@@ -188,15 +271,15 @@ def _individual_flag_record(
         if "support" in unfilled or not support:
             add("medium", "지지체계 미확인", "도와주는 사람이 있는지 아직 확인되지 않았습니다.")
         elif _has_any(support, ("없", "혼자", "거의 없", "모르", "감당")):
-            add("medium", "지지체계 취약", support)
+            add("medium", "지지체계 취약", "지지체계 취약 신호가 기록됐습니다.")
 
     coping = str(slots.get("coping") or "")
     if not addiction_handoff and coping and _has_any(coping, ("참고", "버티", "한계", "오래가지는")):
-        add("low", "대처 전략 취약", coping)
+        add("low", "대처 전략 취약", "대처 전략 취약 신호가 기록됐습니다.")
 
     expectation = str(slots.get("expectation") or "")
     if expectation and _has_any(expectation, ("안전", "넘기는", "위험")):
-        add("medium", "안전계획 기대", expectation)
+        add("medium", "안전계획 기대", "안전계획 관련 기대가 기록됐습니다.")
 
     if user_turns < 3 and not (addiction_handoff and referral):
         add("low", "조기 이탈 가능", f"사용자 입력이 {user_turns}턴뿐입니다.")
@@ -205,7 +288,7 @@ def _individual_flag_record(
         return None
 
     severity = {3: "high", 2: "medium", 1: "low"}[severity_rank]
-    missing_labels = [_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled.keys()]
+    missing_labels = [_ALL_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled.keys()]
     return {
         "date": day,
         "session_id": session_id,
@@ -213,23 +296,23 @@ def _individual_flag_record(
         "track": track,
         "severity": severity,
         "flags": flags,
-        "chief_complaint": slots.get("chief_complaint", ""),
+        "chief_complaint": "[recorded]" if slots.get("chief_complaint") else "",
         "addiction_type": slots.get("addiction_type", ""),
         "addiction_severity": slots.get("addiction_severity", ""),
         "addiction_referral": referral,
-        "support": support,
-        "expectation": expectation,
+        "support": "[recorded]" if support else "",
+        "expectation": "[recorded]" if expectation else "",
         "missing": missing_labels,
         "user_turns": user_turns,
     }
 
 
 def read_stats(
-    db_path: str | Path = DEFAULT_DB_PATH,
+    db_path: str | Path | None = None,
     participant_prefix: str | None = None,
     session_prefix: str | None = None,
 ) -> dict[str, Any]:
-    db_path = Path(db_path)
+    db_path = paths.db_path() if db_path is None else Path(db_path)
     filters = {"participant_prefix": participant_prefix, "session_prefix": session_prefix}
     if not db_path.exists():
         return _empty_stats(db_path, filters)
@@ -328,7 +411,7 @@ def read_stats(
             slot_completion.append(
                 {
                     "slot_id": slot_id,
-                    "label": _SLOT_LABELS.get(slot_id, slot_id),
+                    "label": _ALL_SLOT_LABELS.get(slot_id, slot_id),
                     "completed": completed,
                     "missing": missing,
                     "rate": round(completed / denominator, 3),
@@ -378,8 +461,22 @@ def read_stats(
 
         recent_sessions = []
         individual_flags = []
+        actions = review.latest_actions()
+        pending_sessions = set()
         for day, session_id, participant_id in session_rows:
             summary = summary_by_session.get((day, session_id), {})
+            required = review.review_required(summary)
+            digest = access_log.hash_value(session_id)
+            review_status = actions.get(digest, "대기")
+            review_fields = {"review_required": required, "review_status": review_status}
+            if required and review_status == "대기":
+                pending_sessions.add(digest)
+            slots = summary.get("slots") if isinstance(summary.get("slots"), dict) else {}
+            unfilled = (
+                summary.get("unfilled")
+                if isinstance(summary.get("unfilled"), dict)
+                else {}
+            )
             user_turn_count = user_turn_count_by_session[(day, session_id)]
             recent_sessions.append(
                 {
@@ -387,7 +484,16 @@ def read_stats(
                     "session_id": session_id,
                     "participant_id": participant_id,
                     "track": summary.get("track", "미확인"),
-                    "red_flags": summary.get("red_flags", []),
+                    **review_fields,
+                    "chief_complaint": "[recorded]" if slots.get("chief_complaint") else "",
+                    "symptom_context": "[recorded]" if slots.get("symptom_context") else "",
+                    "coping": "[recorded]" if slots.get("coping") else "",
+                    "support": "[recorded]" if slots.get("support") else "",
+                    "expectation": "[recorded]" if slots.get("expectation") else "",
+                    "missing": [
+                        _ALL_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled
+                    ],
+                    "summary_available": bool(summary),
                     "user_turns": user_turn_count,
                 }
             )
@@ -400,6 +506,7 @@ def read_stats(
                     user_turn_count,
                 )
                 if record:
+                    record.update(review_fields)
                     individual_flags.append(record)
 
         severity_order = {"high": 0, "medium": 1, "low": 2}
@@ -410,12 +517,15 @@ def read_stats(
                 item["session_id"],
             )
         )
-        recent_sessions = recent_sessions[:20]
+        # Keep every pending case reachable even outside the recent-record window.
+        recent_sessions = [record for index, record in enumerate(recent_sessions)
+                           if index < 200 or (record["review_required"] and record["review_status"] == "대기")]
 
         return {
             "database": str(db_path),
             "exists": True,
             "filters": filters,
+            "review_pending": len(pending_sessions),
             "totals": {
                 "participants": participant_total,
                 "conversations": conversation_total,

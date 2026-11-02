@@ -11,6 +11,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from app import paths as data_paths
 from app import chat
 from app.config import Settings
 from app.intake import load_schema
@@ -41,7 +42,7 @@ def _run_to_summary(session_id: str, first_message: str, settings: Settings | No
     for _ in range(chat.MAX_TURNS - 1):
         chat.handle_message(session_id, _FILLER, settings)
 
-    day_dir = Path("data/conversations") / date.today().isoformat()
+    day_dir = data_paths.conversations_dir() / date.today().isoformat()
     turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     summary_text = next(t["text"] for t in turns if t["role"] == "intake_summary")
     return json.loads(summary_text)
@@ -94,7 +95,7 @@ def test_crisis_track_asks_red_flag_slot_before_lower_priority_slots():
     assert session.slots["track"] == "위기"
     assert session.slots["chief_complaint"] == "자해할 계획이 있어요"
     assert "crisis_plan_means" not in session.slots
-    assert "다음 질문: 자해 계획·수단" in result["reply"]
+    assert "저희 상담센터에서 받고 싶은 도움" in result["reply"]
 
 def test_past_attempt_answer_keeps_current_plan_unfilled():
     """과거 시도 이력 답변은 현재 계획·수단 확인을 대체하지 않는다."""
@@ -243,7 +244,7 @@ def test_later_crisis_signal_escalates_track_for_safety():
     assert result["intake"]["unfilled"][0]["red_flag"] is True
     assert "자살예방상담전화 109" in result["reply"]
     assert "생명의전화 1588-9191" in result["reply"]
-    assert "119" not in result["reply"]
+    assert "안전을 유지하기 어렵다면 119" in result["reply"]
     assert "112" not in result["reply"]
 
 

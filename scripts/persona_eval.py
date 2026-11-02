@@ -339,6 +339,9 @@ def _ask_patient_codex(persona: str, transcript: list[dict], model: str) -> str:
             ],
             capture_output=True,
             text=True,
+            # 로케일(한국어 Windows=cp949)이 아니라 UTF-8로 고정 — app/llm.py와 동일 계약.
+            encoding="utf-8",
+            errors="replace",
             timeout=CODEX_TIMEOUT_SEC,
             check=False,
             cwd=neutral_cwd,

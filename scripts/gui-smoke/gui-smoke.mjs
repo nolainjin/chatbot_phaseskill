@@ -28,7 +28,7 @@ function assert(cond, label) {
 function startServer(knowledgeDir) {
   const proc = spawn(
     ".venv/bin/python",
-    ["-m", "uvicorn", "app.main:app", "--port", String(PORT)],
+    ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(PORT)],
     {
       cwd: REPO_ROOT,
       env: {
@@ -36,6 +36,7 @@ function startServer(knowledgeDir) {
         MODEL: "fake",
         KNOWLEDGE_DIR: knowledgeDir,
         TRUST_PROXY_HOPS: "1",
+        PRIVATE_LOCAL_UI: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     }

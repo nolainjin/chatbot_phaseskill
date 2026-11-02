@@ -4,8 +4,11 @@
 
   var SESSION_KEY = "lmwiki_session_id";
   var SESSION_TOKEN_KEY = "lmwiki_session_token";
+  var CONSENT_KEY = "lmwiki_consent_version";
+  var PARTICIPANT_TICKET_KEY = "lmwiki_participant_ticket";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
-  var INTERACTION_MODE_KEY = "lmwiki_interaction_mode";
+  var INTAKE_LINK_KEY = "lmwiki_pending_intake_link";
+  var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,31}$/;
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
   var CONTEXTUAL_REPLIES = {
@@ -119,423 +122,119 @@
   var coachingStatusEl = document.getElementById("coaching-status");
   var coachingStageEl = document.getElementById("coaching-stage");
   var coachingNextActionEl = document.getElementById("coaching-next-action");
-  var interactionModeSwitchEl = document.getElementById("interaction-mode-switch");
-  var interactionModeChatEl = document.getElementById("interaction-mode-chat");
-  var interactionModeVoiceEl = document.getElementById("interaction-mode-voice");
-  var chatSurfaceEl = document.getElementById("chat-surface");
-  var voiceSurfaceEl = document.getElementById("voice-surface");
-  var voiceControlsEl = document.getElementById("voice-controls");
-  var voiceToggleEl = document.getElementById("voice-toggle");
-  var voiceToggleLabelEl = document.getElementById("voice-toggle-label");
-  var voiceStatusEl = document.getElementById("voice-status");
-  var voiceElapsedEl = document.getElementById("voice-elapsed");
-  var voiceLivePanelEl = document.getElementById("voice-live-panel");
-  var voiceLiveBarsEl = document.getElementById("voice-live-bars");
-  var voiceLiveHintEl = document.getElementById("voice-live-hint");
-  var voiceReviewEl = document.getElementById("voice-review");
-  var voiceReviewStatusEl = document.getElementById("voice-review-status");
-  var voiceTranscriptEl = document.getElementById("voice-transcript");
-  var voiceTruncationWarningEl = document.getElementById("voice-truncation-warning");
-  var voiceRerecordEl = document.getElementById("voice-rerecord");
-  var voiceEditEl = document.getElementById("voice-edit");
-  var voiceSendEl = document.getElementById("voice-send");
-  var voiceTextFallbackEl = document.getElementById("voice-text-fallback");
-  var voiceApi = null;
-  var voiceController = null;
-  var interactionModeController = null;
-  var ttsPlayer = null;
-  var activeTtsControls = null;
-  var ttsControlStates = [];
-  var voiceAttemptEpoch = 0;
-  var voiceConfirmedTranscript = "";
-
   // 스테퍼/칩 공유 게이트 — 기본 false(fail-closed). /api/config가
   // {intake_schema: true}를 확인해줄 때만 true로 승격한다. Phase 4 칩도 이 값을 쓴다.
   var intakeSchemaActive = false;
   // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
   var userHasSpoken = false;
   var requestPending = false;
+  var configReady = false;
+  var consentRequired = false;
+  var consentGranted = false;
+  var privacy = null;
+  var consentCardEl = document.getElementById("consent-card");
+  var deleteSessionEl = document.getElementById("delete-session");
+  var deleteCodeCardEl = document.getElementById("delete-code-card");
+  var deleteCodeValueEl = document.getElementById("delete-code-value");
+  var previousDeleteEl = document.getElementById("previous-delete");
+  var acceptEl = document.getElementById("consent-accept");
+  var declineEl = document.getElementById("consent-decline");
+  var handoffCardEl = null;
 
-  function normalizeVoiceTranscript(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
-  }
+  function renderHandoff(handoff) {
+    if (handoffCardEl) handoffCardEl.remove();
+    handoffCardEl = null;
+    if (!handoff || handoff.mode === "center") return;
 
-  function voiceRecordingFilename(mimeType) {
-    var normalized = String(mimeType || "").toLowerCase();
-    if (normalized.indexOf("mp4") !== -1 || normalized.indexOf("m4a") !== -1) {
-      return "recording.m4a";
-    }
-    if (normalized.indexOf("wav") !== -1) return "recording.wav";
-    return "recording.webm";
-  }
+    var card = document.createElement("li");
+    card.className = "handoff-card";
+    var title = document.createElement("h2");
+    title.textContent = "기관에 전할 정리";
+    card.appendChild(title);
+    var note = Array.isArray(handoff.note) ? handoff.note.join("\n") : "";
+    var noteEl = document.createElement("p");
+    noteEl.className = "handoff-note";
+    noteEl.textContent = note;
+    card.appendChild(noteEl);
 
-  function stopTtsPlayback(message) {
-    var controls = activeTtsControls;
-    activeTtsControls = null;
-    if (ttsPlayer) ttsPlayer.stop();
-    if (!controls) return;
-    controls.button.disabled = false;
-    controls.button.textContent = "응답 다시 듣기";
-    controls.button.setAttribute("aria-label", "응답 다시 듣기");
-    controls.status.textContent = message || "재생을 멈췄습니다.";
-  }
-
-  function resetVoiceReview(options) {
-    options = options || {};
-    if (voiceReviewEl) voiceReviewEl.hidden = options.hidden !== false;
-    if (voiceTranscriptEl) {
-      voiceTranscriptEl.value = options.value || "";
-      voiceTranscriptEl.disabled = options.disabled !== false;
-    }
-    if (voiceTruncationWarningEl) {
-      voiceTruncationWarningEl.hidden = true;
-      voiceTruncationWarningEl.textContent = "";
-    }
-    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = options.status || "전사 결과를 확인해 주세요.";
-    if (voiceRerecordEl) voiceRerecordEl.disabled = options.actions !== true;
-    if (voiceEditEl) voiceEditEl.disabled = options.actions !== true;
-    if (voiceSendEl) voiceSendEl.disabled = options.actions !== true;
-    if (options.clearConfirmed !== false) voiceConfirmedTranscript = "";
-  }
-
-  function renderTranscriptReview(result) {
-    var text = result && typeof result.text === "string" ? result.text : "";
-    if (!text.trim()) {
-      resetVoiceReview({ hidden: false, status: "전사 결과가 비어 있습니다. 다시 녹음해 주세요." });
-      if (voiceRerecordEl) voiceRerecordEl.disabled = false;
-      return;
-    }
-    if (voiceReviewEl) voiceReviewEl.hidden = false;
-    if (voiceTranscriptEl) {
-      voiceTranscriptEl.value = text;
-      voiceTranscriptEl.disabled = false;
-    }
-    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "전사 내용을 확인하고 필요하면 수정한 뒤 보내 주세요.";
-    if (voiceTruncationWarningEl) {
-      var overLimit = text.length > MAX_MESSAGE_LEN;
-      voiceTruncationWarningEl.hidden = !overLimit;
-      voiceTruncationWarningEl.textContent = overLimit
-        ? "전사가 2000자를 넘습니다. 전체 내용을 확인하세요. 보내기를 누르면 2000자까지만 전송됩니다."
-        : "";
-    }
-    if (voiceRerecordEl) voiceRerecordEl.disabled = false;
-    if (voiceEditEl) voiceEditEl.disabled = false;
-    if (voiceSendEl) voiceSendEl.disabled = false;
-  }
-
-  function setVoiceReviewError(message) {
-    if (voiceReviewEl) voiceReviewEl.hidden = false;
-    if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = message;
-    if (voiceTranscriptEl) {
-      voiceTranscriptEl.value = voiceConfirmedTranscript;
-      voiceTranscriptEl.disabled = false;
-    }
-    if (voiceRerecordEl) voiceRerecordEl.disabled = false;
-    if (voiceEditEl) voiceEditEl.disabled = false;
-    if (voiceSendEl) voiceSendEl.disabled = false;
-  }
-
-  function formatVoiceElapsed(elapsedMs) {
-    var seconds = Math.floor(Math.max(0, elapsedMs || 0) / 1000);
-    var minutes = Math.floor(seconds / 60);
-    seconds %= 60;
-    return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
-  }
-
-  function setElementInert(element, inert) {
-    if (!element) return;
-    element.inert = inert;
-  }
-
-  function renderInteractionMode(snapshot, shouldFocus) {
-    if (!snapshot) return;
-    var voiceAvailable = snapshot.voiceCapability === true;
-    var voiceActive = voiceAvailable && snapshot.interactionMode === "voice";
-    if (interactionModeSwitchEl) {
-      interactionModeSwitchEl.hidden = false;
-      setElementInert(interactionModeSwitchEl, false);
-      interactionModeSwitchEl.dataset.state = snapshot.voicePhase;
-      interactionModeSwitchEl.dataset.voiceAvailable = voiceAvailable ? "true" : "false";
-    }
-    if (interactionModeChatEl) {
-      interactionModeChatEl.checked = !voiceActive;
-      interactionModeChatEl.disabled = false;
-      interactionModeChatEl.title = "";
-    }
-    if (interactionModeVoiceEl) {
-      interactionModeVoiceEl.checked = voiceActive;
-      interactionModeVoiceEl.disabled = !voiceAvailable;
-      interactionModeVoiceEl.title = voiceAvailable ? "" : "로컬 음성 서버가 준비되면 사용할 수 있습니다.";
-    }
-    if (chatSurfaceEl) {
-      chatSurfaceEl.hidden = voiceActive;
-      setElementInert(chatSurfaceEl, voiceActive);
-    }
-    if (voiceSurfaceEl) {
-      voiceSurfaceEl.hidden = !voiceActive;
-      setElementInert(voiceSurfaceEl, !voiceActive);
-      voiceSurfaceEl.dataset.voiceState = snapshot.voicePhase === "idle" ? "ready" : snapshot.voicePhase;
-    }
-    if (!voiceActive && voiceLivePanelEl) voiceLivePanelEl.hidden = true;
-    if (!shouldFocus) return;
-    if (voiceActive && voiceToggleEl) voiceToggleEl.focus();
-    if (!voiceActive && inputEl) inputEl.focus();
-  }
-
-  function currentInteractionSnapshot() {
-    return interactionModeController ? interactionModeController.getSnapshot() : null;
-  }
-
-  function isCurrentVoiceEpoch(epoch) {
-    var snapshot = currentInteractionSnapshot();
-    return Boolean(
-      snapshot &&
-      snapshot.interactionMode === "voice" &&
-      interactionModeController.isCurrentEpoch(epoch)
-    );
-  }
-
-  function setInteractionVoicePhase(phase, epoch) {
-    if (!interactionModeController || !interactionModeController.setVoicePhase(phase, epoch)) return false;
-    renderInteractionMode(interactionModeController.getSnapshot(), false);
-    syncVoiceToggleAvailability();
-    return true;
-  }
-
-  function voiceTurnIsBusy() {
-    var snapshot = currentInteractionSnapshot();
-    return Boolean(
-      requestPending ||
-      snapshot && ["sending", "synthesizing", "speaking"].indexOf(snapshot.voicePhase) !== -1
-    );
-  }
-
-  function recorderBlocksTts(recorderSnapshot) {
-    var snapshot = recorderSnapshot || (voiceController && voiceController.getSnapshot());
-    var state = snapshot && snapshot.state;
-    var recorderActive = [
-      "requesting_permission",
-      "starting",
-      "recording",
-      "stopping",
-      "transcribing",
-      "sending",
-    ].indexOf(state) !== -1;
-    var reviewVisible = Boolean(voiceReviewEl && !voiceReviewEl.hidden);
-    return requestPending || recorderActive || reviewVisible;
-  }
-
-  function syncTtsControlsAvailability(recorderSnapshot) {
-    var blocked = recorderBlocksTts(recorderSnapshot);
-    ttsControlStates.forEach(function (controls) {
-      if (controls.disabledForMode || controls === activeTtsControls) return;
-      controls.button.disabled = blocked;
-      if (blocked) {
-        controls.status.textContent = "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.";
-      } else if (controls.status.textContent === "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.") {
-        controls.status.textContent = "응답을 다시 들을 수 있습니다.";
+    var actions = document.createElement("div");
+    actions.className = "handoff-actions";
+    var feedback = document.createElement("p");
+    feedback.setAttribute("role", "status");
+    var copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "정리문 복사";
+    copy.addEventListener("click", async function () {
+      try {
+        await navigator.clipboard.writeText(note);
+        feedback.textContent = "정리문을 복사했어요.";
+      } catch (error) {
+        feedback.textContent = "복사하지 못했어요. 정리문을 선택해 복사하거나 내려받아 주세요.";
       }
     });
-  }
-
-  function setTtsControlsForMode(voiceActive) {
-    ttsControlStates.forEach(function (controls) {
-      if (!voiceActive) {
-        controls.disabledForMode = true;
-        controls.button.disabled = true;
-        controls.status.textContent = "음성 모드에서 다시 들을 수 있습니다.";
-        return;
-      }
-      if (!controls.disabledForMode) return;
-      controls.disabledForMode = false;
-      controls.button.disabled = false;
-      controls.button.textContent = "응답 다시 듣기";
-      controls.button.setAttribute("aria-label", "응답 다시 듣기");
-      controls.status.textContent = "응답을 다시 들을 수 있습니다.";
+    actions.appendChild(copy);
+    var download = document.createElement("button");
+    download.type = "button";
+    download.textContent = ".txt 내려받기";
+    download.addEventListener("click", function () {
+      var blob = new Blob([note + "\n"], { type: "text/plain;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = "기관에-전할-정리.txt";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      feedback.textContent = "정리문 내려받기를 시작했어요.";
     });
-    if (voiceActive) syncTtsControlsAvailability();
-  }
+    actions.appendChild(download);
+    card.appendChild(actions);
+    card.appendChild(feedback);
 
-  function syncVoiceToggleAvailability(recorderSnapshot) {
-    if (!voiceToggleEl || !voiceController) return;
-    var snapshot = recorderSnapshot || voiceController.getSnapshot();
-    var recorderBusy = ["requesting_permission", "starting", "stopping", "transcribing", "sending"].indexOf(snapshot.state) !== -1;
-    voiceToggleEl.disabled = !snapshot.enabled || recorderBusy || voiceTurnIsBusy();
-    syncTtsControlsAvailability(snapshot);
-  }
-
-  function leaveVoiceMode() {
-    stopTtsPlayback("채팅 모드로 전환해 재생을 멈췄습니다.");
-    setTtsControlsForMode(false);
-    if (voiceController) voiceController.reset();
-    resetVoiceReview();
-  }
-
-  function switchInteractionMode(mode, shouldFocus) {
-    if (!interactionModeController) return null;
-    var snapshot = interactionModeController.switchMode(mode);
-    sessionStorage.setItem(INTERACTION_MODE_KEY, snapshot.interactionMode);
-    renderInteractionMode(snapshot, shouldFocus !== false);
-    if (snapshot.interactionMode === "voice" && voiceController) {
-      voiceAttemptEpoch = interactionModeController.captureEpoch();
-      setTtsControlsForMode(true);
-      renderVoiceState(voiceController.getSnapshot());
+    var places = document.createElement("h2");
+    places.textContent = "연결할 수 있는 곳";
+    card.appendChild(places);
+    if (handoff.fallback_used) {
+      var gap = document.createElement("p");
+      gap.textContent = "가까운 기관을 아직 정리하지 못했어요";
+      card.appendChild(gap);
+      var guidance = document.createElement("p");
+      guidance.textContent = "광역 단위 정신건강 상담 전화 1577-0199 또는 자살예방상담전화 109로 도움을 요청할 수 있어요.";
+      card.appendChild(guidance);
     }
-    return snapshot;
-  }
-
-  function configureVoiceCapability(enabled) {
-    var supported = Boolean(
-      enabled &&
-      interactionModeController &&
-      voiceController &&
-      voiceController.isSupported()
-    );
-    if (!interactionModeController) return;
-    var snapshot = interactionModeController.setCapability(supported);
-    if (voiceController && supported) voiceController.setEnabled(true);
-    if (voiceController && !supported) voiceController.setEnabled(false);
-    if (!supported) {
-      sessionStorage.setItem(INTERACTION_MODE_KEY, "chat");
-      renderInteractionMode(snapshot, true);
-      return;
-    }
-    var storedMode = sessionStorage.getItem(INTERACTION_MODE_KEY) === "voice" ? "voice" : "chat";
-    switchInteractionMode(storedMode, true);
-  }
-
-  function voicePhaseForRecorderState(state) {
-    if (state === "requesting_permission" || state === "starting") return "requesting_permission";
-    if (state === "recording" || state === "stopping") return "recording";
-    if (state === "transcribing") return "transcribing";
-    if (state === "transcript_review") return "review";
-    if (state === "sending") return "sending";
-    if (state === "ready") return "ready";
-    if (state === "error") return "error";
-    return "idle";
-  }
-
-  function renderVoiceLevel(snapshot) {
-    if (!voiceLivePanelEl) return;
-    var state = snapshot && snapshot.state;
-    var liveVisible = state === "recording" || state === "stopping" || state === "transcribing";
-    voiceLivePanelEl.hidden = !liveVisible;
-    if (!liveVisible) return;
-
-    var rawLevel = Number(snapshot.level);
-    var level = Number.isFinite(rawLevel) ? Math.max(0, Math.min(1, rawLevel)) : 0;
-    voiceLivePanelEl.style.setProperty("--voice-level", level.toFixed(2));
-
-    if (voiceLiveBarsEl) {
-      var bars = voiceLiveBarsEl.children;
-      var activeBars = Math.ceil(level * bars.length);
-      for (var index = 0; index < bars.length; index += 1) {
-        var bar = bars[index];
-        var active = state === "recording" && index < activeBars;
-        var scale = active ? Math.max(0.3, level + (index % 4) * 0.07) : 0.22;
-        bar.dataset.active = active ? "true" : "false";
-        bar.style.transform = "scaleY(" + Math.min(1, scale).toFixed(2) + ")";
-      }
-    }
-
-    if (voiceLiveHintEl) {
-      if (state === "recording") {
-        voiceLiveHintEl.textContent = snapshot.silenceAutoStop
-          ? "듣는 중 · 말이 멈추면 자동으로 전사합니다"
-          : "듣는 중 · 녹음 종료를 누르면 전사합니다";
-      } else if (state === "transcribing") {
-        voiceLiveHintEl.textContent = "전사 중 · 잠시만 기다려 주세요";
-      } else {
-        voiceLiveHintEl.textContent = "녹음을 마무리하고 있습니다";
-      }
-    }
-  }
-
-  function renderVoiceState(snapshot) {
-    if (!voiceToggleEl || !snapshot) return;
-    if (interactionModeController && !isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
-    var recording = snapshot.state === "recording";
-    var statusLabels = {
-      idle: "새 음성 입력을 시작할 수 있습니다.",
-      requesting_permission: "마이크 권한을 요청하고 있습니다…",
-      starting: "녹음 준비 중입니다…",
-      recording: "듣고 있어요. 말이 멈추면 자동으로 전사합니다.",
-      stopping: "녹음 마무리 중입니다…",
-      transcribing: "전사를 준비하고 있어요…",
-      transcript_review: "전사 내용을 확인해 주세요.",
-      sending: "확인한 내용을 보내고 있어요…",
-      ready: "새 음성 입력을 시작할 수 있습니다.",
-      error: "음성 입력을 사용할 수 없습니다.",
-    };
-    voiceStatusEl.textContent = snapshot.status || statusLabels[snapshot.state] || "";
-    voiceElapsedEl.textContent = formatVoiceElapsed(snapshot.elapsedMs);
-    renderVoiceLevel(snapshot);
-    syncVoiceToggleAvailability(snapshot);
-    voiceToggleEl.setAttribute("aria-pressed", recording ? "true" : "false");
-    voiceToggleEl.setAttribute("aria-label", recording ? "녹음 종료" : "말하기 시작");
-    voiceToggleLabelEl.textContent = recording ? "녹음 종료" : "말하기";
-    setInteractionVoicePhase(voicePhaseForRecorderState(snapshot.state), voiceAttemptEpoch);
-    if (voiceReviewEl && snapshot.state === "transcript_review") voiceReviewEl.hidden = false;
-    if (voiceReviewEl && snapshot.state === "error" && !voiceConfirmedTranscript) {
-      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = snapshot.status || "음성 입력을 다시 시도해 주세요.";
-    }
-  }
-
-  if (typeof window.createInteractionModeController === "function") {
-    interactionModeController = window.createInteractionModeController({ onVoiceExit: leaveVoiceMode });
-    window.lmwikiInteractionModeController = interactionModeController;
-    renderInteractionMode(interactionModeController.getSnapshot(), false);
-  }
-
-  if (voiceControlsEl && typeof window.createVoiceController === "function") {
-    if (typeof window.createVoiceApi === "function") {
-      voiceApi = window.createVoiceApi({
-        transcribeTimeoutMs: 45000,
-        synthesizeTimeoutMs: 30000,
-      });
-    }
-    if (voiceApi && typeof window.createTtsPlayer === "function") {
-      ttsPlayer = window.createTtsPlayer({
-        voiceApi: voiceApi,
-        getMetadata: function () {
-          return { sessionId: getSessionId(), sessionToken: getSessionToken() || "" };
-        },
-        onStateChange: renderTtsState,
-      });
-      window.lmwikiTtsPlayer = ttsPlayer;
-    }
-    voiceController = window.createVoiceController({
-      enabled: false,
-      silenceAutoStop: true,
-      silenceAfterMs: 1600,
-      silenceGraceMs: 1200,
-      document: document,
-      transcribe: function (blob, metadata) {
-        if (!voiceApi) return Promise.reject(new Error("음성 API가 준비되지 않았습니다."));
-        return voiceApi.transcribe(
-          blob,
-          {
-            sessionId: getSessionId(),
-            sessionToken: getSessionToken() || "",
-            participantId: getParticipantId(),
-            durationMs: metadata && metadata.elapsedMs,
-            filename: voiceRecordingFilename(metadata && metadata.mimeType),
-          },
-          { signal: metadata && metadata.signal }
-        );
-      },
-      onStateChange: renderVoiceState,
-      onTranscriptReady: function (result) {
-        if (!isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
-        renderTranscriptReview(result);
-      },
-      onRecordingReady: function () {
-        if (!isCurrentVoiceEpoch(voiceAttemptEpoch)) return;
-        if (voiceReviewEl) voiceReviewEl.hidden = false;
-        if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "녹음이 준비되었습니다. 전사 연결을 기다리고 있습니다.";
-      },
+    (handoff.institutions || []).slice(0, 3).forEach(function (institution) {
+      var place = document.createElement("article");
+      place.className = "handoff-institution";
+      var name = document.createElement("h3");
+      name.textContent = institution.name;
+      place.appendChild(name);
+      var badge = document.createElement("span");
+      badge.className = "handoff-badge";
+      badge.textContent = institution.check_level === "verified" ? "전화 확인됨" : "웹 확인";
+      place.appendChild(badge);
+      var procedure = document.createElement("p");
+      procedure.textContent = "이용 절차: " + (institution.referral || "정보 없음");
+      place.appendChild(procedure);
+      var phone = document.createElement("p");
+      phone.textContent = "전화: " + (institution.phone || "정보 없음");
+      place.appendChild(phone);
+      try {
+        var homepage = new URL(institution.homepage);
+        if (homepage.protocol === "https:" || homepage.protocol === "http:") {
+          var link = document.createElement("a");
+          link.textContent = "홈페이지";
+          link.href = homepage.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          place.appendChild(link);
+        }
+      } catch (error) { /* An absent / unsafe homepage is never a link. */ }
+      card.appendChild(place);
     });
-    window.lmwikiVoiceController = voiceController;
+    handoffCardEl = card;
+    messagesEl.appendChild(card);
+    card.scrollIntoView({ block: "nearest" });
   }
 
   function getSessionId() {
@@ -548,12 +247,41 @@
   }
 
   function getParticipantId() {
-    var id = localStorage.getItem(PARTICIPANT_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(PARTICIPANT_KEY, id);
+    var url = new URL(window.location.href);
+    var storedId = localStorage.getItem(PARTICIPANT_KEY);
+    if (url.searchParams.has("management_id") || url.searchParams.has("link_ticket")) {
+      var managementId = url.searchParams.get("management_id");
+      var linkTicket = url.searchParams.get("link_ticket");
+      // Keep even incomplete / invalid links for server-side validation, including
+      // after a reload. Never turn an unverified URL label into record ownership.
+      sessionStorage.setItem(INTAKE_LINK_KEY, JSON.stringify({
+        management_id: managementId,
+        link_ticket: linkTicket
+      }));
+      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(CONSENT_KEY);
+      localStorage.removeItem(PARTICIPANT_KEY);
+      localStorage.removeItem(PARTICIPANT_TICKET_KEY);
+      storedId = null;
+      url.searchParams.delete("management_id");
+      url.searchParams.delete("link_ticket");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      if (!MANAGEMENT_ID_PATTERN.test(managementId || "") || !linkTicket) {
+        setStatus("링크가 올바르지 않아요. 센터에 다시 요청해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
+      }
     }
-    return id;
+
+    if (!storedId) {
+      storedId = crypto.randomUUID();
+      localStorage.setItem(PARTICIPANT_KEY, storedId);
+    }
+    return storedId;
+  }
+
+  function pendingIntakeLink() {
+    try { return JSON.parse(sessionStorage.getItem(INTAKE_LINK_KEY)) || {}; }
+    catch (error) { return {}; }
   }
 
   function getSessionToken() {
@@ -564,115 +292,47 @@
     return date.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
   }
 
-  function renderTtsState(snapshot) {
-    var controls = activeTtsControls;
-    if (!controls || !snapshot || !isCurrentVoiceEpoch(controls.epoch)) return;
-    if (snapshot.state === "synthesizing") {
-      controls.button.disabled = true;
-      controls.button.textContent = "응답 준비 중…";
-      controls.button.setAttribute("aria-label", "응답 준비 중");
-      controls.status.textContent = snapshot.truncated
-        ? "응답이 길어 앞의 1200자만 읽습니다. 전체 내용은 텍스트로 확인해 주세요."
-        : "응답을 준비하고 있습니다…";
-      setInteractionVoicePhase("synthesizing", controls.epoch);
-      return;
-    }
-    if (snapshot.state === "playing") {
-      controls.button.disabled = false;
-      controls.button.textContent = "응답 중지";
-      controls.button.setAttribute("aria-label", "응답 재생 중지");
-      controls.status.textContent = "응답을 재생하고 있습니다.";
-      setInteractionVoicePhase("speaking", controls.epoch);
-      return;
-    }
-    controls.button.disabled = false;
-    controls.button.textContent = snapshot.state === "blocked" ? "재생 다시 시작" : "응답 다시 듣기";
-    controls.button.setAttribute(
-      "aria-label",
-      snapshot.state === "blocked" ? "응답 재생 다시 시작" : "응답 다시 듣기"
-    );
-    if (snapshot.state === "blocked") {
-      controls.status.textContent = "자동 재생이 차단되었습니다. 버튼을 눌러 응답을 들을 수 있습니다.";
-    } else if (snapshot.state === "error") {
-      controls.status.textContent = "응답을 들려드리지 못했습니다. 텍스트로 계속 확인할 수 있습니다.";
-    } else {
-      controls.status.textContent = "재생이 끝났습니다.";
-    }
-    if (voiceStatusEl) {
-      voiceStatusEl.textContent = snapshot.state === "blocked"
-        ? "자동 재생이 차단되었습니다. 새 음성 입력을 시작할 수 있습니다."
-        : snapshot.state === "error"
-          ? "음성 재생에 실패했습니다. 새 음성 입력을 시작할 수 있습니다."
-          : "새 음성 입력을 시작할 수 있습니다.";
-    }
-    setInteractionVoicePhase("ready", controls.epoch);
-  }
+  var SUPPORT_PHONE_LINKS = {
+    "109": "tel:109",
+    "119": "tel:119",
+    "129": "tel:129",
+    "1336": "tel:1336",
+    "1342": "tel:1342",
+    "1388": "tel:1388",
+    "1577-0199": "tel:15770199",
+    "1588-9191": "tel:15889191",
+    "1599-0075": "tel:15990075",
+    "000-000-0000": "tel:0000000000"
+  };
+  var SUPPORT_LINK_PATTERN = /(https:\/\/[^\s]+|000-000-0000|1588-9191|1577-0199|1599-0075|(?:^|[^\d])(109|119|129|1336|1342|1388)(?!\d))/g;
 
-  function appendTtsControls(rendered, text, epoch) {
-    if (!rendered || !rendered.col || !ttsPlayer) return null;
-    var controls = document.createElement("div");
-    controls.className = "tts-controls";
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "tts-button";
-    button.textContent = "응답 듣기";
-    button.setAttribute("aria-label", "응답 듣기");
-    var status = document.createElement("span");
-    status.className = "tts-status";
-    status.setAttribute("aria-live", "polite");
-    controls.appendChild(button);
-    controls.appendChild(status);
-    rendered.col.appendChild(controls);
-
-    var controlState = {
-      button: button,
-      status: status,
-      text: text,
-      epoch: epoch,
-      disabledForMode: false,
-    };
-    ttsControlStates.push(controlState);
-
-    button.addEventListener("click", function () {
-      var modeSnapshot = currentInteractionSnapshot();
-      if (!modeSnapshot || modeSnapshot.interactionMode !== "voice") {
-        status.textContent = "음성 모드에서 다시 들을 수 있습니다.";
-        return;
+  function appendSupportLinks(node, content) {
+    node.textContent = "";
+    var cursor = 0;
+    content.replace(SUPPORT_LINK_PATTERN, function (match, _url, shortNumber, offset) {
+      var leading = "";
+      var value = match;
+      if (shortNumber && match !== shortNumber) {
+        leading = match.slice(0, -shortNumber.length);
+        value = shortNumber;
       }
-      var snapshot = ttsPlayer.getSnapshot();
-      if (
-        activeTtsControls === controlState &&
-        (snapshot.state === "playing" || snapshot.state === "synthesizing")
-      ) {
-        stopTtsPlayback();
-        setInteractionVoicePhase("ready", controlState.epoch);
-        return;
+      node.appendChild(document.createTextNode(content.slice(cursor, offset) + leading));
+      var link = document.createElement("a");
+      link.className = "support-link";
+      link.textContent = value;
+      if (value.startsWith("https://")) {
+        link.href = value.replace(/[),.;]+$/, "");
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      } else {
+        link.href = SUPPORT_PHONE_LINKS[value];
+        link.setAttribute("aria-label", value + " 전화 걸기");
       }
-      if (recorderBlocksTts()) {
-        status.textContent = "현재 음성 입력이 끝난 뒤 다시 들을 수 있습니다.";
-        return;
-      }
-      controlState.epoch = interactionModeController.captureEpoch();
-      if (activeTtsControls === controlState && snapshot.state === "blocked") {
-        ttsPlayer.resume();
-        return;
-      }
-      stopTtsPlayback("다른 응답 재생을 멈췄습니다.");
-      activeTtsControls = controlState;
-      ttsPlayer.play(text, { automatic: false, epoch: controlState.epoch });
+      node.appendChild(link);
+      cursor = offset + match.length;
+      return match;
     });
-    return controlState;
-  }
-
-  function playAssistantTts(rendered, text, epoch) {
-    if (!isCurrentVoiceEpoch(epoch) || !ttsPlayer) return;
-    stopTtsPlayback("새 응답 재생을 준비합니다.");
-    activeTtsControls = appendTtsControls(rendered, text, epoch);
-    if (!activeTtsControls) {
-      setInteractionVoicePhase("ready", epoch);
-      return;
-    }
-    ttsPlayer.play(text, { automatic: true, epoch: epoch });
+    node.appendChild(document.createTextNode(content.slice(cursor)));
   }
 
   function addMessage(role, text) {
@@ -760,6 +420,7 @@
         if (index < text.length) {
           window.setTimeout(tick, delay);
         } else {
+          appendSupportLinks(bubble, text);
           resolve(rendered);
         }
       }
@@ -850,7 +511,7 @@
     turnCounterEl.textContent = turn + "/" + MAX_TURNS;
     var progressEl = document.getElementById("turn-progress");
     if (progressEl) {
-      progressEl.style.width = (turn / MAX_TURNS) * 100 + "%";
+      progressEl.style.width = Math.min(100, (turn / MAX_TURNS) * 100) + "%";
     }
   }
 
@@ -864,7 +525,7 @@
   }
 
   function maybeShowChips() {
-    if (chipsEl && intakeSchemaActive && !userHasSpoken) {
+    if (chipsEl && intakeSchemaActive && !userHasSpoken && configReady && (!consentRequired || consentGranted)) {
       chipsEl.hidden = false;
     }
   }
@@ -881,7 +542,6 @@
       characterCountEl.classList.toggle("near-limit", length > MAX_MESSAGE_LEN * 0.85);
     }
     sendButtonEl.disabled = requestPending || inputEl.disabled || !inputEl.value.trim();
-    syncVoiceToggleAvailability();
     autoResizeInput();
   }
 
@@ -918,6 +578,23 @@
     contextualRepliesEl.hidden = false;
   }
 
+  function renderServerQuickReplies(replies) {
+    if (!contextualRepliesEl || !Array.isArray(replies) || !replies.length) return;
+    hideContextualReplies();
+    replies.forEach(function (reply) {
+      if (!reply || !reply.label || !reply.message) return;
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "reply-suggestion" + (reply.action === "send" ? " reply-suggestion-send" : "");
+      button.textContent = reply.label;
+      button.addEventListener("click", function () {
+        sendMessage(reply.message);
+      });
+      contextualRepliesEl.appendChild(button);
+    });
+    contextualRepliesEl.hidden = false;
+  }
+
   function renderCoachingStatus(data) {
     if (!coachingStatusEl || !data || typeof data.coach_stage !== "string" || typeof data.next_action !== "string") return;
     coachingStageEl.textContent = data.coach_stage;
@@ -927,17 +604,19 @@
 
   function resetSession() {
     if (requestPending) return;
-    stopTtsPlayback("새 대화를 시작해 재생을 멈췄습니다.");
-    ttsControlStates = [];
-    if (voiceController) voiceController.reset();
-    resetVoiceReview();
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(CONSENT_KEY);
+    consentGranted = false;
+    deleteSessionEl.hidden = true;
+    deleteCodeCardEl.hidden = true;
+    deleteCodeValueEl.textContent = "";
     getSessionId();
     userHasSpoken = false;
-    inputEl.disabled = false;
+    inputEl.disabled = !configReady || consentRequired;
     inputEl.value = "";
     messagesEl.textContent = "";
+    handoffCardEl = null;
     slotListEl.textContent = "";
     panelEl.hidden = true;
     if (coachingStatusEl) coachingStatusEl.hidden = true;
@@ -947,31 +626,21 @@
     setStatus("");
     updateTurnCounter(0);
     setActiveStep(1);
-    addMessage("assistant", greetingText);
+    if (consentRequired) {
+      showConsent();
+    } else if (configReady) {
+      addMessage("assistant", greetingText);
+    }
     maybeShowChips();
     updateInputState();
-    renderInteractionMode(currentInteractionSnapshot(), true);
+    inputEl.focus();
   }
 
   function sendMessage(message, options) {
     options = options || {};
-    if (requestPending) return;
-    var dispatchSnapshot = currentInteractionSnapshot();
-    var dispatchEpoch = dispatchSnapshot ? dispatchSnapshot.interactionEpoch : 0;
-    var autoTts = Boolean(dispatchSnapshot && dispatchSnapshot.interactionMode === "voice");
-    var voiceMessage = options.source === "voice";
-    var normalizedMessage = voiceMessage ? normalizeVoiceTranscript(message) : String(message || "").trim();
-    message = normalizedMessage.slice(0, MAX_MESSAGE_LEN);
+    if (requestPending || !configReady || (consentRequired && !consentGranted) || inputEl.disabled) return;
+    message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
     if (!message) return;
-
-    if (voiceMessage) {
-      voiceConfirmedTranscript = normalizedMessage;
-      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "확인한 내용을 보내고 있어요…";
-      if (voiceSendEl) voiceSendEl.disabled = true;
-      if (voiceRerecordEl) voiceRerecordEl.disabled = true;
-      if (voiceEditEl) voiceEditEl.disabled = true;
-      setInteractionVoicePhase("sending", dispatchEpoch);
-    }
 
     requestPending = true;
     userHasSpoken = true;
@@ -991,6 +660,7 @@
         session_id: getSessionId(),
         session_token: getSessionToken() || null,
         participant_id: getParticipantId(),
+        participant_ticket: localStorage.getItem(PARTICIPANT_TICKET_KEY) || null,
         message: message,
       }),
     })
@@ -998,15 +668,10 @@
         if (response.ok) return response.json();
 
         hideTyping();
-        setStatus(
-          response.status === 429
-            ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
-            : "오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-        );
-        if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
-          setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
-          setInteractionVoicePhase("review", dispatchEpoch);
-        }
+        if (response.status === 409 || response.status === 401) disableInput();
+        response.json().then(function (error) {
+          setStatus(error.detail || "오류가 발생했습니다. 새 대화로 시작해 주세요.");
+        });
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -1016,25 +681,33 @@
         if (!data) return;
 
         hideTyping();
-        if (data.session_token) sessionStorage.setItem(SESSION_TOKEN_KEY, data.session_token);
+        rememberCredentials(data);
+        deleteSessionEl.hidden = !getSessionToken();
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("답변을 작성하고 있어요…");
-        typeAssistantMessage(replyText).then(function (rendered) {
-          if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
-            resetVoiceReview();
-          }
-          if (autoTts && isCurrentVoiceEpoch(dispatchEpoch)) {
-            playAssistantTts(rendered, replyText, dispatchEpoch);
-          }
+        typeAssistantMessage(replyText).then(function () {
           setStatus("");
           updateTurnCounter(data.turn);
+          if (data.closing) turnCounterEl.textContent = "마지막 확인";
+          if (data.handoff && data.handoff.mode === "center") turnCounterEl.textContent = "전달 완료";
           renderIntake(data.intake);
-          renderContextualReplies(data.intake, replyText);
+          if (Array.isArray(data.quick_replies) && data.quick_replies.length) {
+            renderServerQuickReplies(data.quick_replies);
+          } else {
+            renderContextualReplies(data.intake, replyText);
+          }
           renderCoachingStatus(data);
+          renderHandoff(data.handoff);
           requestPending = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
 
+          if (data.conversation_ended) {
+            setStatus("안내가 완료되어 대화가 종료되었습니다. 다시 시작하려면 ‘새 대화’를 눌러 주세요.");
+            hideContextualReplies();
+            disableInput();
+            return;
+          }
           if (data.limit_reached) {
             setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
             hideContextualReplies();
@@ -1043,21 +716,12 @@
           }
 
           updateInputState();
-          var completionSnapshot = currentInteractionSnapshot();
-          if (completionSnapshot && completionSnapshot.interactionMode === "voice") {
-            if (interactionModeController.isCurrentEpoch(dispatchEpoch) && voiceToggleEl) voiceToggleEl.focus();
-          } else {
-            inputEl.focus();
-          }
+          inputEl.focus();
         });
       })
       .catch(function () {
         hideTyping();
         setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-        if (voiceMessage && isCurrentVoiceEpoch(dispatchEpoch)) {
-          setVoiceReviewError("전송에 실패했습니다. 확인한 전사를 다시 보내거나 텍스트로 입력해 주세요.");
-          setInteractionVoicePhase("review", dispatchEpoch);
-        }
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -1083,106 +747,6 @@
     resetSessionEl.addEventListener("click", resetSession);
   }
 
-  if (interactionModeChatEl) {
-    interactionModeChatEl.addEventListener("change", function () {
-      if (interactionModeChatEl.checked) switchInteractionMode("chat", true);
-    });
-  }
-
-  if (interactionModeVoiceEl) {
-    interactionModeVoiceEl.addEventListener("change", function () {
-      if (interactionModeVoiceEl.checked) switchInteractionMode("voice", true);
-    });
-  }
-
-  if (voiceToggleEl && voiceController) {
-    voiceToggleEl.addEventListener("click", function () {
-      if (
-        !interactionModeController ||
-        currentInteractionSnapshot().interactionMode !== "voice" ||
-        voiceTurnIsBusy()
-      ) return;
-      var recorderSnapshot = voiceController.getSnapshot();
-      if (recorderSnapshot.state !== "recording") {
-        stopTtsPlayback("새 음성 입력을 시작해 재생을 멈췄습니다.");
-        resetVoiceReview();
-      }
-      voiceAttemptEpoch = interactionModeController.captureEpoch();
-      voiceController.toggle();
-    });
-  }
-
-  if (voiceTextFallbackEl && voiceController) {
-    voiceTextFallbackEl.addEventListener("click", function () {
-      switchInteractionMode("chat", true);
-    });
-  }
-
-  if (voiceRerecordEl && voiceController) {
-    voiceRerecordEl.addEventListener("click", function () {
-      if (voiceTurnIsBusy()) return;
-      stopTtsPlayback("다시 녹음을 시작해 재생을 멈췄습니다.");
-      voiceController.reset();
-      resetVoiceReview();
-      voiceAttemptEpoch = interactionModeController.captureEpoch();
-      voiceController.start();
-    });
-  }
-
-  if (voiceEditEl) {
-    voiceEditEl.addEventListener("click", function () {
-      if (
-        !voiceTranscriptEl ||
-        !voiceController ||
-        !voiceReviewEl ||
-        voiceReviewEl.hidden ||
-        voiceController.getState() !== "transcript_review"
-      ) return;
-      voiceTranscriptEl.disabled = false;
-      voiceTranscriptEl.focus();
-      if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "전사를 수정한 뒤 보내 주세요.";
-    });
-  }
-
-  if (voiceTranscriptEl) {
-    voiceTranscriptEl.addEventListener("input", function () {
-      if (!voiceSendEl || requestPending) return;
-      var reviewReady = Boolean(
-        voiceController &&
-        voiceReviewEl &&
-        !voiceReviewEl.hidden &&
-        voiceController.getState() === "transcript_review"
-      );
-      voiceSendEl.disabled = !reviewReady || !normalizeVoiceTranscript(voiceTranscriptEl.value);
-      if (voiceTruncationWarningEl) {
-        var overLimit = voiceTranscriptEl.value.length > MAX_MESSAGE_LEN;
-        voiceTruncationWarningEl.hidden = !overLimit;
-        voiceTruncationWarningEl.textContent = overLimit
-          ? "전사가 2000자를 넘습니다. 전체 내용을 확인하세요. 보내기를 누르면 2000자까지만 전송됩니다."
-          : "";
-      }
-    });
-  }
-
-  if (voiceSendEl && voiceController) {
-    voiceSendEl.addEventListener("click", function () {
-      if (
-        !voiceTranscriptEl ||
-        requestPending ||
-        !isCurrentVoiceEpoch(voiceAttemptEpoch) ||
-        !voiceReviewEl ||
-        voiceReviewEl.hidden ||
-        voiceController.getState() !== "transcript_review"
-      ) return;
-      var transcript = normalizeVoiceTranscript(voiceTranscriptEl.value);
-      if (!transcript) {
-        if (voiceReviewStatusEl) voiceReviewStatusEl.textContent = "보낼 전사 내용이 없습니다. 다시 녹음해 주세요.";
-        return;
-      }
-      sendMessage(transcript, { source: "voice", preserveInput: true });
-    });
-  }
-
   if (chipsEl) {
     chipsEl.querySelectorAll(".chip").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -1190,13 +754,6 @@
       });
     });
   }
-
-  window.addEventListener("pagehide", function () {
-    stopTtsPlayback("페이지를 떠나 재생을 멈췄습니다.");
-  });
-  window.addEventListener("beforeunload", function () {
-    stopTtsPlayback("페이지를 떠나 재생을 멈췄습니다.");
-  });
 
   function setTextIf(selector, value) {
     if (!value) return;
@@ -1215,8 +772,8 @@
     setTextIf(".subtitle", ui.subtitle);
     setTextIf(".privacy-summary-text", ui.privacy_summary);
     setTextIf(".privacy-body", ui.privacy_body);
-    setTextIf(".header-link", ui.stats_link_text);
     setTextIf(".panel-title", ui.panel_title);
+    setTextIf(".lock-notice-text", ui.lock_notice);
     if (Array.isArray(ui.stepper_labels)) {
       document.querySelectorAll(".stepper-label").forEach(function (el, i) {
         if (ui.stepper_labels[i]) el.textContent = ui.stepper_labels[i];
@@ -1256,8 +813,6 @@
     document.title = "학습 코칭 챗봇";
     setTextIf(".chat-title h1", "학습 코칭 챗봇");
     setTextIf(".subtitle", "질문과 지식 문서를 바탕으로 함께 살펴봅니다");
-    var headerLink = document.querySelector(".header-link");
-    if (headerLink) headerLink.hidden = true;
     setTextIf(".privacy-summary-text", "학습 대화 안내");
     setTextIf(
       ".privacy-body",
@@ -1275,9 +830,6 @@
     document.title = "접수 면담 챗봇";
     setTextIf(".chat-title h1", "접수 면담 챗봇");
     setTextIf(".subtitle", "첫 상담 전, 이야기를 정리하는 시간입니다");
-    var headerLink = document.querySelector(".header-link");
-    if (headerLink) headerLink.hidden = false;
-    setTextIf(".header-link", "내담자 통계 보기");
     setTextIf(".privacy-summary-text", "첫 상담 전 접수용 안내");
     setTextIf(
       ".privacy-body",
@@ -1285,6 +837,125 @@
     );
     setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
   }
+
+  function rememberCredentials(data) {
+    if (data.session_token) sessionStorage.setItem(SESSION_TOKEN_KEY, data.session_token);
+    if (data.participant_id) localStorage.setItem(PARTICIPANT_KEY, data.participant_id);
+    if (data.participant_ticket) localStorage.setItem(PARTICIPANT_TICKET_KEY, data.participant_ticket);
+  }
+
+  function showConsent() {
+    consentCardEl.hidden = false;
+    document.getElementById("consent-notice").textContent = privacy.body;
+    document.getElementById("consent-version").textContent = "고지 버전: " + privacy.consent_version;
+    disableInput();
+    hideChips();
+    hideContextualReplies();
+  }
+
+  function postJson(url, payload) {
+    return fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.detail || "처리하지 못했습니다.");
+        return data;
+      });
+    });
+  }
+
+  function chooseConsent(accepted) {
+    if (requestPending || !privacy) return;
+    requestPending = true;
+    acceptEl.disabled = true;
+    declineEl.disabled = true;
+    resetSessionEl.disabled = true;
+    postJson("/api/consent", Object.assign({
+      session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version
+    }, pendingIntakeLink())).then(function (data) {
+      consentCardEl.hidden = true;
+      if (!data.accepted) {
+        var refusal = addMessage("assistant", data.reply);
+        appendSupportLinks(refusal.bubble, data.reply);
+        disableInput();
+        return;
+      }
+      rememberCredentials(data);
+      sessionStorage.removeItem(INTAKE_LINK_KEY);
+      sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
+      consentGranted = true;
+      deleteCodeValueEl.textContent = data.delete_code;
+      deleteCodeCardEl.hidden = false;
+      deleteSessionEl.hidden = false;
+      inputEl.disabled = false;
+      addMessage("assistant", data.reply);
+      maybeShowChips();
+      inputEl.focus();
+    }).catch(function (error) {
+      setStatus(error.message);
+    }).finally(function () {
+      requestPending = false;
+      acceptEl.disabled = false;
+      declineEl.disabled = false;
+      resetSessionEl.disabled = false;
+      updateInputState();
+    });
+  }
+
+  acceptEl.addEventListener("click", function () { chooseConsent(true); });
+  declineEl.addEventListener("click", function () { chooseConsent(false); });
+  document.getElementById("copy-delete-code").addEventListener("click", function () {
+    if (!navigator.clipboard) {
+      setStatus("화면의 삭제 코드를 선택해 복사하거나 적어 두세요.");
+      return;
+    }
+    navigator.clipboard.writeText(deleteCodeValueEl.textContent).then(function () {
+      setStatus("삭제 코드를 복사했습니다.");
+    }).catch(function () { setStatus("화면의 삭제 코드를 선택해 복사하거나 적어 두세요."); });
+  });
+
+  function deleteRecords(payload) {
+    if (requestPending) return;
+    requestPending = true;
+    deleteSessionEl.disabled = true;
+    resetSessionEl.disabled = true;
+    acceptEl.disabled = true;
+    declineEl.disabled = true;
+    updateInputState();
+    return postJson("/api/session/delete", payload).then(function (data) {
+      if (data.session_id === sessionStorage.getItem(SESSION_KEY)) {
+        requestPending = false;
+        resetSession();
+        requestPending = true;
+      }
+      document.getElementById("delete-status").textContent = data.reply;
+      document.getElementById("delete-code-input").value = "";
+    }).catch(function (error) {
+      document.getElementById("delete-status").textContent = error.message;
+    }).finally(function () {
+      requestPending = false;
+      deleteSessionEl.disabled = false;
+      resetSessionEl.disabled = false;
+      acceptEl.disabled = false;
+      declineEl.disabled = false;
+      updateInputState();
+    });
+  }
+
+  deleteSessionEl.addEventListener("click", function () {
+    if (requestPending || !getSessionToken()) return;
+    if (!window.confirm("이 대화의 원문과 요약을 모두 지울까요?")) return;
+    deleteRecords({session_id: getSessionId(), session_token: getSessionToken()});
+  });
+  document.getElementById("delete-code-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var code = document.getElementById("delete-code-input").value.trim();
+    if (code) deleteRecords({delete_code: code});
+  });
+
+  // 예약 링크의 관리번호를 첫 발화 전에 확정하고 URL에서는 즉시 제거한다.
+  getParticipantId();
 
   // 스테퍼 게이트 프로브 — 실패/비정상 응답은 기본값(false, hidden 유지)에 머물러
   // fail-closed로 수렴한다. 채팅 기능에는 영향 없음. 첫 인사말은 ui.greeting
@@ -1298,7 +969,19 @@
       if (data && data.mode === "coaching") applyCoachingMode();
       if (data && data.mode === "intake") applyIntakeMode();
       applyUiConfig(data && data.ui);
-      configureVoiceCapability(Boolean(data && data.voice && data.voice.enabled === true));
+      configReady = true;
+      consentRequired = data.consent_required === true;
+      privacy = data.privacy;
+      if (consentRequired) {
+        if (!privacy || !privacy.body || !privacy.consent_version) throw new Error("privacy config missing");
+        previousDeleteEl.hidden = false;
+        setTextIf(".privacy-body", privacy.body);
+        greetingText = (data.ui.intro || "") + " " + (data.opening_question || "");
+        consentGranted = getSessionToken() && sessionStorage.getItem(CONSENT_KEY) === privacy.consent_version;
+        if (!consentGranted) showConsent();
+      }
+      inputEl.disabled = consentRequired && !consentGranted;
+      deleteSessionEl.hidden = !getSessionToken();
       if (data && data.mode === "intake" && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
@@ -1307,11 +990,14 @@
       }
     })
     .catch(function (err) {
-      configureVoiceCapability(false);
+      configReady = false;
+      disableInput();
+      hideChips();
+      setStatus("이용 안내를 불러오지 못했습니다. 새로고침해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
       console.warn("intake config probe failed; stepper stays hidden", err);
     })
     .finally(function () {
-      addMessage("assistant", greetingText);
+      if (configReady && (!consentRequired || consentGranted)) addMessage("assistant", greetingText);
       updateInputState();
     });
 

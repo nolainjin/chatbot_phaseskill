@@ -1,0 +1,106 @@
+institutions:
+  - id: suseong-youth
+    name: 가상 수성청년센터
+    kind: 청년마음건강
+    area: 수성구
+    age_min: 19
+    age_max: 39
+    tracks: [정서, 관계]
+    services: [가상 상담]
+    referral: 가상 전화 문의 후 예약
+    phone: 000-0000-0000
+    homepage: https://suseong-youth.example.invalid
+    source_urls: [https://suseong-youth.example.invalid/info]
+    web_checked_at: 2026-10-01
+    verified_at: 2026-10-02
+    verified_by: 가상 확인자
+  - id: suseong-general
+    name: 가상 수성마음센터
+    kind: 정신건강복지센터
+    area: 수성구
+    age_min: null
+    age_max: null
+    tracks: [정서, 관계]
+    services: []
+    referral: 가상 방문 예약
+    phone: 000-0000-0000
+    homepage: https://suseong-general.example.invalid
+    source_urls: []
+    web_checked_at: null
+    verified_at: 2026-10-02
+    verified_by: 가상 확인자
+  - id: city-youth
+    name: 가상 광역청년센터
+    kind: 청년마음건강
+    area: 대구 전역
+    age_min: 19
+    age_max: 39
+    tracks: [정서, 관계]
+    services: []
+    referral: 가상 온라인 문의
+    phone: 000-0000-0000
+    homepage: https://city-youth.example.invalid
+    source_urls: []
+    web_checked_at: 2026-10-01
+    verified_at: 2026-10-02
+    verified_by: 가상 확인자
+  - id: city-general
+    name: 가상 광역마음센터
+    kind: 기타공공
+    area: 대구 전역
+    age_min: null
+    age_max: null
+    tracks: [정서, 관계]
+    services: []
+    referral: 가상 전화 문의
+    phone: 000-0000-0000
+    homepage: ""
+    source_urls: []
+    web_checked_at: 2026-10-01
+    verified_at: 2026-10-02
+    verified_by: 가상 확인자
+  - id: suseong-web
+    name: 가상 웹청년센터
+    kind: 청년마음건강
+    area: 수성구
+    age_min: 19
+    age_max: 39
+    tracks: [정서]
+    services: []
+    referral: 가상 웹 예약
+    phone: 000-0000-0000
+    homepage: https://web.example.invalid
+    source_urls: [https://web.example.invalid/info]
+    web_checked_at: 2026-10-01
+    verified_at: null
+    verified_by: null
+  - id: unconfirmed
+    name: 가상 미확인센터
+    kind: 기타공공
+    area: 수성구
+    age_min: null
+    age_max: null
+    tracks: [정서]
+    services: []
+    referral: 가상 문의
+    phone: 000-0000-0000
+    homepage: ""
+    source_urls: []
+    web_checked_at: null
+    verified_at: null
+    verified_by: null
+  - id: dalseo-general
+    name: 가상 달서마음센터
+    kind: 정신건강복지센터
+    area: 달서구
+    age_min: null
+    age_max: null
+    tracks: [정서, 관계]
+    services: []
+    referral: 가상 전화 예약
+    phone: 000-0000-0000
+    homepage: ""
+    source_urls: []
+    web_checked_at: null
+    verified_at: 2026-10-02
+    verified_by: 가상 확인자
