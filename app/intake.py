@@ -6,8 +6,8 @@
 누락 등 어떤 실패 경로도 예외를 밖으로 새지 않고 None으로 수렴한다 —
 스키마 오류 하나가 대화 전체를 죽이는 사고를 막기 위해서다(FP1, CAP09).
 
-원칙: 상담 등 도메인 문구는 이 모듈에 일절 넣지 않는다 — 전부 스키마
-데이터가 소유한다.
+원칙: 상담 등 도메인 문구는 스키마 데이터가 소유한다. 자살·자해 안전
+판정은 crisis_signals의 결정론 규칙을 함께 사용한다.
 """
 
 import json
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from app import knowledge, safety
+from app import crisis_signals, knowledge, safety
 
 _SCHEMA_FILENAME = "_intake_schema.md"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
@@ -185,7 +185,15 @@ def extract_fake(message: str, schema: Schema, filled: dict, last_question_slot_
             continue
         if slot.signals is None:
             continue
-        matched_value = _match_signal(message, slot.signals)
+        if (
+            slot.id == "track"
+            and slot.values
+            and "위기" in slot.values
+            and crisis_signals.detect_crisis(message) is not None
+        ):
+            matched_value = "위기"
+        else:
+            matched_value = _match_signal(message, slot.signals)
         if matched_value is None:
             continue
         if _is_rejected_by_signal_guard(message, slot):
@@ -211,9 +219,11 @@ def extract_classification(message: str, schema: Schema, filled: dict, last_ques
     }
 
 def crisis_signal_present(message: str, schema: Schema) -> bool:
-    """Return whether an active crisis signal is present in a message."""
+    """계열 판정과 기존 스키마 신호 모두를 모델 호출 전 안전 경로에 쓴다."""
     for slot in schema.active_slots({}):
         if slot.id == "track" and isinstance(slot.signals, dict):
+            if "위기" in slot.signals and crisis_signals.detect_crisis(message) is not None:
+                return True
             if _match_signal(message, slot.signals) == "위기":
                 return True
     return False

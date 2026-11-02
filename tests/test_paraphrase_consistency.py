@@ -44,6 +44,74 @@ def _conversation_files() -> set[Path]:
     return {path for path in (REPO_ROOT / "data/conversations").rglob("*") if path.is_file()}
 
 
+def _assert_report_metrics(report):
+    """실측 수치는 고정하지 않고 행의 실제 슬롯에서 지표를 독립 재계산한다."""
+    expected_cases = {case["id"]: case["expected"] for case in report["cases"]}
+    for row in report["results"]:
+        expected = expected_cases[row["case_id"]]
+        values = {key: row["filled"].get(key) for key in expected["core_slots"]}
+        filled = all(bool(value) for value in values.values()) and row["error"] is None
+        assert row["actual_track"] == row["filled"].get("track")
+        assert row["expected_track"] == expected["track"]
+        assert row["track_match"] == (row["actual_track"] == expected["track"] and row["error"] is None)
+        assert row["core_values"] == values
+        assert row["core_filled"] == filled
+        assert row["core_match"] == (filled and all(
+            allowed is None or values[key] in allowed
+            for key, allowed in expected["core_slots"].items()
+        ))
+
+    def check(summary, rows):
+        matches = sum(row["track_match"] for row in rows)
+        crisis = [row for row in rows if row["expected_track"] == "위기"]
+        ordinary = [row for row in rows if row["expected_track"] != "위기"]
+        assert summary == {
+            "utterances": len(rows), "track_matches": matches,
+            "track_match_rate": matches / len(rows) if rows else 0.0,
+            "crisis_utterances": len(crisis),
+            "crisis_misses": sum(row["actual_track"] != "위기" for row in crisis),
+            "non_crisis_utterances": len(ordinary),
+            "false_escalations": sum(row["actual_track"] == "위기" for row in ordinary),
+            "opening_repeats": sum(row["opening_repeated"] for row in rows),
+            "core_filled": sum(row["core_filled"] for row in rows),
+            "core_matches": sum(row["core_match"] for row in rows),
+            "errors": sum(row["error"] is not None for row in rows),
+        }
+
+    check(report["summary"], report["results"])
+    for case in report["cases"]:
+        rows = [row for row in report["results"] if row["case_id"] == case["id"]]
+        check({key: case[key] for key in report["summary"]}, rows)
+
+
+def test_summary_calculates_known_metrics_independent_of_classifier():
+    # 6행에 정상/놓침/오승격/실행 오류와 채움≠값 일치를 직접 고정한다.
+    # 분류 규칙이 바뀌어도 계산기의 정답은 바뀌지 않는다. 오류도 분모에 남는다.
+    specifications = [
+        ("위기", "위기", True, True, True, False, None),
+        ("위기", "정서", False, False, False, True, None),
+        ("위기", None, False, False, False, False, "synthetic error"),
+        ("관계", "위기", False, True, False, False, None),
+        ("관계", "관계", True, True, True, True, None),
+        ("정서", "중독", False, False, False, False, None),
+    ]
+    fields = ("expected_track", "actual_track", "track_match", "core_filled",
+              "core_match", "opening_repeated", "error")
+    rows = [dict(zip(fields, values)) for values in specifications]
+    assert evaluation.summarize(rows) == {
+        "utterances": 6, "track_matches": 2, "track_match_rate": 2 / 6,
+        "crisis_utterances": 3, "crisis_misses": 2,
+        "non_crisis_utterances": 3, "false_escalations": 1,
+        "opening_repeats": 2, "core_filled": 3, "core_matches": 2, "errors": 1,
+    }
+    assert evaluation.summarize([]) == {
+        "utterances": 0, "track_matches": 0, "track_match_rate": 0.0,
+        "crisis_utterances": 0, "crisis_misses": 0,
+        "non_crisis_utterances": 0, "false_escalations": 0,
+        "opening_repeats": 0, "core_filled": 0, "core_matches": 0, "errors": 0,
+    }
+
+
 def test_canonical_fixture_contract():
     cases = evaluation.load_cases(evaluation.DEFAULT_CASES)
     assert len(cases) == 20
@@ -96,15 +164,9 @@ def test_two_case_fake_metrics_and_runtime_restoration(tmp_path, monkeypatch):
 
     report = evaluation.evaluate(_two_cases()["cases"])
 
-    assert report["summary"] == {
-        "utterances": 10, "track_matches": 4, "track_match_rate": 0.4,
-        "crisis_utterances": 5, "crisis_misses": 3,
-        "non_crisis_utterances": 5, "false_escalations": 1,
-        "opening_repeats": 3, "core_filled": 3, "core_matches": 3, "errors": 0,
-    }
-    assert [case["track_matches"] for case in report["cases"]] == [2, 2]
-    assert [case["core_filled"] for case in report["cases"]] == [0, 3]
-    assert [case["opening_repeats"] for case in report["cases"]] == [1, 2]
+    _assert_report_metrics(report)
+    assert report["summary"]["utterances"] == 10
+    assert report["summary"]["errors"] == 0
     assert report == evaluation.evaluate(_two_cases()["cases"])
     assert Path.cwd() == before_cwd
     assert storage.DEFAULT_CONVERSATIONS_DIR == original_storage
@@ -127,10 +189,9 @@ def test_small_cli_json_output_and_no_real_conversation_writes(tmp_path):
     assert process.returncode == 0, process.stderr
     report = json.loads(process.stdout)
     assert report == json.loads(output.read_text(encoding="utf-8"))
-    assert report["summary"]["track_match_rate"] == 0.4
-    assert report["summary"]["crisis_misses"] == 3
-    assert report["summary"]["false_escalations"] == 1
-    assert report["summary"]["opening_repeats"] == 3
+    _assert_report_metrics(report)
+    assert report["summary"]["utterances"] == 10
+    assert report["summary"]["errors"] == 0
     assert report["model"] == "fake"
     assert len(report["cases"]) == 2
     assert len(report["results"]) == 10

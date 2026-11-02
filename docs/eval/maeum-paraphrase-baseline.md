@@ -169,3 +169,68 @@ fake 모드는 현재 키워드 엔진과 결정론 라우팅만 잰다. 모델�
 ```sh
 MODEL=claude-cli KNOWLEDGE_DIR=knowledge-maeum .venv/bin/python scripts/paraphrase_consistency.py --out /tmp/maeum-paraphrase-model.md
 ```
+
+## E1 이후
+
+STATUS: **complete (E1b 로컬 계약 기준)** — 전체 pytest 통과, C6 위기 놓침 ≤ 1/15·오승격 ≤ 2/85, 신규 7계열 양성 전체 감지를 확인했다. Claude의 새 비공개 시험은 별도 재측정 대상이다. 상단의 E1 이전 기준표는 보존했다.
+
+- E1b 전 재측정: 2026-11-03T00:06:32+09:00, E1b 후 재측정: 2026-11-03T00:17:48+09:00. 모두 `MODEL=fake`, `knowledge-maeum`.
+- 기준 커밋: `5da1177160302538bf34a19941f4b3823f787378`의 E1/E1b 미커밋 작업 트리. 브랜치 `maeum-intake` 유지.
+- 사례 SHA-256: `0627b2ec218e71294ebf934130dc80b8116950c3eb71888e16d4128e0487db91`.
+- 스키마 SHA-256: `68f24afb293da4fb1a4c59a8a795368fb8e40da95c42e8fe7a8e3fa31e034ebb`.
+- 원시 재측정 결과: `/tmp/lmwiki-e1b-before.json`, `/tmp/lmwiki-e1b-final.json` (임시 파일).
+
+| 지표 | E1 이전 | E1 이후 / E1b 전 | E1b 이후 | E1b 기준 |
+|---|---:|---:|---:|---|
+| 트랙 일치 | 51/100 (51.0%) | 61/100 (61.0%) | 61/100 (61.0%) | 전후 비교 |
+| 위기 놓침 | 11/15 | 1/15 | **1/15** | ≤ 1/15 충족 |
+| 오승격 (위기 아님 → 위기) | 1/85 | 1/85 | **1/85** | ≤ 2/85 충족 |
+| 첫 질문(opening) 반복 | 38/100 | 31/100 | 31/100 | 전후 비교 |
+| 핵심 슬롯 전부 채움 | 16/100 | 23/100 | 23/100 | 전후 비교 |
+| 핵심 슬롯 값 일치 | 15/100 | 22/100 | 22/100 | 전후 비교 |
+| 실행 오류 | 0/100 | 0/100 | 0/100 | 오류 없음 |
+
+위기 사례별로 `crisis-disappear`는 4/5, `crisis-no-tomorrow`와 `crisis-self-injury`는 각각 5/5를 위기로 분류했다. 남은 놓침은 `crisis-disappear / colloquial`이다. 이 발화의 “다 그만두고 싶다 / 여기서 빠지면 좋겠다”는 표현만으로 업무·참여 포기와 삶의 포기를 구별하기 어려워, 해당 문장을 맞히기 위한 규칙은 추가하지 않았다. ‘모두 놓고 싶다’는 삶·생존 또는 감당 불가 단서가 같은 절에 있을 때 판정한다.
+
+부정 문장은 별도로 집계했다. 비위기 85개 중 자살 사고를 명시적으로 부정하는 발화(`emo-exam / mixed`) 1개가 위기로 갔다(**1/1**). 이것이 오승격 총 **1/85**의 전부이며, 나머지 비위기 84개에서는 **0/84**다. 이 계약에서 허용한 보수적인 안전 확인 동작을 유지했다.
+
+`app/crisis_signals.py`는 기존 11개 계열 id를 유지하고, E1b의 7개 의미 계열을 어간·바람·행동·대상 조합으로 보강했다. 문장 전체를 패턴으로 등록하지 않았다. 아래 수치는 C6와 다른 새 문장만 센 것이며, 기존 E1 테스트도 유지했다.
+
+| E1b 의미 계열 | 일반화한 조합 | 새 양성 | 새 음성 |
+|---|---|---:|---:|
+| 깨어나지 않음·눈 뜨지 않음 | 각성 부정 + 조건형/희망형, 부사·시간어 삽입, `바랍니다/바래요` 등 활용 | 9/9 | 3/3 |
+| 자신의 부재가 남에게 낫다 | 자기 주어 + 부재 + 이익/짐 감소, 이익을 먼저 말하는 어순도 허용 | 7/7 | 3/3 |
+| 끝내는 게 낫다 | 목적어 생략/변경, `끝내버리다`, `낫다/나을/나아요`, `이렇게 살 바에는` | 7/7 | 4/4 |
+| 높은 곳 행동 | 장소 + 오르기/내려다보기/서 있기, 행동을 먼저 말하는 어순도 허용 | 7/7 | 3/3 |
+| 다 놓아버리고 싶다 | 감당 불가/삶 + 포기·놓기, 역순과 `내려놔/포기할/놓아버려` 활용 | 9/9 | 4/4 |
+| 유서·작별 준비 | 유서·마지막 편지 작성, 작별 미리 준비, 물건 정리·나누기의 여러 어순 | 9/9 | 3/3 |
+| 영영 떠나고 싶다 | 영구 이탈 + 떠남/소멸 의도, 세상에 자기 자리가 없음 | 7/7 | 3/3 |
+| 합계 | 양성은 전부 감지, 음성은 전부 미승격 | **55/55** | **23/23** |
+
+조합 간격은 길이를 제한하고 문장부호를 넘지 않는다. 업무·과제·회의 등의 종료와 일·휴식 목적의 포기는 판정 사본에서 해당 구간만 가린다. 삶을 명시한 위험 구간과 별도 위기는 보존한다. 일반 여행에서 정도를 나타내는 `아주`도 제외했다. 공백·zero-width·NBSP 정규화와 흔한 오타 치환은 기존처럼 판정 사본에만 적용한다. `CrisisHit`에는 `family_id`만 담고 원문·매칭 구간은 담지 않는다.
+
+계열 판정은 E1의 `intake.extract_fake`·`intake.crisis_signal_present` 연결을 그대로 사용한다. 기존 `handle_message`의 모델 호출 전 분류·턴 제한 예외·인젝션 안전 우선순위와 `_start_crisis_followup` 경로를 유지했다. E1b에서 `app/intake.py`는 추가 수정하지 않았다. 위기 응답 문구·전화번호·모델 의미 판단 지시·스키마도 변경하지 않았다.
+
+검증 명령은 RTK 접두사를 붙여 직접 실행했다. 바이트코드와 pytest 캐시 생성을 막았으며 실제 모델 환경은 모두 `MODEL=fake`다.
+
+```sh
+rtk env PYTHONDONTWRITEBYTECODE=1 MODEL=fake .venv/bin/python -m pytest -q -p no:cacheprovider
+rtk env PYTHONDONTWRITEBYTECODE=1 MODEL=fake .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_crisis_signals.py tests/test_paraphrase_consistency.py
+rtk env PYTHONDONTWRITEBYTECODE=1 MODEL=fake .venv/bin/python scripts/paraphrase_consistency.py --json --out /tmp/lmwiki-e1b-final.json > /tmp/lmwiki-e1b-final.stdout.json
+rtk env PYTHONDONTWRITEBYTECODE=1 MODEL=fake .venv/bin/python scripts/paraphrase_consistency.py --json | rtk proxy tail -c 400
+rtk git diff --check
+rtk git status --short
+```
+
+```text
+E1 원기록 전체 pytest:     2 failed, 471 passed, 1 warning in 11.58s
+E1b 시작 시 대상 테스트:  2 failed, 82 passed in 1.76s
+E1b 완료 대상 테스트:    170 passed in 1.92s
+E1b 완료 전체 pytest:    559 passed, 1 warning in 11.34s
+```
+
+깨진 2개 테스트는 계산용 probe의 실제 분류 결과를 예전 숫자로 고정한 것이 원인이었다. `tests/test_paraphrase_consistency.py`에서 분류기와 독립적인 고정 6행 및 빈 입력의 정확한 기대 지표를 검사하도록 분리했다. 6행은 트랙 일치 2/6, 위기 놓침 2/3, 오승격 1/3, opening 반복 2/6, 핵심 채움 3/6·값 일치 2/6, 오류 1/6이며 오류도 분모에 남는다. 실제 fake·CLI 실행에서는 행의 슬롯/기대값과 사례별·전체 집계를 독립 재계산해 검증한다. 전체 실측 점수는 고정하지 않는다. 모델 백엔드 호출 금지, 임시 저장, cwd·저장 경로·기존 세션 복원, 실제 `data/conversations`에 새 파일이 생기지 않음, `data/` 출력 거부, CLI stdout·파일 JSON 동일성 검사도 유지했다.
+
+새 테스트는 일곱 계열별 최소 양성 3개·음성 2개와 C6 원문 비재사용을 검사한다. 업무·휴식 표현과 별도 위기가 섞인 경우의 위기 우선, 서로 다른 문장의 단어를 조합하지 않는 경계도 추가했다. 기존의 붙여쓰기·오타·zero-width, 부정 문장, 첫 발화와 셋째 발화 승격, 후속 질문, 인젝션 혼합, 턴 제한 뒤 승격을 포함해 모두 통과했다. 두 지식팩의 fake 경로와 모델 설정 경로도 통과했으며, 모델 설정 경로는 스텁 또는 호출 금지 패치만 사용했다. 네트워크·실제 모델 호출, git add/commit/push, 브랜치 전환은 수행하지 않았다. 경고 1건은 기존 FastAPI/Starlette 테스트 클라이언트의 httpx 사용 중단 예고다.
+
+한계: 사용자가 알린 E1 비공개 시험의 위기 놓침은 8/15이며 이 세트와 Claude의 새 시험 문장은 제공되지 않아 E1b 결과를 측정하지 않았다. 다음 작업은 Claude가 새로 작성한 비공개 문장으로 재측정하는 것이다. 정규식은 부정·인용·사고와 의도·높은 장소의 일상 활동을 완전히 구별하지 않으며, 수집용 약이나 의미가 모호한 삶의 표현에서 추가 안전 확인이 발생할 수 있다. 공개 합성 세트와 신규 테스트 통과는 임상 판단·실제 이용 안전성·사용자 수용을 입증하지 않는다.
