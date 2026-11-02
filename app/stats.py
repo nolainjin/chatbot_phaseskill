@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from app import access_log, review
+
 DEFAULT_DB_PATH = Path("data/chatlog.db")
 
 
@@ -41,6 +43,7 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
         "database": str(db_path),
         "exists": db_path.exists(),
         "filters": filters or {},
+        "review_pending": 0,
         "totals": {
             "participants": 0,
             "conversations": 0,
@@ -190,7 +193,7 @@ def _load_summaries(
         if isinstance(parsed, dict):
             key = (day, session_id)
             rank = priority.get(str(role), 0)
-            if chosen_priority.get(key, -1) > rank:
+            if chosen_priority.get(key, -1) >= rank:
                 continue
             parsed["date"] = day
             parsed["session_id"] = session_id
@@ -450,8 +453,16 @@ def read_stats(
 
         recent_sessions = []
         individual_flags = []
+        actions = review.latest_actions()
+        pending_sessions = set()
         for day, session_id, participant_id in session_rows:
             summary = summary_by_session.get((day, session_id), {})
+            required = review.review_required(summary)
+            digest = access_log.hash_value(session_id)
+            review_status = actions.get(digest, "대기")
+            review_fields = {"review_required": required, "review_status": review_status}
+            if required and review_status == "대기":
+                pending_sessions.add(digest)
             slots = summary.get("slots") if isinstance(summary.get("slots"), dict) else {}
             unfilled = (
                 summary.get("unfilled")
@@ -465,6 +476,7 @@ def read_stats(
                     "session_id": session_id,
                     "participant_id": participant_id,
                     "track": summary.get("track", "미확인"),
+                    **review_fields,
                     "chief_complaint": "[recorded]" if slots.get("chief_complaint") else "",
                     "symptom_context": "[recorded]" if slots.get("symptom_context") else "",
                     "coping": "[recorded]" if slots.get("coping") else "",
@@ -486,6 +498,7 @@ def read_stats(
                     user_turn_count,
                 )
                 if record:
+                    record.update(review_fields)
                     individual_flags.append(record)
 
         severity_order = {"high": 0, "medium": 1, "low": 2}
@@ -496,12 +509,15 @@ def read_stats(
                 item["session_id"],
             )
         )
-        recent_sessions = recent_sessions[:200]
+        # Keep every pending case reachable even outside the recent-record window.
+        recent_sessions = [record for index, record in enumerate(recent_sessions)
+                           if index < 200 or (record["review_required"] and record["review_status"] == "대기")]
 
         return {
             "database": str(db_path),
             "exists": True,
             "filters": filters,
+            "review_pending": len(pending_sessions),
             "totals": {
                 "participants": participant_total,
                 "conversations": conversation_total,

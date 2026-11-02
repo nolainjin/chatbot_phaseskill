@@ -7,7 +7,7 @@ from contextlib import nullcontext
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from app import consent, storage
+from app import consent, review, storage
 from app.config import Settings
 
 SUMMARY_ROLES = ("intake_summary", "intake_snapshot")
@@ -67,6 +67,7 @@ def delete_session(session_id, via, base_dir=None, db_path=None):
         raise ValueError("Invalid session id")
     root = Path(base_dir if base_dir is not None else storage.DEFAULT_CONVERSATIONS_DIR)
     with storage.data_lock(root):
+        review.remove_reviews(session_id, root)
         files = list(root.glob(f"*/{session_id}.json"))
         conn = _connect(_db_path(db_path))
         try:

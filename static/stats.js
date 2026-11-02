@@ -21,6 +21,7 @@
   var conversationTurnsEl = document.getElementById("conversation-turns");
   var conversationStatusEl = document.getElementById("conversation-status");
   var closeConversationEl = document.getElementById("close-conversation");
+  var reviewPendingEl = document.getElementById("review-pending");
 
   var allRecords = [];
   var visibleRecords = [];
@@ -49,6 +50,8 @@
     if (activeTag === "all") return true;
     if (activeTag === "summary") return Boolean(record.summary_available);
     if (activeTag === "progress") return !record.summary_available;
+    if (activeTag === "위기") return Boolean(record.review_required);
+    if (activeTag === "review-pending") return Boolean(record.review_required) && record.review_status === "대기";
     return text(record.track, "미확인") === activeTag;
   }
 
@@ -140,7 +143,67 @@
     footer.append(summaryState, conversationButton);
 
     article.append(header, complaint, details, footer);
+    if (record.review_required) article.appendChild(renderReview(record));
     return article;
+  }
+
+  function renderReview(record) {
+    var section = document.createElement("section");
+    section.className = "client-review";
+    var state = document.createElement("p");
+    state.className = "review-state";
+    state.textContent = "사람 확인: " + text(record.review_status, "대기");
+    var form = document.createElement("form");
+    form.className = "review-form no-print";
+    var actionLabel = document.createElement("label");
+    actionLabel.textContent = "확인 결과";
+    var select = document.createElement("select");
+    select.required = true;
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "결과 선택";
+    select.appendChild(placeholder);
+    ["안내 전화함", "기관 연결함", "해당 없음", "연락 불가"].forEach(function (action) {
+      var option = document.createElement("option");
+      option.value = action;
+      option.textContent = action;
+      select.appendChild(option);
+    });
+    actionLabel.appendChild(select);
+    var noteLabel = document.createElement("label");
+    noteLabel.textContent = "메모 (선택, 200자 이내)";
+    var note = document.createElement("textarea");
+    note.maxLength = 200;
+    note.rows = 2;
+    noteLabel.appendChild(note);
+    var button = document.createElement("button");
+    button.type = "submit";
+    button.className = "tool-button";
+    button.textContent = "확인 기록 저장";
+    var feedback = document.createElement("p");
+    feedback.setAttribute("role", "status");
+    form.append(actionLabel, noteLabel, button, feedback);
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      button.disabled = true;
+      feedback.textContent = "확인 기록을 저장하는 중입니다.";
+      try {
+        var response = await fetch("/api/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ day: record.date, session_id: record.session_id,
+            action: select.value, note: note.value })
+        });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        await loadStats();
+      } catch (error) {
+        feedback.textContent = "확인 기록을 저장하지 못했습니다. 다시 시도해 주세요.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+    section.append(state, form);
+    return section;
   }
 
   function renderRecords(records, query) {
@@ -220,7 +283,7 @@
   function isCounselorRecord(record) {
     var participantId = String(record.participant_id || "");
     var sessionId = String(record.session_id || "");
-    return Boolean(participantId && participantId !== sessionId);
+    return Boolean(record.review_required || (participantId && participantId !== sessionId));
   }
 
   async function loadStats() {
@@ -229,6 +292,7 @@
       var response = await fetch("/api/stats");
       if (!response.ok) throw new Error("HTTP " + response.status);
       var data = await response.json();
+      reviewPendingEl.textContent = "위기 확인 대기 " + Number(data.review_pending || 0).toLocaleString("ko-KR") + "건";
       allRecords = Array.isArray(data.recent_sessions)
         ? data.recent_sessions.filter(isCounselorRecord)
         : [];
@@ -238,6 +302,7 @@
         ? "내부 접수 기록을 불러왔습니다."
         : "아직 적재된 접수 기록이 없습니다.";
     } catch (error) {
+      reviewPendingEl.textContent = "위기 확인 대기 조회 실패";
       statusEl.textContent = "내담자 기록을 불러오지 못했습니다. 관리자 내부 접속 상태를 확인해 주세요.";
     }
   }

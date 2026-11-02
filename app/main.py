@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import ipaddress
+import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
@@ -13,13 +14,14 @@ from fastapi import Body, Cookie, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app import chat, consent, intake, ratelimit, retention, stats, storage
+from app import access_log, chat, consent, intake, ratelimit, retention, review, stats, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
 MIN_STATS_TOKEN_LEN = 16
 MAX_STATS_AUTH_FAILURES = 30
 STATIC_DIR = "static"
+logger = logging.getLogger(__name__)
 _PUBLIC_TERMINAL_SAFETY_NOTICE = (
     " 위기 상황이거나 스스로를 해칠까 걱정된다면 자살예방상담전화 109, "
     "생명의전화 1588-9191 또는 119에 바로 연락해 주세요."
@@ -31,7 +33,7 @@ _PUBLIC_CHAT_UI_ENV = "PUBLIC_CHAT_UI"
 
 _STATS_COOKIE_NAME = "lmwiki_stats_session"
 _ADMIN_PATHS = frozenset(
-    {"/stats.html", "/stats.js", "/csv.js", "/api/stats", "/api/stats/session"}
+    {"/stats.html", "/stats.js", "/csv.js", "/api/stats", "/api/stats/session", "/api/review"}
 )
 # Every request is dark unless explicit private mode proves both a loopback
 # Host header and a loopback transport peer.
@@ -309,7 +311,7 @@ def _require_stats_auth(
     request: Request,
     stats_token: str | None,
     stats_session: str | None,
-) -> None:
+) -> str:
     settings = Settings.from_env()
     ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
     if not _stats_failure_allowed(ip):
@@ -330,6 +332,18 @@ def _require_stats_auth(
     if not ok:
         _record_stats_failure(ip)
         raise HTTPException(status_code=401, detail="통계 API 인증이 필요합니다.")
+    return supplied_token
+
+
+def _record_access(request: Request, kind: str, token: str, **kwargs) -> None:
+    settings = Settings.from_env()
+    ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
+    try:
+        access_log.record_access(kind, token, ip, **kwargs)
+    except OSError as exc:
+        logger.error("Access record could not be written (%s)", kind, exc_info=True)
+        if kind != "stats":
+            raise HTTPException(status_code=503, detail="열람·확인 기록을 저장하지 못했습니다.") from exc
 
 
 @app.get("/api/stats")
@@ -341,12 +355,13 @@ def get_stats(
     stats_session: str | None = Cookie(default=None, alias=_STATS_COOKIE_NAME),
 ):
     """SQLite 적재 결과를 내담자 통계 대시보드용 JSON으로 반환한다."""
-    _require_stats_auth(request, stats_token, stats_session)
-    stats.sync_today()
-    return stats.read_stats(
-        participant_prefix=participant_prefix,
-        session_prefix=session_prefix,
-    )
+    token = _require_stats_auth(request, stats_token, stats_session)
+    with storage.data_lock():
+        stats.sync_today()
+        result = stats.read_stats(participant_prefix=participant_prefix, session_prefix=session_prefix)
+        _record_access(request, "stats", token,
+                       filters={"participant_prefix": participant_prefix, "session_prefix": session_prefix})
+        return result
 
 
 @app.get("/api/stats/session")
@@ -358,14 +373,41 @@ def get_stats_session(
     stats_session: str | None = Cookie(default=None, alias=_STATS_COOKIE_NAME),
 ):
     """내부 상담자가 선택한 접수 세션의 대화 내역을 반환한다."""
-    _require_stats_auth(request, stats_token, stats_session)
+    token = _require_stats_auth(request, stats_token, stats_session)
     if not storage.valid_session_id(session_id):
         raise HTTPException(status_code=400, detail="session_id 형식이 올바르지 않습니다.")
-    stats.sync_today()
-    detail = stats.read_session_detail(day, session_id)
-    if detail is None:
-        raise HTTPException(status_code=404, detail="접수 대화 내역을 찾지 못했습니다.")
-    return detail
+    with storage.data_lock():
+        stats.sync_today()
+        detail = stats.read_session_detail(day, session_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="접수 대화 내역을 찾지 못했습니다.")
+        _record_access(request, "raw_view", token, session_id=session_id)
+        return detail
+
+
+@app.post("/api/review")
+def post_review(
+    request: Request,
+    payload: dict = Body(...),
+    stats_token: str | None = Header(default=None, alias="X-Stats-Token"),
+    stats_session: str | None = Cookie(default=None, alias=_STATS_COOKIE_NAME),
+):
+    token = _require_stats_auth(request, stats_token, stats_session)
+    try:
+        day, session_id, action, note = review.validate_payload(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    with storage.data_lock():
+        stats.sync_today()
+        if stats.read_session_detail(day, session_id) is None:
+            raise HTTPException(status_code=404, detail="접수 기록을 찾지 못했습니다.")
+        _record_access(request, "review", token, session_id=session_id)
+        try:
+            review.record_review(session_id, action, token, note)
+        except OSError as exc:
+            logger.error("Human confirmation could not be written", exc_info=True)
+            raise HTTPException(status_code=503, detail="확인 기록을 저장하지 못했습니다.") from exc
+    return {"review_status": action}
 
 
 if os.path.isdir(STATIC_DIR):

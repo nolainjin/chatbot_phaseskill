@@ -306,11 +306,13 @@ def build_summary_json(schema: Schema, filled: dict) -> dict:
     """
     active = schema.active_slots(filled)
     unfilled = [slot for slot in active if slot.id not in filled]
+    red_flags = [slot.id for slot in active if slot.red_flag and slot.id in filled]
     return {
         "track": filled.get("track", "미확인"),
         "slots": dict(filled),
         "unfilled": {slot.id: "미확인" for slot in unfilled},
-        "red_flags": [slot.id for slot in active if slot.red_flag and slot.id in filled],
+        "red_flags": red_flags,
+        "review_required": filled.get("track") == "위기" or bool(red_flags),
     }
 
 
