@@ -1789,3 +1789,28 @@ details[open] > .privacy-summary::after {
     box-shadow: none;
   }
 }
+/* Pack-owned privacy text is rendered as text, preserving its paragraph breaks. */
+.consent-card {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  background: var(--bubble-assistant);
+  color: var(--text);
+}
+.consent-card h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.privacy-body, #consent-notice { white-space: pre-wrap; }
+.consent-actions, .delete-code-form { display: flex; flex-wrap: wrap; gap: 10px; }
+.consent-card button, .delete-code-form button, .delete-code-form input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font: inherit;
+}
+.consent-card button, .delete-code-form button { cursor: pointer; }
+#delete-code-value { display: block; font-size: 1.3rem; letter-spacing: .08em; margin-bottom: 12px; }
+#delete-status { white-space: pre-wrap; }
+.delete-code-form { padding: 12px; }
+.delete-code-form input { min-width: 0; max-width: 100%; flex: 1 1 12rem; }
+.header-actions { flex-wrap: wrap; justify-content: flex-end; }

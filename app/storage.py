@@ -8,10 +8,36 @@ data/conversations/YYYY-MM-DD/{session_id}.json 에 세션 메타데이터와 �
 import json
 import os
 import re
+import fcntl
+import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
 DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
+_DATA_LOCK = threading.RLock()
+_LOCK_STATE = threading.local()
+
+
+@contextmanager
+def data_lock(base_dir=None):
+    """Serialize API writes, imports and purges, including across local processes."""
+    with _DATA_LOCK:
+        if getattr(_LOCK_STATE, "active", False):
+            yield
+            return
+        root = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR).parent
+        _ensure_private_dir(root)
+        fd = os.open(root / ".records.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            _LOCK_STATE.active = True
+            yield
+        finally:
+            _LOCK_STATE.active = False
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
 # 공개 API가 주는 id가 파일명/SQLite 키가 되므로 경로 구분자를 차단한다.
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -65,13 +91,13 @@ def redact_pii(text: str) -> str:
 
 def conversation_exists(
     session_id: str,
-    base_dir: str | Path = DEFAULT_CONVERSATIONS_DIR,
+    base_dir: str | Path | None = None,
 ) -> bool:
     if not valid_session_id(session_id):
         return False
     return any(
         path.is_file()
-        for path in Path(base_dir).glob(f"*/{session_id}.json")
+        for path in Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR).glob(f"*/{session_id}.json")
     )
 
 
@@ -97,6 +123,7 @@ def normalize_conversation_payload(
         if not valid_participant_id(raw_participant):
             raw_participant = effective_participant_id
         return {
+            **raw,
             "schema_version": 2,
             "session_id": session_id,
             "participant_id": raw_participant,
@@ -121,12 +148,22 @@ def _redact_obj(value):
 
 
 def _write_private_json(path: Path, payload: dict) -> None:
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
+    _write_private_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    """Create privately, then replace atomically so readers never see half a record."""
+    _ensure_private_dir(path.parent)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".record-")
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _ensure_private_dir(path: Path) -> None:
@@ -142,7 +179,7 @@ def append_turn(
     role: str,
     text: str,
     participant_id: str | None = None,
-    base_dir: str | Path = DEFAULT_CONVERSATIONS_DIR,
+    base_dir: str | Path | None = None,
 ) -> None:
     """오늘 날짜 디렉토리의 세션 JSON에 (role, text) 턴을 추가한다."""
     if not valid_session_id(session_id):
@@ -150,14 +187,15 @@ def append_turn(
     if participant_id is not None and not valid_participant_id(participant_id):
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
-    day_dir = Path(base_dir) / date.today().isoformat()
+    day_dir = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR) / date.today().isoformat()
     _ensure_private_dir(day_dir)
     path = day_dir / f"{session_id}.json"
 
     raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     payload = normalize_conversation_payload(raw, session_id, participant_id)
     turns = payload["turns"]
-    turns.append({"seq": len(turns), "role": role, "text": redact_pii(text)})
+    seq = max((turn["seq"] for turn in turns), default=-1) + 1
+    turns.append({"seq": seq, "role": role, "text": redact_pii(text)})
 
 
     _write_private_json(path, payload)
@@ -165,7 +203,7 @@ def update_metadata(
     session_id: str,
     updates: dict,
     participant_id: str | None = None,
-    base_dir: str | Path = DEFAULT_CONVERSATIONS_DIR,
+    base_dir: str | Path | None = None,
 ) -> None:
     """오늘 날짜 세션 JSON의 top-level metadata를 갱신한다."""
     if not valid_session_id(session_id):
@@ -173,7 +211,7 @@ def update_metadata(
     if participant_id is not None and not valid_participant_id(participant_id):
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
-    day_dir = Path(base_dir) / date.today().isoformat()
+    day_dir = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR) / date.today().isoformat()
     _ensure_private_dir(day_dir)
     path = day_dir / f"{session_id}.json"
 

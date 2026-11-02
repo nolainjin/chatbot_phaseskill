@@ -10,8 +10,9 @@ import logging
 import os
 import secrets
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-from app import addiction, intake, knowledge, llm, prompting, safety, storage
+from app import addiction, consent, intake, knowledge, llm, prompting, safety, storage
 from app.config import Settings
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ _EXTRACTION_INSTRUCTION = (
 @dataclass
 class ChatSession:
     session_id: str
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     turns: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
@@ -67,6 +69,9 @@ class ChatSession:
     participant_id: str | None = None
     crisis_followup_stage: str | None = None
     crisis_ever_detected: bool = False
+    consent_version: str | None = None
+    consented_at: str | None = None
+    consent_pack: str | None = None
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -80,8 +85,8 @@ def owns_session(session_id: str, session_token: str | None) -> bool:
     session = _sessions.get(session_id)
     return bool(
         session
-        and session_token
-        and secrets.compare_digest(session.session_token, session_token)
+        and isinstance(session_token, str)
+        and secrets.compare_digest(session.session_token.encode("utf-8"), session_token.encode("utf-8"))
     )
 
 
@@ -377,6 +382,13 @@ def _answer_to_previous_question(
     slot = _slot_by_id(schema, slot_id)
     if slot is None or slot.id in filled or not slot.is_active(filled):
         return {}
+    if not slot.accepts_answer(slot_id):
+        return {}
+    if slot.extract == "when_asked" and slot.values:
+        value = intake._match_signal(message, slot.signals) if slot.signals else None
+        if value is None:
+            value = next((v for v in ("말하지 않음", "아직 모름") if v in slot.values), None)
+        return {slot.id: value} if value is not None else {}
     if slot.capture != "full_message":
         return {}
     if intake._is_rejected_by_signal_guard(message, slot):
@@ -557,7 +569,7 @@ def _continue_crisis_followup(
     message: str,
 ) -> dict:
     if session.crisis_followup_stage == _CRISIS_STAGE_SAFETY_CHECK:
-        clinical_fills = intake.extract_fake(message, schema, session.slots)
+        clinical_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
         clinical_fills.pop("track", None)
         session.slots.update(clinical_fills)
         session.crisis_followup_stage = _CRISIS_STAGE_SUPPORT
@@ -568,7 +580,7 @@ def _continue_crisis_followup(
         return _crisis_result(session, schema, participant_id, message, reply)
 
     if session.crisis_followup_stage == _CRISIS_STAGE_SUPPORT:
-        clinical_fills = intake.extract_fake(message, schema, session.slots)
+        clinical_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
         clinical_fills.pop("track", None)
         session.slots.update(clinical_fills)
         if "crisis_attempt_history" in clinical_fills and "crisis_plan_means" not in session.slots:
@@ -649,7 +661,8 @@ def handle_message(
     if participant_id and session.participant_id is None:
         session.participant_id = participant_id
     effective_participant_id = session.participant_id or session_id
-
+    if session.consented_at:
+        consent.persist_consent(session)
 
     schema = intake.load_schema(settings.knowledge_dir)
     crisis_signal = schema is not None and intake.crisis_signal_present(message, schema)
@@ -685,7 +698,7 @@ def handle_message(
         if schema is None:
             reply = _build_guardrail_reply(None, [])
         else:
-            crisis_fills = intake.extract_fake(message, schema, session.slots)
+            crisis_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
             if crisis_fills.get("track") == "위기" or session.slots.get("track") == "위기":
                 new_fills = {"track": "위기"}
                 session.slots.update(new_fills)
@@ -736,7 +749,7 @@ def handle_message(
     progress = f"[진행: {session.turns + 1}/{MAX_TURNS}턴]"
     doc_section = _build_doc_section(docs)
     if schema is not None:
-        classification = intake.extract_classification(message, schema, session.slots)
+        classification = intake.extract_classification(message, schema, session.slots, session.last_question_slot_id)
         crisis_detected = (
             classification.get("track") == "위기"
             or session.slots.get("track") == "위기"
@@ -776,10 +789,11 @@ def handle_message(
         # 질문 순서·반복 방지는 모델이 아니라 슬롯 엔진이 책임진다. 실모드도
         # 신호어/직전질문 fallback으로 먼저 상태를 갱신하고, 모델은 상담사 문장
         # 생성에 집중시킨다. 추가 의미 추출은 아래 extract_real에서 보강한다.
-        new_fills = intake.extract_fake(message, schema, session.slots)
+        new_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
 
         filled_after_signals = {**session.slots, **new_fills}
-        if not new_fills:
+        asked_slot = _slot_by_id(schema, session.last_question_slot_id)
+        if not new_fills or (asked_slot is not None and asked_slot.extract == "when_asked"):
             new_fills.update(
                 _answer_to_previous_question(
                     message, schema, filled_after_signals, session.last_question_slot_id
@@ -822,7 +836,7 @@ def handle_message(
         # 실모드 단일 호출 통합(D02) — 응답 텍스트에 섞여온 슬롯 JSON을 신뢰
         # 경계 검증(intake.extract_real) 후 분리한다. reply는 이제 슬롯 JSON이
         # 제거된 clean 버전이라 history·storage에도 그대로 안전하게 쓴다.
-        reply, real_fills = intake.extract_real(reply, schema, session.slots, message)
+        reply, real_fills = intake.extract_real(reply, schema, session.slots, message, session.last_question_slot_id)
         session.slots.update(real_fills)
         new_fills.update(real_fills)
         if not reply.strip():

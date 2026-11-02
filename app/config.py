@@ -14,6 +14,8 @@ class Settings:
     trust_proxy_hops: int
     daily_request_cap: int
     stats_api_token: str = ""
+    retention_raw_days: int = 90
+    retention_summary_days: int = 365
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -24,4 +26,6 @@ class Settings:
             trust_proxy_hops=int(os.getenv("TRUST_PROXY_HOPS", "0")),
             daily_request_cap=int(os.getenv("DAILY_REQUEST_CAP", "500")),
             stats_api_token=os.getenv("STATS_API_TOKEN", ""),
+            retention_raw_days=int(os.getenv("RETENTION_RAW_DAYS", "90")),
+            retention_summary_days=int(os.getenv("RETENTION_SUMMARY_DAYS", "365")),
         )

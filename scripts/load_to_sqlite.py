@@ -165,40 +165,44 @@ def load_day(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     """day 디렉토리의 세션 JSON을 전부 SQLite에 UPSERT한다. 적재한 턴 수를 반환한다."""
-    day_dir = Path(conversations_dir) / day.isoformat()
-    if not day_dir.is_dir():
-        return 0
+    with storage.data_lock(conversations_dir):
+        day_dir = Path(conversations_dir) / day.isoformat()
+        if not day_dir.is_dir():
+            return 0
 
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
-    try:
-        _ensure_schema(conn)
-        loaded = 0
-        for json_file in sorted(day_dir.glob("*.json")):
-            session_id, participant_id, turns = _read_conversation_file(json_file)
-            conn.execute(
-                "INSERT OR IGNORE INTO participants (participant_id) VALUES (?)",
-                (participant_id,),
-            )
-            conn.execute(
-                "INSERT INTO conversations (date, session_id, participant_id) VALUES (?, ?, ?) "
-                "ON CONFLICT(date, session_id) DO UPDATE SET participant_id=excluded.participant_id",
-                (day.isoformat(), session_id, participant_id),
-            )
-            for turn in turns:
+        conn = sqlite3.connect(db_path)
+        try:
+            _ensure_schema(conn)
+            loaded = 0
+            for json_file in sorted(day_dir.glob("*.json")):
+                session_id, participant_id, turns = _read_conversation_file(json_file)
                 conn.execute(
-                    "INSERT INTO turns (date, session_id, seq, role, text) VALUES (?, ?, ?, ?, ?) "
-                    "ON CONFLICT(date, session_id, seq) DO UPDATE SET "
-                    "role=excluded.role, text=excluded.text",
-                    (day.isoformat(), session_id, turn["seq"], turn["role"], turn["text"]),
+                    "INSERT OR IGNORE INTO participants (participant_id) VALUES (?)",
+                    (participant_id,),
                 )
-                loaded += 1
-        conn.commit()
-        return loaded
-    finally:
-        conn.close()
+                conn.execute(
+                    "INSERT INTO conversations (date, session_id, participant_id) VALUES (?, ?, ?) "
+                    "ON CONFLICT(date, session_id) DO UPDATE SET participant_id=excluded.participant_id",
+                    (day.isoformat(), session_id, participant_id),
+                )
+                # Mirror the source, including removals from retention. UPSERT alone
+                # leaves old raw turns behind after a source transcript is pruned.
+                conn.execute("DELETE FROM turns WHERE date=? AND session_id=?", (day.isoformat(), session_id))
+                for turn in turns:
+                    conn.execute(
+                        "INSERT INTO turns (date, session_id, seq, role, text) VALUES (?, ?, ?, ?, ?) "
+                        "ON CONFLICT(date, session_id, seq) DO UPDATE SET "
+                        "role=excluded.role, text=excluded.text",
+                        (day.isoformat(), session_id, turn["seq"], turn["role"], turn["text"]),
+                    )
+                    loaded += 1
+            conn.commit()
+            return loaded
+        finally:
+            conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:

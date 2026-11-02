@@ -13,7 +13,7 @@ REQUIRED_FILES = (
     "_tone.md",
     "_safety_protocol.md",
 )
-OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json")
+OPTIONAL_FILES = ("_intake_schema.md", "_validation_scenario.json", "_privacy.md")
 RESERVED_PREFIX = "_"
 _YAML_FENCE_RE = re.compile(r"```yaml\s*?\n(.*?)```", re.DOTALL)
 _SAFE_WHEN_RE = re.compile(r"^[A-Za-z0-9_-]+=[^=\n]+$")
@@ -213,6 +213,8 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
             errors.append(ValidationIssue("SLOT_ASK_TYPE", f"{path}.ask", "ask는 문자열이어야 합니다."))
         if "capture" in slot and slot["capture"] != "full_message":
             errors.append(ValidationIssue("SLOT_CAPTURE_VALUE", f"{path}.capture", "capture는 full_message만 허용합니다."))
+        if "extract" in slot and slot["extract"] != "when_asked":
+            errors.append(ValidationIssue("SLOT_EXTRACT_VALUE", f"{path}.extract", "extract는 when_asked만 허용합니다."))
 
     known_ids = set(ids)
     for index, slot in enumerate(slot_maps):

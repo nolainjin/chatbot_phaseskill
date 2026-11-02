@@ -27,6 +27,10 @@ _MAX_SCHEMA_FILE_BYTES = 64 * 1024
 _TRACK_RANK = {"정서": 0, "관계": 1, "중독": 2, "위기": 3}
 
 
+class SchemaExtractError(ValueError):
+    """Unknown extraction policies are configuration errors, never a fallback."""
+
+
 @dataclass
 class Slot:
     id: str
@@ -44,6 +48,10 @@ class Slot:
     signals: dict | list | None = None
     ask: str | None = None
     capture: str | None = None
+    extract: str | None = None
+
+    def accepts_answer(self, last_question_slot_id=None):
+        return self.extract != "when_asked" or last_question_slot_id == self.id
 
     def is_active(self, filled: dict) -> bool:
         """``when`` 조건은 일치할 때, ``unless`` 조건은 불일치할 때 활성화한다."""
@@ -163,7 +171,7 @@ def _can_override(
     return True
 
 
-def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
+def extract_fake(message: str, schema: Schema, filled: dict, last_question_slot_id=None) -> dict[str, str]:
     """fake 모드 전용 결정론적 슬롯 추출.
 
     활성 상태이면서 아직 채워지지 않은 슬롯을 대상으로 signals 부분문자열 매칭을
@@ -173,6 +181,8 @@ def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
     """
     new_fills: dict[str, str] = {}
     for slot in schema.active_slots(filled):
+        if not slot.accepts_answer(last_question_slot_id):
+            continue
         if slot.signals is None:
             continue
         matched_value = _match_signal(message, slot.signals)
@@ -186,7 +196,7 @@ def extract_fake(message: str, schema: Schema, filled: dict) -> dict[str, str]:
     return new_fills
 
 
-def extract_classification(message: str, schema: Schema, filled: dict) -> dict[str, str]:
+def extract_classification(message: str, schema: Schema, filled: dict, last_question_slot_id=None) -> dict[str, str]:
     """닫힌 값 집합(values)을 선언한 분류 슬롯만 신호어로 결정론 판정한다. 실모드용.
 
     track을 모델 재량에 맡기면 같은 발화에도 채웠다 말았다 한다(실측). track이 비면
@@ -196,7 +206,7 @@ def extract_classification(message: str, schema: Schema, filled: dict) -> dict[s
     classify_ids = {slot.id for slot in schema.slots if slot.values}
     return {
         slot_id: value
-        for slot_id, value in extract_fake(message, schema, filled).items()
+        for slot_id, value in extract_fake(message, schema, filled, last_question_slot_id).items()
         if slot_id in classify_ids
     }
 
@@ -229,6 +239,7 @@ def extract_real(
     schema: Schema,
     filled: dict,
     message: str | None = None,
+    last_question_slot_id: str | None = None,
 ) -> tuple[str, dict[str, str]]:
     """실모드 LLM 응답에서 ```slots fenced JSON 블록을 분리해 신뢰 경계로 거른다.
 
@@ -259,6 +270,8 @@ def extract_real(
     for slot_id, value in parsed.items():
         slot = active_slots.get(slot_id)
         if slot is None:
+            continue
+        if not slot.accepts_answer(last_question_slot_id):
             continue
         if not isinstance(value, str):
             continue
@@ -304,6 +317,8 @@ def build_summary_json(schema: Schema, filled: dict) -> dict:
 def _parse_slot(raw) -> Slot:
     if not isinstance(raw, dict):
         raise TypeError("slot 항목은 매핑이어야 한다")
+    if "extract" in raw and raw["extract"] != "when_asked":
+        raise SchemaExtractError("slot.extract는 when_asked만 허용합니다.")
     return Slot(
         id=raw["id"],
         label=raw["label"],
@@ -332,6 +347,7 @@ def _parse_slot(raw) -> Slot:
         signals=raw.get("signals"),
         ask=raw.get("ask"),
         capture=raw.get("capture") if isinstance(raw.get("capture"), str) else None,
+        extract=raw.get("extract"),
     )
 
 
@@ -371,6 +387,8 @@ def load_schema(knowledge_dir) -> Schema | None:
 
     try:
         slots = [_parse_slot(raw) for raw in slots_raw]
+    except SchemaExtractError:
+        raise
     except (KeyError, TypeError, ValueError):
         return None
 

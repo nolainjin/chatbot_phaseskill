@@ -43,6 +43,12 @@
 ```yaml
 intake_schema:
   version: "1"
+  ui:
+    title: "마음 이야기 입구"
+    subtitle: "마음에 걸리는 이야기를 정리하고 알맞은 기관을 찾아봐요"
+    intro: "안녕하세요. 편한 만큼만 이야기해 주세요. 이름이나 연락처는 쓰지 않아도 됩니다."
+    privacy_summary: "개인정보 처리와 기록 삭제 안내"
+    lock_notice: "원문 90일·요약 365일 보관, 삭제 코드로 내 기록 지우기"
   opening_question: "요즘 마음에 걸리는 일이 있다면 편하게 말씀해 주실래요?"
   slots:
     - id: track
@@ -169,6 +175,7 @@ intake_schema:
       ask: "이번 상담에서 어떤 도움을 가장 기대하시나요?"
       signals: [기대, 원하, 바라, 도움, 편해지고, 상담받, 상담 받아, 받아볼, 신청, 바뀌, 나아지]
     - id: area
+      extract: when_asked
       label: 거주 구·군
       required: false
       priority: 7
@@ -189,6 +196,7 @@ intake_schema:
         대구 밖: [대구 밖]
         말하지 않음: [말하지 않음]
     - id: age_band
+      extract: when_asked
       label: 연령대
       required: false
       priority: 8
@@ -204,6 +212,7 @@ intake_schema:
         60대 이상: [60대 이상, 60대, 70대, 80대, 90대, 육십대, 칠십대, 팔십대, 구십대, 예순, 일흔, 여든, 아흔]
         말하지 않음: [말하지 않음]
     - id: contact_pref
+      extract: when_asked
       label: 연결 방식
       required: false
       priority: 9

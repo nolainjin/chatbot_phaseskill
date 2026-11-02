@@ -4,6 +4,8 @@
 
   var SESSION_KEY = "lmwiki_session_id";
   var SESSION_TOKEN_KEY = "lmwiki_session_token";
+  var CONSENT_KEY = "lmwiki_consent_version";
+  var PARTICIPANT_TICKET_KEY = "lmwiki_participant_ticket";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
   var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
   var MAX_TURNS = 10;
@@ -125,6 +127,17 @@
   // 첫 턴 여부 — 칩 노출 조건(intakeSchemaActive && 발화 0회)의 두 번째 축.
   var userHasSpoken = false;
   var requestPending = false;
+  var configReady = false;
+  var consentRequired = false;
+  var consentGranted = false;
+  var privacy = null;
+  var consentCardEl = document.getElementById("consent-card");
+  var deleteSessionEl = document.getElementById("delete-session");
+  var deleteCodeCardEl = document.getElementById("delete-code-card");
+  var deleteCodeValueEl = document.getElementById("delete-code-value");
+  var previousDeleteEl = document.getElementById("previous-delete");
+  var acceptEl = document.getElementById("consent-accept");
+  var declineEl = document.getElementById("consent-decline");
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -145,6 +158,8 @@
         localStorage.setItem(PARTICIPANT_KEY, linkedId);
         sessionStorage.removeItem(SESSION_KEY);
         sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        sessionStorage.removeItem(CONSENT_KEY);
+        localStorage.removeItem(PARTICIPANT_TICKET_KEY);
       }
       url.searchParams.delete("management_id");
       url.searchParams.delete("client_id");
@@ -400,7 +415,7 @@
   }
 
   function maybeShowChips() {
-    if (chipsEl && intakeSchemaActive && !userHasSpoken) {
+    if (chipsEl && intakeSchemaActive && !userHasSpoken && configReady && (!consentRequired || consentGranted)) {
       chipsEl.hidden = false;
     }
   }
@@ -481,9 +496,14 @@
     if (requestPending) return;
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(CONSENT_KEY);
+    consentGranted = false;
+    deleteSessionEl.hidden = true;
+    deleteCodeCardEl.hidden = true;
+    deleteCodeValueEl.textContent = "";
     getSessionId();
     userHasSpoken = false;
-    inputEl.disabled = false;
+    inputEl.disabled = !configReady || consentRequired;
     inputEl.value = "";
     messagesEl.textContent = "";
     slotListEl.textContent = "";
@@ -495,7 +515,11 @@
     setStatus("");
     updateTurnCounter(0);
     setActiveStep(1);
-    addMessage("assistant", greetingText);
+    if (consentRequired) {
+      showConsent();
+    } else if (configReady) {
+      addMessage("assistant", greetingText);
+    }
     maybeShowChips();
     updateInputState();
     inputEl.focus();
@@ -503,7 +527,7 @@
 
   function sendMessage(message, options) {
     options = options || {};
-    if (requestPending) return;
+    if (requestPending || !configReady || (consentRequired && !consentGranted) || inputEl.disabled) return;
     message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
     if (!message) return;
 
@@ -525,6 +549,7 @@
         session_id: getSessionId(),
         session_token: getSessionToken() || null,
         participant_id: getParticipantId(),
+        participant_ticket: localStorage.getItem(PARTICIPANT_TICKET_KEY) || null,
         message: message,
       }),
     })
@@ -532,11 +557,10 @@
         if (response.ok) return response.json();
 
         hideTyping();
-        setStatus(
-          response.status === 429
-            ? "이용 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."
-            : "오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-        );
+        if (response.status === 409 || response.status === 401) disableInput();
+        response.json().then(function (error) {
+          setStatus(error.detail || "오류가 발생했습니다. 새 대화로 시작해 주세요.");
+        });
         requestPending = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
@@ -546,7 +570,8 @@
         if (!data) return;
 
         hideTyping();
-        if (data.session_token) sessionStorage.setItem(SESSION_TOKEN_KEY, data.session_token);
+        rememberCredentials(data);
+        deleteSessionEl.hidden = !getSessionToken();
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("답변을 작성하고 있어요…");
@@ -634,6 +659,7 @@
     setTextIf(".privacy-summary-text", ui.privacy_summary);
     setTextIf(".privacy-body", ui.privacy_body);
     setTextIf(".panel-title", ui.panel_title);
+    setTextIf(".lock-notice-text", ui.lock_notice);
     if (Array.isArray(ui.stepper_labels)) {
       document.querySelectorAll(".stepper-label").forEach(function (el, i) {
         if (ui.stepper_labels[i]) el.textContent = ui.stepper_labels[i];
@@ -698,6 +724,121 @@
     setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
   }
 
+  function rememberCredentials(data) {
+    if (data.session_token) sessionStorage.setItem(SESSION_TOKEN_KEY, data.session_token);
+    if (data.participant_id) localStorage.setItem(PARTICIPANT_KEY, data.participant_id);
+    if (data.participant_ticket) localStorage.setItem(PARTICIPANT_TICKET_KEY, data.participant_ticket);
+  }
+
+  function showConsent() {
+    consentCardEl.hidden = false;
+    document.getElementById("consent-notice").textContent = privacy.body;
+    document.getElementById("consent-version").textContent = "고지 버전: " + privacy.consent_version;
+    disableInput();
+    hideChips();
+    hideContextualReplies();
+  }
+
+  function postJson(url, payload) {
+    return fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.detail || "처리하지 못했습니다.");
+        return data;
+      });
+    });
+  }
+
+  function chooseConsent(accepted) {
+    if (requestPending || !privacy) return;
+    requestPending = true;
+    acceptEl.disabled = true;
+    declineEl.disabled = true;
+    resetSessionEl.disabled = true;
+    postJson("/api/consent", {
+      session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version
+    }).then(function (data) {
+      consentCardEl.hidden = true;
+      if (!data.accepted) {
+        var refusal = addMessage("assistant", data.reply);
+        appendSupportLinks(refusal.bubble, data.reply);
+        disableInput();
+        return;
+      }
+      rememberCredentials(data);
+      sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
+      consentGranted = true;
+      deleteCodeValueEl.textContent = data.delete_code;
+      deleteCodeCardEl.hidden = false;
+      deleteSessionEl.hidden = false;
+      inputEl.disabled = false;
+      addMessage("assistant", data.reply);
+      maybeShowChips();
+      inputEl.focus();
+    }).catch(function (error) {
+      setStatus(error.message);
+    }).finally(function () {
+      requestPending = false;
+      acceptEl.disabled = false;
+      declineEl.disabled = false;
+      resetSessionEl.disabled = false;
+      updateInputState();
+    });
+  }
+
+  acceptEl.addEventListener("click", function () { chooseConsent(true); });
+  declineEl.addEventListener("click", function () { chooseConsent(false); });
+  document.getElementById("copy-delete-code").addEventListener("click", function () {
+    if (!navigator.clipboard) {
+      setStatus("화면의 삭제 코드를 선택해 복사하거나 적어 두세요.");
+      return;
+    }
+    navigator.clipboard.writeText(deleteCodeValueEl.textContent).then(function () {
+      setStatus("삭제 코드를 복사했습니다.");
+    }).catch(function () { setStatus("화면의 삭제 코드를 선택해 복사하거나 적어 두세요."); });
+  });
+
+  function deleteRecords(payload) {
+    if (requestPending) return;
+    requestPending = true;
+    deleteSessionEl.disabled = true;
+    resetSessionEl.disabled = true;
+    acceptEl.disabled = true;
+    declineEl.disabled = true;
+    updateInputState();
+    return postJson("/api/session/delete", payload).then(function (data) {
+      if (data.session_id === sessionStorage.getItem(SESSION_KEY)) {
+        requestPending = false;
+        resetSession();
+        requestPending = true;
+      }
+      document.getElementById("delete-status").textContent = data.reply;
+      document.getElementById("delete-code-input").value = "";
+    }).catch(function (error) {
+      document.getElementById("delete-status").textContent = error.message;
+    }).finally(function () {
+      requestPending = false;
+      deleteSessionEl.disabled = false;
+      resetSessionEl.disabled = false;
+      acceptEl.disabled = false;
+      declineEl.disabled = false;
+      updateInputState();
+    });
+  }
+
+  deleteSessionEl.addEventListener("click", function () {
+    if (requestPending || !getSessionToken()) return;
+    if (!window.confirm("이 대화의 원문과 요약을 모두 지울까요?")) return;
+    deleteRecords({session_id: getSessionId(), session_token: getSessionToken()});
+  });
+  document.getElementById("delete-code-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var code = document.getElementById("delete-code-input").value.trim();
+    if (code) deleteRecords({delete_code: code});
+  });
+
   // 예약 링크의 관리번호를 첫 발화 전에 확정하고 URL에서는 즉시 제거한다.
   getParticipantId();
 
@@ -713,6 +854,19 @@
       if (data && data.mode === "coaching") applyCoachingMode();
       if (data && data.mode === "intake") applyIntakeMode();
       applyUiConfig(data && data.ui);
+      configReady = true;
+      consentRequired = data.consent_required === true;
+      privacy = data.privacy;
+      if (consentRequired) {
+        if (!privacy || !privacy.body || !privacy.consent_version) throw new Error("privacy config missing");
+        previousDeleteEl.hidden = false;
+        setTextIf(".privacy-body", privacy.body);
+        greetingText = (data.ui.intro || "") + " " + (data.opening_question || "");
+        consentGranted = getSessionToken() && sessionStorage.getItem(CONSENT_KEY) === privacy.consent_version;
+        if (!consentGranted) showConsent();
+      }
+      inputEl.disabled = consentRequired && !consentGranted;
+      deleteSessionEl.hidden = !getSessionToken();
       if (data && data.mode === "intake" && data.intake_schema === true) {
         intakeSchemaActive = true;
         if (stepperEl) stepperEl.hidden = false;
@@ -721,10 +875,14 @@
       }
     })
     .catch(function (err) {
+      configReady = false;
+      disableInput();
+      hideChips();
+      setStatus("이용 안내를 불러오지 못했습니다. 새로고침해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
       console.warn("intake config probe failed; stepper stays hidden", err);
     })
     .finally(function () {
-      addMessage("assistant", greetingText);
+      if (configReady && (!consentRequired || consentGranted)) addMessage("assistant", greetingText);
       updateInputState();
     });
 
