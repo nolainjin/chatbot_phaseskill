@@ -123,7 +123,7 @@ def test_two_requests_are_saved_then_third_is_impossible():
     assert "referral" not in snapshot
     summary = json.loads(next(turn["text"] for turn in _saved()["turns"] if turn["role"] == "intake_summary"))
     assert summary["center_requests"] == expected
-    assert chat._sessions["center"].turns > chat.MAX_TURNS  # Closing answers remain available after the intake budget.
+    assert chat.MAX_TURNS < chat._sessions["center"].turns == 11 <= chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS
     before = _saved()
     third = chat.handle_message("center", "센터에 묻고 싶은 것")
     assert third["conversation_ended"]

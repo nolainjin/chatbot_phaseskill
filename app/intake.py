@@ -192,10 +192,11 @@ def _can_override(
     갱신을 허용한다. 관계 승격을 남편/아내 같은 정체성 명사 언급만으로 허용하면,
     이미 확정된 트랙이 스쳐 지나가는 배우자 언급 한 번에 덮어써진다(실측:
     emo-insomnia 페르소나 — "잠"으로 정서 확정 후 "아내한테는 피곤하다고만 말했다"는
-    지나가는 언급에 관계로 덮어써짐). message가 없는 경로(extract_real — LLM 자체
-    판단 출력이라 원문 메시지에 접근하지 못함)에서는 override_signals가 선언된
-    값을 안전하게 거부한다.
+    지나가는 언급에 관계로 덮어써짐). 원문 message가 없는 호출에서는
+    override_signals가 선언된 값을 안전하게 거부한다.
     """
+    if slot.id == "track" and slot.values and current_value not in slot.values:
+        return new_value in slot.values  # A placeholder is not an established track.
     if slot.allow_override_values is None or new_value not in slot.allow_override_values:
         return False
     if current_value == new_value:
@@ -207,7 +208,7 @@ def _can_override(
             return False
     restricted = slot.override_signals and slot.override_signals.get(new_value)
     if restricted:
-        return message is not None and any(word in message for word in restricted)
+        return message is not None and _match_signal(message, restricted) is not None
     return True
 
 
@@ -315,9 +316,10 @@ def extract_real(
     if not isinstance(parsed, dict):
         return clean_reply, {}
 
-    active_slots = {slot.id: slot for slot in schema.active_slots(filled)}
     accepted: dict[str, str] = {}
-    for slot_id, value in parsed.items():
+    # Validate track first so dependent slots in the same block can become active.
+    for slot_id, value in sorted(parsed.items(), key=lambda item: item[0] != "track"):
+        active_slots = {slot.id: slot for slot in schema.active_slots({**filled, **accepted})}
         slot = active_slots.get(slot_id)
         if slot is None:
             continue
@@ -326,6 +328,9 @@ def extract_real(
         if not isinstance(value, str):
             continue
         if len(value) > _MAX_SLOT_VALUE_LEN:
+            continue
+        value = value.strip()
+        if not value:
             continue
         if safety.sanitize_model_reply(value, "__blocked_slot__") == "__blocked_slot__":
             continue
@@ -338,7 +343,7 @@ def extract_real(
             continue
         if _is_rejected_by_signal_guard(message, slot):
             continue
-        if slot_id in filled and not _can_override(slot, filled[slot_id], value):
+        if slot_id in filled and not _can_override(slot, filled[slot_id], value, message):
             continue
         accepted[slot_id] = value
 

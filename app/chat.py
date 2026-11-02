@@ -8,6 +8,7 @@ import json
 import hashlib
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 MAX_TURNS = 10
+# 센터 모드의 마지막 단계(선택 2번 + 답 2번)는 한도 밖에서 끝까지 받는다.
+CLOSING_EXTRA_TURNS = 4
 MAX_REPLY_CHARS = llm.MAX_MODEL_OUTPUT_CHARS
 LIMIT_MESSAGE = f"이 세션은 대화 {MAX_TURNS}턴 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요."
 _BLOCKED_INPUT_MARKER = "[안전 필터로 보류된 요청]"
@@ -39,7 +42,8 @@ _SUMMARY_INSTRUCTION = (
 _CRISIS_ESCALATION_INSTRUCTION = (
     "안전 규칙(다른 모든 규칙에 우선): 내담자 발화에서 자살·자해 위험이 읽히면 "
     "신호어 사전에 없는 완곡한 표현이라도 slots에 {\"track\": \"위기\"}를 반드시 포함하라. "
-    "이미 다른 트랙이 채워져 있어도 위기로 올려라. 위험이 읽히지 않으면 track을 건드리지 마라. "
+    "이미 다른 트랙이 채워져 있어도 위기로 올려라. 위험이 읽히지 않으면 위기로 분류하지 마라. "
+    "다른 트랙은 사용자 발화의 의미와 확인 답변으로 판정하고, 확인된 허용값을 slots의 track에 기록하라. "
     "신호어 사전은 놓치는 표현이 있다 — 판단은 사전이 아니라 발화의 의미로 하라."
 )
 _CRISIS_HOTLINE_NOTICE = (
@@ -78,6 +82,9 @@ class ChatSession:
     closing_started: bool = False
     closing_pending: str | None = None
     center_requests: list[dict[str, str]] = field(default_factory=list)
+    track_questions: int = 0
+    pending_track: str | None = None
+    track_inferred: bool = False
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -315,6 +322,8 @@ def _build_interpersonal_safety_reply(kind: str) -> str:
 
 def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
     summary = intake.build_summary_json(schema, session.slots)
+    if session.track_inferred and summary["track"] in {"정서", "관계"}:
+        summary["track_inferred"] = True
     if schema.handoff_mode == "center":
         summary["center_requests"] = list(session.center_requests)
         if session.handoff is not None:
@@ -395,7 +404,7 @@ def _record_center_turn(session: ChatSession, schema: intake.Schema, participant
         storage.append_turn(session.session_id, "intake_summary",
                             json.dumps(_session_summary(session, schema), ensure_ascii=False),
                             participant_id=participant_id)
-    result = {"reply": reply, "turn": session.turns, "limit_reached": False,
+    result = {"reply": reply, "turn": session.turns, "limit_reached": ended and session.turns >= MAX_TURNS,
               "conversation_ended": ended, "quick_replies": quick_replies,
               "intake": _intake_state(schema, session.slots, schema.unfilled_by_priority(session.slots, ()))}
     if ended:
@@ -406,31 +415,56 @@ def _record_center_turn(session: ChatSession, schema: intake.Schema, participant
     return result
 
 
-def _continue_center_closing(session: ChatSession, schema: intake.Schema, settings: Settings,
-                             participant_id: str, message: str) -> dict:
+def _closing_choice(message: str, schema: intake.Schema) -> tuple[str | None, bool]:
+    """Accept chip messages, literal labels and a small set of everyday paraphrases."""
+    compact = re.sub(r"[\s·,.!?。]", "", message)
     closing = schema.closing
-    send = message.strip() in {closing["send_label"], "이대로 보내기"}
-    used = {item["label"] for item in session.center_requests}
-    if not send:
-        if session.closing_pending is not None:
-            if message.strip() not in closing["options"]:
-                session.center_requests.append({"label": session.closing_pending,
-                                                "text": message.strip()})
-                session.closing_pending = None
-        elif message.strip() in closing["options"] and message.strip() not in used and len(used) < 2:
-            session.closing_pending = message.strip()
-    if send or len(session.center_requests) >= 2:
-        session.closing_pending = None
-        session.handoff = _build_handoff(session, schema, settings)
-        reply, choices = _center_sent_reply(), []
-    else:
-        reply, choices = _center_closing_prompt(session, schema)
+    if (compact in {re.sub(r"[\s·,.!?。]", "", closing["send_label"]),
+                    "이대로보내기", "없음", "없어요", "없습니다", "그냥보낼게요",
+                    "이대로보낼게요", "바로보낼게요", "그냥보내주세요", "보내주세요"}):
+        return None, True
+    for label in closing["options"]:
+        if compact == re.sub(r"[\s·,.!?。]", "", label):
+            return label, False
+    aliases = {
+        "상담 가능한 요일·시간": ("요일시간", "요일과시간", "상담시간", "상담가능한시간"),
+        "상담사에게 바라는 점": ("상담사한테바라는거", "상담사에게바라는것", "상담사한테바라는점"),
+        "센터에 묻고 싶은 것": ("센터에질문", "센터에묻고싶은거", "센터에궁금한점"),
+    }
+    for label, phrases in aliases.items():
+        if label in closing["options"] and (compact in phrases or compact.removesuffix("요") in phrases):
+            return label, False
+    return None, False
+
+
+def _deliver_center_turn(session: ChatSession, schema: intake.Schema, settings: Settings,
+                         participant_id: str, message: str) -> dict:
+    session.closing_started = True
+    session.closing_pending = None
+    session.handoff = _build_handoff(session, schema, settings)
     try:
-        return _record_center_turn(session, schema, participant_id, message, reply, choices)
+        return _record_center_turn(session, schema, participant_id, message, _center_sent_reply(), [])
     except OSError:
-        # A failed durable delivery must be retryable, never a cached success.
         session.handoff = None
         raise
+
+
+def _continue_center_closing(session: ChatSession, schema: intake.Schema, settings: Settings,
+                             participant_id: str, message: str) -> dict:
+    selected, send = _closing_choice(message, schema)
+    used = {item["label"] for item in session.center_requests}
+    if not send:
+        if selected is not None:
+            if selected not in used:
+                session.closing_pending = selected
+        elif message.strip():
+            session.center_requests.append({"label": session.closing_pending or "센터에 전할 내용",
+                                            "text": message.strip()})
+            session.closing_pending = None
+    if send or len(session.center_requests) >= 2 or session.turns + 1 >= MAX_TURNS + CLOSING_EXTRA_TURNS:
+        return _deliver_center_turn(session, schema, settings, participant_id, message)
+    reply, choices = _center_closing_prompt(session, schema)
+    return _record_center_turn(session, schema, participant_id, message, reply, choices)
 
 
 def _persist_intake_snapshot(
@@ -489,6 +523,48 @@ def _slot_by_id(schema: intake.Schema, slot_id: str | None) -> intake.Slot | Non
     if slot_id is None:
         return None
     return next((slot for slot in schema.slots if slot.id == slot_id), None)
+
+
+def _track_confirmation(reply: str, schema: intake.Schema) -> tuple[bool, str | None]:
+    slot = _slot_by_id(schema, "track")
+    if slot is None or not {"정서", "관계"} <= set(slot.values or ()):
+        return False, None
+    if slot.ask and slot.ask in reply:
+        return True, None
+    if not re.search(r"이해해도|봐도\s*(?:될|괜찮)|맞을까요|맞나요|맞으신가요|가깝나요|가까울까요|가까운가요", reply):
+        return False, None
+    mentioned = [value for value in slot.values if value in reply]
+    return bool(mentioned), mentioned[0] if len(mentioned) == 1 else None
+
+
+def _resolve_track(session: ChatSession, schema: intake.Schema, message: str) -> dict[str, str]:
+    """Bound clarification to two questions; clinical routing has already run."""
+    slot = _slot_by_id(schema, "track")
+    if schema.handoff_mode != "center" or slot is None or not {"정서", "관계"} <= set(slot.values or ()):
+        return {}
+    current = session.slots.get("track")
+    if current in {"위기", "중독"}:
+        session.pending_track = None
+        session.track_inferred = False
+        return {}
+    target = _slot_by_id(schema, "relationship_target")
+    has_target = bool(target and target.signals and intake._match_signal(message, target.signals))
+    answer = re.sub(r"[\s,.!?。]", "", message)
+    affirmative = answer in {"네", "예", "넵", "응", "맞아요", "맞습니다", "네맞아요", "네맞습니다",
+                             "그렇죠", "그렇습니다", "그런것같아요", "네그런것같아요", "맞는것같아요"}
+    pending = session.pending_track
+    session.pending_track = None
+    if pending in {"정서", "관계"} and (affirmative or (pending == "관계" and has_target)):
+        session.track_inferred = False
+        return {"track": pending}
+    if current in slot.values or session.track_questions < 2:
+        return {}
+    messages = [turn["content"] for turn in session.history if turn["role"] == "user"] + [message]
+    relationship = bool(target and target.signals and any(
+        intake._match_signal(text, target.signals) for text in messages
+    ))
+    session.track_inferred = True
+    return {"track": "관계" if relationship else "정서"}
 
 
 def _answer_to_previous_question(
@@ -936,10 +1012,12 @@ def handle_message(
             if previous_handoff == {"mode": "center", "sent": True}:
                 session.handoff = previous_handoff
                 return {"reply": _center_sent_reply(), "turn": session.turns,
-                        "limit_reached": False, "conversation_ended": True,
+                        "limit_reached": session.turns >= MAX_TURNS, "conversation_ended": True,
                         "handoff": session.handoff}
             if session.closing_started:
                 return _continue_center_closing(session, schema, settings, effective_participant_id, message)
+            if session.turns >= MAX_TURNS:
+                return _deliver_center_turn(session, schema, settings, effective_participant_id, message)
     if schema is None:
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"
@@ -948,6 +1026,18 @@ def handle_message(
         # 신호어/직전질문 fallback으로 먼저 상태를 갱신하고, 모델은 상담사 문장
         # 생성에 집중시킨다. 추가 의미 추출은 아래 extract_real에서 보강한다.
         new_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
+        if "track" in new_fills:
+            session.slots["track"] = new_fills["track"]
+            session.track_inferred = False
+        new_fills.update(_resolve_track(session, schema, message))
+        # Capture the relationship target from the turn that determines track;
+        # timing/impact still gets its own question rather than a keyword fill.
+        if schema.handoff_mode == "center" and new_fills.get("track") == "관계":
+            branch_fills = intake.extract_fake(
+                message, schema, {**session.slots, **new_fills}, session.last_question_slot_id
+            )
+            if "relationship_target" in branch_fills:
+                new_fills["relationship_target"] = branch_fills["relationship_target"]
 
         if schema.handoff_mode == "center" and session.turns == 0:
             new_fills.update(_answer_to_previous_question(
@@ -985,13 +1075,16 @@ def handle_message(
     except llm.ModelOutputTooLarge:
         raw_reply = _build_guardrail_reply(schema, unfilled)
 
-    # This is the model-output trust boundary. Sanitize before slot extraction,
-    # session mutation, history, or durable storage so leaked text cannot become
-    # structured intake state or a persisted transcript.
-    reply = safety.sanitize_model_reply(
-        raw_reply, _build_guardrail_reply(schema, unfilled)
-    )
-    if len(reply) > MAX_REPLY_CHARS:
+    # Keep the whole-output guard before parsing or mutation, including slot
+    # payloads and trailing text. Reject ambiguous/unterminated slot envelopes;
+    # extract_real additionally validates each accepted value.
+    blocked_reply = "__blocked_model_output__"
+    reply = safety.sanitize_model_reply(raw_reply, blocked_reply)
+    slot_markers = re.findall(r"```\s*slots", raw_reply)
+    output_safe = (reply != blocked_reply and len(raw_reply) <= MAX_REPLY_CHARS
+                   and len(slot_markers) <= 1
+                   and (not slot_markers or intake._SLOTS_FENCE_RE.search(raw_reply) is not None))
+    if not output_safe:
         reply = _build_guardrail_reply(schema, unfilled)
     if schema is not None and settings.model == "fake":
         reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
@@ -1000,9 +1093,18 @@ def handle_message(
         # 실모드 단일 호출 통합(D02) — 응답 텍스트에 섞여온 슬롯 JSON을 신뢰
         # 경계 검증(intake.extract_real) 후 분리한다. reply는 이제 슬롯 JSON이
         # 제거된 clean 버전이라 history·storage에도 그대로 안전하게 쓴다.
-        reply, real_fills = intake.extract_real(reply, schema, session.slots, message, session.last_question_slot_id)
+        reply, real_fills = intake.extract_real(
+            raw_reply if output_safe else reply, schema, session.slots, message, session.last_question_slot_id
+        )
         session.slots.update(real_fills)
         new_fills.update(real_fills)
+        if "track" in real_fills:
+            session.track_inferred = False
+            if schema.handoff_mode == "center" and real_fills["track"] == "관계":
+                branch_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
+                if "relationship_target" in branch_fills:
+                    session.slots["relationship_target"] = branch_fills["relationship_target"]
+                    new_fills["relationship_target"] = branch_fills["relationship_target"]
         if not reply.strip():
             reply = _build_guardrail_reply(schema, unfilled)
     if schema is not None:
@@ -1022,9 +1124,23 @@ def handle_message(
 
     if schema is not None:
         final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        asks_track, proposed_track = _track_confirmation(reply, schema)
+        track_slot = _slot_by_id(schema, "track")
+        if track_slot and session.slots.get("track") in (track_slot.values or ()):
+            session.pending_track = None
+            if asks_track:
+                reply = _build_fake_intake_reply(schema, new_fills, final_unfilled, session.turns)
+                if session.slots["track"] == "위기":
+                    reply = _ensure_crisis_hotline(reply)
+        elif final_unfilled and final_unfilled[0].id == "track":
+            session.track_questions += 1
+            session.pending_track = proposed_track
         if (not final_unfilled or session.turns + 1 >= MAX_TURNS) and _center_closing_safe(session, schema):
             session.closing_started = True
             session.last_question_slot_id = None
+            selected, send = _closing_choice(message, schema)
+            if selected is not None or send:
+                return _continue_center_closing(session, schema, settings, effective_participant_id, message)
             reply, choices = _center_closing_prompt(session, schema)
             return _record_center_turn(session, schema, effective_participant_id, message, reply, choices)
         if schema.handoff_mode != "center" and (not final_unfilled or session.turns + 1 >= MAX_TURNS):
