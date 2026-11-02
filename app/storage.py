@@ -15,7 +15,8 @@ from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
-DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
+from app import paths
+
 _DATA_LOCK = threading.RLock()
 _LOCK_STATE = threading.local()
 
@@ -27,9 +28,9 @@ def data_lock(base_dir=None):
         if getattr(_LOCK_STATE, "active", False):
             yield
             return
-        root = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR).parent
-        _ensure_private_dir(root)
-        fd = os.open(root / ".records.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        lock_path = paths.records_lock_path(base_dir)
+        _ensure_private_dir(lock_path.parent)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             _LOCK_STATE.active = True
@@ -97,7 +98,7 @@ def conversation_exists(
         return False
     return any(
         path.is_file()
-        for path in Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR).glob(f"*/{session_id}.json")
+        for path in paths.conversations_dir(base_dir).glob(f"*/{session_id}.json")
     )
 
 
@@ -187,7 +188,7 @@ def append_turn(
     if participant_id is not None and not valid_participant_id(participant_id):
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
-    day_dir = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR) / date.today().isoformat()
+    day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
     _ensure_private_dir(day_dir)
     path = day_dir / f"{session_id}.json"
 
@@ -211,7 +212,7 @@ def update_metadata(
     if participant_id is not None and not valid_participant_id(participant_id):
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
-    day_dir = Path(base_dir if base_dir is not None else DEFAULT_CONVERSATIONS_DIR) / date.today().isoformat()
+    day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
     _ensure_private_dir(day_dir)
     path = day_dir / f"{session_id}.json"
 

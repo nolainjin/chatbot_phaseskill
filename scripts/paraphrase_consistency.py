@@ -30,7 +30,7 @@ VARIANTS = ("standard", "colloquial", "indirect", "typo", "mixed")
 TRACKS = {"정서", "관계", "중독", "위기"}
 sys.path.insert(0, str(REPO_ROOT))
 
-from app import chat, intake, safety, storage  # noqa: E402
+from app import chat, intake, paths, safety  # noqa: E402
 from app.config import Settings  # noqa: E402
 
 
@@ -172,9 +172,9 @@ def evaluate(cases: list[dict], *, model: str = "fake", knowledge_dir: Path | No
     rows = []
     original_cwd = Path.cwd()
     namespace = uuid4().hex
-    # 절대 저장 경로도 패치하고 cwd도 격리한다. 기존 세션은 지우지 않는다.
+    # DATA_DIR과 cwd를 함께 격리한다. 기존 세션은 지우지 않는다.
     with tempfile.TemporaryDirectory(prefix="maeum-paraphrase-") as tmp:
-        with patch.object(storage, "DEFAULT_CONVERSATIONS_DIR", Path(tmp) / "data/conversations"):
+        with patch.dict(os.environ, {"DATA_DIR": str(Path(tmp) / "data")}):
             try:
                 os.chdir(tmp)
                 for case_index, case in enumerate(cases):
@@ -327,7 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cases_path = args.cases.resolve()
         out = args.out.resolve() if args.out else None
-        if out is not None and out.is_relative_to(REPO_ROOT / "data"):
+        if out is not None and any(out.is_relative_to(root) for root in (
+            REPO_ROOT / "data", paths.data_dir().resolve(),
+        )):
             raise ValueError("실제 data/에는 평가 결과를 쓸 수 없습니다.")
         cases = load_cases(cases_path)
         model = os.getenv("MODEL", "fake")

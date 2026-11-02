@@ -9,9 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app import access_log, review
-
-DEFAULT_DB_PATH = Path("data/chatlog.db")
+from app import access_log, paths, review
 
 
 _SLOT_LABELS = {
@@ -67,10 +65,10 @@ def _empty_stats(db_path: Path, filters: dict[str, str | None] | None = None) ->
 def read_session_detail(
     day: str,
     session_id: str,
-    db_path: str | Path = DEFAULT_DB_PATH,
+    db_path: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """상담자가 선택한 한 접수 세션의 대화 내역을 순서대로 반환한다."""
-    db_path = Path(db_path)
+    db_path = paths.db_path() if db_path is None else Path(db_path)
     if not db_path.exists():
         return None
     conn = sqlite3.connect(db_path)
@@ -310,11 +308,11 @@ def _individual_flag_record(
 
 
 def read_stats(
-    db_path: str | Path = DEFAULT_DB_PATH,
+    db_path: str | Path | None = None,
     participant_prefix: str | None = None,
     session_prefix: str | None = None,
 ) -> dict[str, Any]:
-    db_path = Path(db_path)
+    db_path = paths.db_path() if db_path is None else Path(db_path)
     filters = {"participant_prefix": participant_prefix, "session_prefix": session_prefix}
     if not db_path.exists():
         return _empty_stats(db_path, filters)

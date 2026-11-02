@@ -3,7 +3,7 @@
 import json
 from datetime import date, datetime, timezone
 
-from app import access_log, consent, storage
+from app import access_log, paths, storage
 
 ACTIONS = ("안내 전화함", "기관 연결함", "해당 없음", "연락 불가")
 
@@ -28,7 +28,7 @@ def review_required(summary: dict) -> bool:
 
 
 def read_reviews(base_dir=None) -> list[dict]:
-    path = consent.data_path("reviews.jsonl", base_dir)
+    path = paths.reviews_path(base_dir)
     with storage.data_lock(base_dir):
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line] if path.exists() else []
 
@@ -55,5 +55,5 @@ def remove_reviews(session_id: str, base_dir=None) -> None:
         digest = access_log.hash_value(session_id)
         remaining = [record for record in records if record["session_hash"] != digest]
         if remaining != records:
-            storage._write_private_text(consent.data_path("reviews.jsonl", base_dir),
+            storage._write_private_text(paths.reviews_path(base_dir),
                                         "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in remaining))

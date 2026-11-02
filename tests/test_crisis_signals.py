@@ -273,7 +273,7 @@ def test_negated_intent_conservatively_requests_safety_check():
 @pytest.fixture
 def isolated_chat(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(storage, "DEFAULT_CONVERSATIONS_DIR", tmp_path / "conversations")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     # 새 테스트의 상태만 격리하고, 다른 테스트나 실행 중인 세션은 건드리지 않는다.
     monkeypatch.setattr(chat, "_sessions", {})
 

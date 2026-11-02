@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import paths as data_paths
 from app import chat, consent, main, ratelimit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +31,7 @@ def test_chat_before_consent_is_409_with_all_safety_numbers(consent_client):
     assert response.status_code == 409
     assert main._PUBLIC_TERMINAL_SAFETY_NOTICE in response.json()["detail"]
     assert not chat._sessions
-    assert not list(Path("data/conversations").glob("*/*.json"))
+    assert not list(data_paths.conversations_dir().glob("*/*.json"))
 
 
 def test_refusal_saves_nothing_and_returns_safety_numbers(consent_client):
@@ -39,7 +40,7 @@ def test_refusal_saves_nothing_and_returns_safety_numbers(consent_client):
     assert response.json()["accepted"] is False
     for number in ("109", "1588-9191", "119"):
         assert number in response.json()["reply"]
-    assert not list(Path(".").rglob("data/*"))
+    assert not list(data_paths.data_dir().rglob("*"))
     assert not chat._sessions
 
 
@@ -54,7 +55,7 @@ def test_acceptance_metadata_survives_chat_and_issues_owned_session(consent_clie
     for message in ("우울해서 잠을 못 자요", "두 달 전부터 집중하기 어려워요"):
         reply = consent_client.post("/api/chat", json={"session_id": "accepted", "session_token": result["session_token"], "message": message})
         assert reply.status_code == 200
-    payload = json.loads(next(Path("data/conversations").glob("*/accepted.json")).read_text())
+    payload = json.loads(next(data_paths.conversations_dir().glob("*/accepted.json")).read_text())
     assert payload["consent_version"] == VERSION
     assert payload["consented_at"] == chat._sessions["accepted"].consented_at
     assert len(payload["turns"]) == 4
@@ -80,7 +81,7 @@ def test_consent_metadata_follows_session_across_midnight(consent_client, monkey
     monkeypatch.setattr(storage, "date", Tomorrow)
     response = consent_client.post("/api/chat", json={"session_id": "midnight", "session_token": result["session_token"], "message": "우울해요"})
     assert response.status_code == 200
-    paths = list(Path("data/conversations").glob("*/midnight.json"))
+    paths = list(data_paths.conversations_dir().glob("*/midnight.json"))
     assert len(paths) == 2
     for path in paths:
         payload = json.loads(path.read_text())
@@ -91,7 +92,7 @@ def test_consent_metadata_follows_session_across_midnight(consent_client, monkey
 def test_wrong_version_is_409_without_records(consent_client):
     response = consent_client.post("/api/consent", json={"session_id": "wrong-version", "accepted": True, "consent_version": "old"})
     assert response.status_code == 409
-    assert not Path("data").exists()
+    assert not data_paths.data_dir().exists()
 
 
 def test_config_has_pack_owned_notice_and_ui(consent_client):

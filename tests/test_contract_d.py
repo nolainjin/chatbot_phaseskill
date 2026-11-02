@@ -11,6 +11,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from app import paths as data_paths
 from app import access_log, chat, intake, llm, main, ratelimit, storage
 from app.config import Settings
 from app.knowledge_pack import validate_pack
@@ -42,7 +43,7 @@ def client():
 
 
 def _saved(session_id="center"):
-    return json.loads(next(Path("data/conversations").glob(f"*/{session_id}.json")).read_text())
+    return json.loads(next(data_paths.conversations_dir().glob(f"*/{session_id}.json")).read_text())
 
 
 def _closing(session_id="center", settings=None):
@@ -262,7 +263,7 @@ def test_link_requires_authentication_and_reuses_failure_lock(client):
     for _ in range(main.MAX_STATS_AUTH_FAILURES):
         assert client.post("/api/admin/links", json={"management_id": "1"}).status_code == 401
     assert _admin(client, "1").status_code == 429
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.access_log_path().exists()
 
 
 @pytest.mark.parametrize("value", ["", "_1", "a.b", "a_b", "-1", "a" * 33, "이름", "../1",
@@ -295,7 +296,7 @@ def test_issued_link_binds_consent_and_stats_by_management_number(client, manage
     assert detail["summary"]["center_requests"] == [{"label": "센터에 묻고 싶은 것", "text": "비용이 궁금해요"}]
     assert detail["summary"]["slots"]["cause"] == "모르겠어요"
     assert any(turn["role"] == "user" and turn["text"] == MESSAGES[0] for turn in detail["turns"])
-    lines = [json.loads(line) for line in Path("data/access_log.jsonl").read_text().splitlines()]
+    lines = [json.loads(line) for line in data_paths.access_log_path().read_text().splitlines()]
     issue = next(line for line in lines if line["kind"] == "link_issue")
     assert issue["management_id_hash"] == access_log.hash_value(management_id)
     assert set(issue) == {"at", "actor", "kind", "ip_hash", "management_id_hash"}
@@ -324,7 +325,7 @@ def test_forged_and_incomplete_links_are_rejected_before_session_creation(client
     assert "링크가 올바르지 않아요. 센터에 다시 요청해 주세요." in response.json()["detail"]
     assert all(number in response.json()["detail"] for number in ("109", "1588-9191", "119"))
     assert "forged" not in chat._sessions
-    assert not list(Path("data/conversations").glob("*/*.json"))
+    assert not list(data_paths.conversations_dir().glob("*/*.json"))
 
 
 def test_direct_access_mints_participant_id_and_link_audit_fails_closed(client, monkeypatch):
@@ -359,7 +360,7 @@ def test_center_requests_are_redacted_and_deleted_with_session(client):
     assert client.get("/api/stats", headers=headers).json()["recent_sessions"]
     response = client.post("/api/session/delete", json={"delete_code": accepted["delete_code"]})
     assert response.status_code == 200
-    assert not list(Path("data/conversations").glob("*/center.json"))
+    assert not list(data_paths.conversations_dir().glob("*/center.json"))
     assert client.get("/api/stats", headers=headers).json()["recent_sessions"] == []
 
 

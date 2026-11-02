@@ -10,6 +10,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from app import paths as data_paths
 from app import chat
 from app.config import Settings
 from app.knowledge import load_documents
@@ -94,7 +95,7 @@ def test_intake_summary_recorded_once_at_max_turns(monkeypatch, tmp_path):
     for i in range(chat.MAX_TURNS):
         chat.handle_message(session_id, f"질문 {i}", _settings())
 
-    day_dir = Path("data/conversations") / date.today().isoformat()
+    day_dir = data_paths.conversations_dir() / date.today().isoformat()
     turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     roles = [t["role"] for t in turns]
 
@@ -137,7 +138,7 @@ def test_summary_failure_does_not_break_conversation_storage(monkeypatch, tmp_pa
     assert result["limit_reached"] is False
     assert result["turn"] == chat.MAX_TURNS
 
-    day_dir = Path("data/conversations") / date.today().isoformat()
+    day_dir = data_paths.conversations_dir() / date.today().isoformat()
     turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     roles = [t["role"] for t in turns]
 

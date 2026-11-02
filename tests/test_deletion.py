@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import paths as data_paths
 from app import chat, consent, main, ratelimit, storage
 from scripts.load_to_sqlite import load_day
 
@@ -33,7 +34,7 @@ def _seed(client):
     storage.append_turn("keep-me", "user", "보존할 합성 기록", participant_id=result["participant_id"])
     today = date.today()
     yesterday = today - timedelta(days=1)
-    earlier = Path("data/conversations") / yesterday.isoformat()
+    earlier = data_paths.conversations_dir() / yesterday.isoformat()
     earlier.mkdir()
     (earlier / "delete-me.json").write_text(json.dumps({"participant_id": result["participant_id"], "turns": [{"seq": 0, "role": "user", "text": "전날 합성 원문"}]}))
     load_day(today)
@@ -53,16 +54,16 @@ def test_delete_removes_all_days_sql_memory_and_hash_with_minimal_tombstone(dele
     response = deletion_client.post("/api/session/delete", json=payload)
     assert response.status_code == 200
     assert response.json()["deleted"] is True
-    assert not list(Path("data/conversations").glob("*/delete-me.json"))
-    assert len(list(Path("data/conversations").glob("*/keep-me.json"))) == 1
-    with sqlite3.connect("data/chatlog.db") as conn:
+    assert not list(data_paths.conversations_dir().glob("*/delete-me.json"))
+    assert len(list(data_paths.conversations_dir().glob("*/keep-me.json"))) == 1
+    with sqlite3.connect(data_paths.db_path()) as conn:
         for table in ("conversations", "turns"):
             assert conn.execute(f"SELECT count(*) FROM {table} WHERE session_id=?", ("delete-me",)).fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM turns WHERE session_id=?", ("keep-me",)).fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM participants").fetchone()[0] == 1
     assert "delete-me" not in chat._sessions
     assert consent.session_for_delete_code(result["delete_code"]) is None
-    lines = Path("data/tombstones.jsonl").read_text().splitlines()
+    lines = data_paths.tombstones_path().read_text().splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert set(record) == {"session_hash", "deleted_at", "via"}
@@ -72,18 +73,18 @@ def test_delete_removes_all_days_sql_memory_and_hash_with_minimal_tombstone(dele
         assert secret not in lines[0]
     # Re-import cannot resurrect removed JSON or SQL turns.
     load_day(date.today())
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert conn.execute("SELECT count(*) FROM turns WHERE session_id=?", ("delete-me",)).fetchone()[0] == 0
 
 
 def test_code_is_only_salted_hash_on_disk_and_private(deletion_client):
     result = _seed(deletion_client)
-    path = Path("data/delete_codes.jsonl")
+    path = data_paths.delete_codes_path()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     record = json.loads(path.read_text().splitlines()[0])
     assert set(record) == {"session_id", "salt", "code_hash"}
     assert len(record["salt"]) == len(record["code_hash"]) == 64
-    for path in Path("data").rglob("*"):
+    for path in data_paths.data_dir().rglob("*"):
         if path.is_file():
             assert result["delete_code"].encode() not in path.read_bytes()
             assert result["delete_code"].replace("-", "").encode() not in path.read_bytes()
@@ -98,9 +99,9 @@ def test_code_is_only_salted_hash_on_disk_and_private(deletion_client):
 def test_wrong_credentials_are_401_without_deletion(deletion_client, payload):
     result = _seed(deletion_client)
     assert deletion_client.post("/api/session/delete", json=payload).status_code == 401
-    assert list(Path("data/conversations").glob("*/delete-me.json"))
+    assert list(data_paths.conversations_dir().glob("*/delete-me.json"))
     assert consent.session_for_delete_code(result["delete_code"]) == "delete-me"
-    assert not Path("data/tombstones.jsonl").exists()
+    assert not data_paths.tombstones_path().exists()
 
 
 def test_deletion_failure_limit_is_per_ip_and_windowed(deletion_client):
@@ -114,8 +115,8 @@ def test_deletion_failure_limit_is_per_ip_and_windowed(deletion_client):
 
 def test_deletion_preserves_unrelated_orphan_participants(deletion_client):
     result = _seed(deletion_client)
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         conn.execute("INSERT INTO participants VALUES (?)", ("unrelated-orphan",))
     assert deletion_client.post("/api/session/delete", json={"delete_code": result["delete_code"]}).status_code == 200
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert conn.execute("SELECT participant_id FROM participants WHERE participant_id=?", ("unrelated-orphan",)).fetchone() == ("unrelated-orphan",)

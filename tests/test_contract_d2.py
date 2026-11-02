@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from app import paths as data_paths
 from app import chat, intake, llm
 from app.config import Settings
 
@@ -47,7 +48,7 @@ def _settings(model="fake"):
 
 
 def _saved(session_id="d2"):
-    return json.loads(next(Path("data/conversations").glob(f"*/{session_id}.json")).read_text())
+    return json.loads(next(data_paths.conversations_dir().glob(f"*/{session_id}.json")).read_text())
 
 
 def _model(monkeypatch, slots):

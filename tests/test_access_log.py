@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import paths as data_paths
 from app import access_log, main, storage
 
 TOKEN = "synthetic-stats-token-for-c3"
@@ -32,7 +33,7 @@ def audit_client(monkeypatch, tmp_path):
 
 
 def _lines():
-    return [json.loads(line) for line in Path("data/access_log.jsonl").read_text().splitlines()]
+    return [json.loads(line) for line in data_paths.access_log_path().read_text().splitlines()]
 
 
 def test_stats_and_raw_view_log_once_without_plain_credentials(audit_client):
@@ -51,7 +52,7 @@ def test_stats_and_raw_view_log_once_without_plain_credentials(audit_client):
         assert entry["actor"] == hashlib.sha256(TOKEN.encode()).hexdigest()[:8]
         assert entry["ip_hash"] == hashlib.sha256(b"testclient").hexdigest()
         assert datetime.fromisoformat(entry["at"]).tzinfo is not None
-    path = Path("data/access_log.jsonl")
+    path = data_paths.access_log_path()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert all(value not in path.read_text() for value in (TOKEN, SESSION, "testclient", "합성 접수 내용"))
 
@@ -60,7 +61,7 @@ def test_stats_and_raw_view_log_once_without_plain_credentials(audit_client):
 def test_failed_auth_has_no_access_record(audit_client, url, params):
     for headers in ({}, {"X-Stats-Token": "incorrect"}):
         assert audit_client.get(url, params=params, headers=headers).status_code == 401
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.access_log_path().exists()
 
 
 def test_cookie_uses_same_hashed_actor(audit_client, monkeypatch):
@@ -88,11 +89,11 @@ def test_audit_failure_blocks_raw_but_stats_logs_error(audit_client, monkeypatch
 def test_missing_session_does_not_log_success(audit_client):
     response = audit_client.get("/api/stats/session", params={"day": date.today().isoformat(), "session_id": "missing"}, headers={"X-Stats-Token": TOKEN})
     assert response.status_code == 404
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.access_log_path().exists()
 
 
 def test_existing_access_file_permissions_are_tightened(audit_client):
-    path = Path("data/access_log.jsonl")
+    path = data_paths.access_log_path()
     path.touch(mode=0o644)
     path.chmod(0o644)
     assert audit_client.get("/api/stats", headers={"X-Stats-Token": TOKEN}).status_code == 200

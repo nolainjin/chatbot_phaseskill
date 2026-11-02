@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import paths as data_paths
 from app import access_log, chat, consent, intake, main, retention, review, stats, storage
 from scripts.load_to_sqlite import load_day
 
@@ -36,7 +37,7 @@ def review_client(monkeypatch, tmp_path):
 def _seed(session_id, track, *, day=None, red_flags=None):
     day = day or date.today()
     summary = {"track": track, "slots": {"track": track}, "red_flags": red_flags or [], "unfilled": {}}
-    path = Path("data/conversations") / day.isoformat() / (session_id + ".json")
+    path = data_paths.conversations_dir() / day.isoformat() / (session_id + ".json")
     storage._write_private_json(path, {"participant_id": "p_" + session_id,
                                       "turns": [{"seq": 0, "role": "intake_summary", "text": json.dumps(summary)}]})
     load_day(day)
@@ -77,11 +78,11 @@ def test_pending_then_confirmation_and_reconfirmation(review_client):
     assert len(records) == 2
     assert review.latest_actions()[access_log.hash_value(SESSION)] == "연락 불가"
     assert next(r for r in _stats(review_client)["individual_flags"] if r["session_id"] == SESSION)["review_status"] == "연락 불가"
-    path = Path("data/reviews.jsonl")
+    path = data_paths.reviews_path()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert SESSION not in path.read_text() and TOKEN not in path.read_text()
     assert set(records[0]) == {"session_hash", "action", "at", "actor"}
-    audit = [json.loads(line) for line in Path("data/access_log.jsonl").read_text().splitlines()]
+    audit = [json.loads(line) for line in data_paths.access_log_path().read_text().splitlines()]
     assert len([row for row in audit if row["kind"] == "review"]) == 2
     assert all(row["actor"] == access_log.actor_hash(TOKEN) for row in records + audit)
 
@@ -90,16 +91,16 @@ def test_review_requires_auth_and_honors_failure_lock(review_client):
     for _ in range(main.MAX_STATS_AUTH_FAILURES):
         assert review_client.post("/api/review", json=_payload()).status_code == 401
     assert review_client.post("/api/review", json=_payload(), headers=HEADERS).status_code == 429
-    assert not Path("data/reviews.jsonl").exists()
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.reviews_path().exists()
+    assert not data_paths.access_log_path().exists()
 
 
 @pytest.mark.parametrize("updates", [{"action": "임의 결과"}, {"action": ["안내 전화함"]}, {"note": "가" * 201},
                                       {"note": None}, {"day": "2026-02-30"}, {"day": 123}, {"session_id": "../invalid"}])
 def test_invalid_input_is_400_without_writes(review_client, updates):
     assert review_client.post("/api/review", json=_payload(**updates), headers=HEADERS).status_code == 400
-    assert not Path("data/reviews.jsonl").exists()
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.reviews_path().exists()
+    assert not data_paths.access_log_path().exists()
 
 
 @pytest.mark.parametrize("action", review.ACTIONS)
@@ -107,7 +108,7 @@ def test_all_actions_and_note_redaction(review_client, action):
     note = "합성 번호 010-0000-0000, synthetic@example.invalid"
     assert review_client.post("/api/review", json=_payload(action=action, note=note), headers=HEADERS).status_code == 200
     assert review.read_reviews()[0]["note"] == storage.redact_pii(note)
-    assert "010-0000-0000" not in Path("data/reviews.jsonl").read_text()
+    assert "010-0000-0000" not in data_paths.reviews_path().read_text()
     assert _stats(review_client)["review_pending"] == 0
 
 
@@ -120,8 +121,8 @@ def test_review_cookie_auth(review_client, monkeypatch):
 def test_unknown_session_or_wrong_day_is_not_reviewed(review_client):
     for updates in ({"session_id": "missing"}, {"day": "2000-01-01"}):
         assert review_client.post("/api/review", json=_payload(**updates), headers=HEADERS).status_code == 404
-    assert not Path("data/reviews.jsonl").exists()
-    assert not Path("data/access_log.jsonl").exists()
+    assert not data_paths.reviews_path().exists()
+    assert not data_paths.access_log_path().exists()
 
 
 @pytest.mark.parametrize("which", ["access", "review"])
@@ -134,7 +135,7 @@ def test_write_failure_does_not_acknowledge_confirmation(review_client, monkeypa
     else:
         monkeypatch.setattr(review, "record_review", fail)
     assert review_client.post("/api/review", json=_payload(), headers=HEADERS).status_code == 503
-    assert not Path("data/reviews.jsonl").exists()
+    assert not data_paths.reviews_path().exists()
     assert stats.read_stats()["review_pending"] == 1
 
 
@@ -143,7 +144,7 @@ def test_self_deletion_removes_only_its_reviews_and_keeps_access_log(review_clie
     for action in review.ACTIONS[:2]:
         assert review_client.post("/api/review", json=_payload(action=action), headers=HEADERS).status_code == 200
     review.record_review("synthetic-emotional", "해당 없음", TOKEN)
-    audit_before = Path("data/access_log.jsonl").read_bytes()
+    audit_before = data_paths.access_log_path().read_bytes()
     if via == "delete_code":
         payload = {"delete_code": consent.issue_delete_code(SESSION)}
     else:
@@ -152,7 +153,7 @@ def test_self_deletion_removes_only_its_reviews_and_keeps_access_log(review_clie
     assert review_client.post("/api/session/delete", json=payload).status_code == 200
     assert all(r["session_hash"] != access_log.hash_value(SESSION) for r in review.read_reviews())
     assert len(review.read_reviews()) == 1
-    assert Path("data/access_log.jsonl").read_bytes() == audit_before
+    assert data_paths.access_log_path().read_bytes() == audit_before
     assert review_client.post("/api/review", json=_payload(), headers=HEADERS).status_code == 404
 
 
@@ -162,13 +163,13 @@ def test_retention_keeps_review_until_session_is_fully_erased(review_client, age
     _seed(sid, "위기", day=date.today() - timedelta(days=age))
     review.record_review(sid, "기관 연결함", TOKEN)
     access_log.record_access("review", TOKEN, "synthetic-peer", session_id=sid)
-    audit_before = Path("data/access_log.jsonl").read_bytes()
-    review_before = Path("data/reviews.jsonl").read_bytes()
+    audit_before = data_paths.access_log_path().read_bytes()
+    review_before = data_paths.reviews_path().read_bytes()
     retention.purge_expired(today=date.today(), dry_run=True)
-    assert Path("data/reviews.jsonl").read_bytes() == review_before
+    assert data_paths.reviews_path().read_bytes() == review_before
     retention.purge_expired(today=date.today())
     assert bool(review.read_reviews()) == (age == 91)
-    assert Path("data/access_log.jsonl").read_bytes() == audit_before
+    assert data_paths.access_log_path().read_bytes() == audit_before
 
 
 def test_red_flags_and_multiple_days_count_unique_pending_sessions(review_client):
@@ -195,7 +196,7 @@ def test_public_review_remains_dark_even_with_token(review_client, monkeypatch):
     monkeypatch.setenv("PUBLIC_CHAT_UI", "1")
     response = review_client.post("http://public.example/api/review", json=_payload(), headers=HEADERS)
     assert response.status_code == 404
-    assert not Path("data/reviews.jsonl").exists()
+    assert not data_paths.reviews_path().exists()
 
 
 def test_empty_database_has_zero_pending(monkeypatch, tmp_path):

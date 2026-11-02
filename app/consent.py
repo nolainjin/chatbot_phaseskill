@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from app import storage
+from app import paths, storage
 
 _CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 
@@ -85,16 +85,16 @@ def load_privacy(knowledge_dir, settings=None) -> Privacy | None:
 
 
 def data_path(filename, base_dir=None):
-    return Path(base_dir if base_dir is not None else storage.DEFAULT_CONVERSATIONS_DIR).parent / filename
+    return paths.data_path(filename, base_dir)
 
 
 def _read_codes(base_dir=None):
-    path = data_path("delete_codes.jsonl", base_dir)
+    path = paths.delete_codes_path(base_dir)
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line] if path.exists() else []
 
 
 def _write_codes(records, base_dir=None):
-    storage._write_private_text(data_path("delete_codes.jsonl", base_dir), "".join(json.dumps(r) + "\n" for r in records))
+    storage._write_private_text(paths.delete_codes_path(base_dir), "".join(json.dumps(r) + "\n" for r in records))
 
 
 def _normalize_code(code):

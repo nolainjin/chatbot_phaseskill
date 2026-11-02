@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from app import consent, storage
+from app import paths, storage
 
 
 def hash_value(value: str) -> str:
@@ -19,7 +19,7 @@ def actor_hash(token: str) -> str:
 def append_private_record(filename: str, record: dict, base_dir=None) -> None:
     """Append under the shared record lock; propagate chmod/write/fsync errors."""
     with storage.data_lock(base_dir):
-        path = consent.data_path(filename, base_dir)
+        path = paths.data_path(filename, base_dir)
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8", newline="\n") as handle:
             os.fchmod(handle.fileno(), 0o600)

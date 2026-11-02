@@ -7,7 +7,7 @@ from contextlib import nullcontext
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from app import consent, review, storage
+from app import consent, paths, review, storage
 from app.config import Settings
 
 SUMMARY_ROLES = ("intake_summary", "intake_snapshot")
@@ -15,8 +15,7 @@ SUMMARY_ROLES = ("intake_summary", "intake_snapshot")
 
 def _db_path(db_path=None):
     if db_path is None:
-        from app import stats
-        return Path(stats.DEFAULT_DB_PATH)
+        return paths.db_path()
     return Path(db_path)
 
 
@@ -45,7 +44,7 @@ def _remove_sql(conn, session_id, raw_only=False):
 
 
 def tombstone(session_id, via, base_dir=None):
-    path = consent.data_path("tombstones.jsonl", base_dir)
+    path = paths.tombstones_path(base_dir)
     entry = {"session_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
              "deleted_at": datetime.now(timezone.utc).isoformat(), "via": via}
     previous = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -54,7 +53,7 @@ def tombstone(session_id, via, base_dir=None):
 
 def session_retired(session):
     """Invalidate live state if another local process purged/deleted its records."""
-    path = consent.data_path("tombstones.jsonl")
+    path = paths.tombstones_path()
     if not path.exists():
         return False
     digest = hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()
@@ -65,7 +64,7 @@ def session_retired(session):
 def delete_session(session_id, via, base_dir=None, db_path=None):
     if not isinstance(session_id, str) or not storage.valid_session_id(session_id):
         raise ValueError("Invalid session id")
-    root = Path(base_dir if base_dir is not None else storage.DEFAULT_CONVERSATIONS_DIR)
+    root = paths.conversations_dir(base_dir)
     with storage.data_lock(root):
         review.remove_reviews(session_id, root)
         files = list(root.glob(f"*/{session_id}.json"))
@@ -95,7 +94,7 @@ def purge_expired(*, today=None, dry_run=False, base_dir=None, db_path=None, raw
     today = today or date.today()
     if isinstance(today, str):
         today = date.fromisoformat(today)
-    root = Path(base_dir if base_dir is not None else storage.DEFAULT_CONVERSATIONS_DIR)
+    root = paths.conversations_dir(base_dir)
     database = _db_path(db_path)
     with nullcontext() if dry_run else storage.data_lock(root):
         sessions = {}

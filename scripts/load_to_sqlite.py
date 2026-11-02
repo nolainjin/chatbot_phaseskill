@@ -18,10 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from app import storage
-
-DEFAULT_CONVERSATIONS_DIR = Path("data/conversations")
-DEFAULT_DB_PATH = Path("data/chatlog.db")
+from app import paths, storage
 
 _SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -161,16 +158,17 @@ def _read_conversation_file(json_file: Path) -> tuple[str, str, list[dict]]:
 
 def load_day(
     day: date,
-    conversations_dir: Path = DEFAULT_CONVERSATIONS_DIR,
-    db_path: Path = DEFAULT_DB_PATH,
+    conversations_dir: Path | None = None,
+    db_path: Path | None = None,
 ) -> int:
     """day 디렉토리의 세션 JSON을 전부 SQLite에 UPSERT한다. 적재한 턴 수를 반환한다."""
+    conversations_dir = paths.conversations_dir(conversations_dir)
+    db_path = paths.db_path() if db_path is None else Path(db_path)
     with storage.data_lock(conversations_dir):
         day_dir = Path(conversations_dir) / day.isoformat()
         if not day_dir.is_dir():
             return 0
 
-        db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(db_path)

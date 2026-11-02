@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from app import chat, llm, storage
+from app import chat, llm, paths
 from scripts import paraphrase_consistency as evaluation
 
 
@@ -156,8 +156,8 @@ def test_two_case_fake_metrics_and_runtime_restoration(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "run_codex_cli", unexpected_backend)
     monkeypatch.setattr(llm.anthropic, "Anthropic", unexpected_backend)
     # 절대 저장 경로가 설정돼 있어도 evaluator가 임시 경로로 바꿔야 한다.
-    original_storage = REPO_ROOT / "data/conversations"
-    monkeypatch.setattr(storage, "DEFAULT_CONVERSATIONS_DIR", original_storage)
+    original_storage = REPO_ROOT / "data"
+    monkeypatch.setenv("DATA_DIR", str(original_storage))
     sentinel = chat.ChatSession(session_id="paraphrase-existing", slots={"track": "관계"})
     monkeypatch.setitem(chat._sessions, sentinel.session_id, sentinel)
     before_files, before_sessions, before_cwd = _conversation_files(), dict(chat._sessions), Path.cwd()
@@ -169,7 +169,7 @@ def test_two_case_fake_metrics_and_runtime_restoration(tmp_path, monkeypatch):
     assert report["summary"]["errors"] == 0
     assert report == evaluation.evaluate(_two_cases()["cases"])
     assert Path.cwd() == before_cwd
-    assert storage.DEFAULT_CONVERSATIONS_DIR == original_storage
+    assert paths.data_dir() == original_storage
     assert chat._sessions == before_sessions
     assert chat._sessions[sentinel.session_id] is sentinel
     assert _conversation_files() - before_files == set()
@@ -200,12 +200,12 @@ def test_small_cli_json_output_and_no_real_conversation_writes(tmp_path):
 
 
 def test_execution_errors_stay_in_denominator_and_restore_runtime(monkeypatch):
-    before_cwd, before_sessions, before_storage = Path.cwd(), dict(chat._sessions), storage.DEFAULT_CONVERSATIONS_DIR
+    before_cwd, before_sessions, before_storage = Path.cwd(), dict(chat._sessions), paths.data_dir()
 
     def broken_chat(session_id, message, settings):
         chat._get_session(session_id)
         assert Path.cwd() != before_cwd
-        assert storage.DEFAULT_CONVERSATIONS_DIR.is_absolute()
+        assert paths.conversations_dir().is_absolute()
         raise RuntimeError("synthetic execution error")
 
     monkeypatch.setattr(chat, "handle_message", broken_chat)
@@ -217,7 +217,7 @@ def test_execution_errors_stay_in_denominator_and_restore_runtime(monkeypatch):
     assert all(row["reasons"] for row in report["results"])
     assert Path.cwd() == before_cwd
     assert chat._sessions == before_sessions
-    assert storage.DEFAULT_CONVERSATIONS_DIR == before_storage
+    assert paths.data_dir() == before_storage
 
 
 def test_filled_wrong_core_value_is_not_a_value_match(monkeypatch):
@@ -240,6 +240,15 @@ def test_rejects_real_data_output_before_evaluation(monkeypatch, capsys):
 
     monkeypatch.setattr(evaluation, "evaluate", unexpected_evaluation)
     assert evaluation.main(["--out", str(REPO_ROOT / "data/forbidden.json")]) == 1
+    assert "실제 data/" in capsys.readouterr().err
+
+
+def test_rejects_configured_data_output_before_evaluation(monkeypatch, capsys):
+    def unexpected_evaluation(*args, **kwargs):
+        pytest.fail("금지된 출력 경로에서 평가를 시작했습니다.")
+
+    monkeypatch.setattr(evaluation, "evaluate", unexpected_evaluation)
+    assert evaluation.main(["--out", str(paths.data_dir() / "forbidden.json")]) == 1
     assert "실제 data/" in capsys.readouterr().err
 
 

@@ -15,12 +15,13 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Request
 
+from app import paths
+
 logger = logging.getLogger(__name__)
 
 WINDOW = timedelta(hours=1)
 MAX_SESSIONS_PER_WINDOW = 25
 KNOWN_SESSION_TTL = timedelta(hours=24)
-DATA_PATH = "data/ratelimit.json"
 
 RATE_LIMIT_MESSAGE = "이 IP에서 1시간 동안 새 대화 세션을 25회 넘게 시작했습니다. 잠시 후 다시 시도해 주세요."
 DAILY_CAP_MESSAGE = "오늘의 서비스 요청 상한에 도달했습니다. 내일 다시 이용해 주세요."
@@ -68,10 +69,15 @@ class RateLimiter:
     # 수평 확장(멀티 워커/멀티 인스턴스) 시 Redis 등 외부 스토어로 교체.
     """
 
-    def __init__(self, path: str = DATA_PATH, max_per_window: int = MAX_SESSIONS_PER_WINDOW):
-        self._path = path
+    def __init__(self, path: str | None = None, max_per_window: int = MAX_SESSIONS_PER_WINDOW):
+        self._configured_path = path
         self._max_per_window = max_per_window
         self._lock = threading.Lock()
+
+    @property
+    def _path(self):
+        # main's singleton is constructed before per-test/runtime configuration.
+        return self._configured_path if self._configured_path is not None else paths.ratelimit_path()
 
     def _load(self) -> dict:
         if not os.path.exists(self._path):

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from app import paths as data_paths
 from app import chat, consent, retention, storage
 from scripts.load_to_sqlite import load_day
 
@@ -25,7 +26,7 @@ def isolated_records(monkeypatch, tmp_path):
 
 def _seed(sid, age):
     day = TODAY - timedelta(days=age)
-    path = Path("data/conversations") / day.isoformat() / f"{sid}.json"
+    path = data_paths.conversations_dir() / day.isoformat() / f"{sid}.json"
     turns = [{"seq": n, "role": role, "text": "합성 원문" if n < 3 else "합성 요약"}
              for n, role in enumerate(("user", "bot", "assistant", "intake_summary"))]
     storage._write_private_json(path, {"session_id": sid, "consent_version": "test", "consented_at": day.isoformat(),
@@ -37,7 +38,7 @@ def _seed(sid, age):
 
 
 def _snapshot():
-    return {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in Path("data").rglob("*") if p.is_file()}
+    return {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in data_paths.data_dir().rglob("*") if p.is_file()}
 
 
 def test_91_days_removes_raw_but_keeps_summary_metadata_and_code():
@@ -51,14 +52,14 @@ def test_91_days_removes_raw_but_keeps_summary_metadata_and_code():
     assert payload["intake_snapshot"] == {"track": "정서"}
     assert payload["raw_purged_at"] == TODAY.isoformat()
     assert "합성 원문" not in path.read_text()
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert {r[0] for r in conn.execute("SELECT role FROM turns")} == {"intake_summary", "intake_snapshot"}
     assert consent.session_for_delete_code(code) == "raw-expired"
     assert "raw-expired" not in chat._sessions
-    assert len(Path("data/tombstones.jsonl").read_text().splitlines()) == 1
+    assert len(data_paths.tombstones_path().read_text().splitlines()) == 1
     load_day(day)
     assert retention.purge_expired(today=TODAY)["sessions"] == 0
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert conn.execute("SELECT count(*) FROM turns WHERE role NOT IN (?,?)", retention.SUMMARY_ROLES).fetchone()[0] == 0
 
 
@@ -68,10 +69,10 @@ def test_366_days_deletes_everything_and_minimal_tombstone():
     assert not path.exists()
     assert not chat._sessions
     assert consent.session_for_delete_code(code) is None
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         for table in ("turns", "conversations", "participants"):
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
-    tombstones = Path("data/tombstones.jsonl").read_text().splitlines()
+    tombstones = data_paths.tombstones_path().read_text().splitlines()
     assert len(tombstones) == 1
     assert json.loads(tombstones[0])["via"] == "retention_summary"
     assert all(s not in tombstones[0] for s in ("summary-expired", "합성", code))
@@ -100,20 +101,20 @@ def test_dry_run_is_read_only_for_both_layers_and_cli():
 
 def test_empty_dry_run_creates_no_data_directory():
     assert retention.purge_expired(today=TODAY, dry_run=True)["sessions"] == 0
-    assert not Path("data").exists()
+    assert not data_paths.data_dir().exists()
 
 
 def test_sqlite_only_records_are_expired():
     path, _, _ = _seed("sql-only", 366)
     path.unlink()
     assert retention.purge_expired(today=TODAY)["sessions"] == 1
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert conn.execute("SELECT count(*) FROM turns").fetchone()[0] == 0
 
 
 def test_multiday_session_uses_earliest_day_and_prunes_every_file():
     older, _, _ = _seed("multiday", 91)
-    newer = Path("data/conversations") / TODAY.isoformat() / "multiday.json"
+    newer = data_paths.conversations_dir() / TODAY.isoformat() / "multiday.json"
     storage._write_private_json(newer, {"turns": [{"seq": 0, "role": "user", "text": "新しい合成文"}]})
     load_day(TODAY)
     assert retention.purge_expired(today=TODAY)["sessions"] == 1
@@ -127,7 +128,7 @@ def test_import_reconciles_removed_source_turns():
     payload["turns"] = [t for t in payload["turns"] if t["role"] == "intake_summary"]
     storage._write_private_json(path, payload)
     load_day(day)
-    with sqlite3.connect("data/chatlog.db") as conn:
+    with sqlite3.connect(data_paths.db_path()) as conn:
         assert conn.execute("SELECT count(*) FROM turns WHERE role IN (?,?,?)", ("user", "bot", "assistant")).fetchone()[0] == 0
 
 

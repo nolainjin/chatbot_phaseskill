@@ -11,6 +11,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from app import paths as data_paths
 from app import chat
 from app.config import Settings
 from app.intake import load_schema
@@ -41,7 +42,7 @@ def _run_to_summary(session_id: str, first_message: str, settings: Settings | No
     for _ in range(chat.MAX_TURNS - 1):
         chat.handle_message(session_id, _FILLER, settings)
 
-    day_dir = Path("data/conversations") / date.today().isoformat()
+    day_dir = data_paths.conversations_dir() / date.today().isoformat()
     turns = json.loads((day_dir / f"{session_id}.json").read_text(encoding="utf-8"))["turns"]
     summary_text = next(t["text"] for t in turns if t["role"] == "intake_summary")
     return json.loads(summary_text)
