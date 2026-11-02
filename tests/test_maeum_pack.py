@@ -53,7 +53,7 @@ def test_all_source_files_are_copied_and_only_persona_and_schema_change():
     source_files = {path.relative_to(SOURCE_DIR) for path in SOURCE_DIR.rglob("*") if path.is_file()}
     pack_files = {path.relative_to(PACK_DIR) for path in PACK_DIR.rglob("*") if path.is_file()}
 
-    assert pack_files == source_files | {Path("_validation_scenario.json"), Path("_privacy.md")}
+    assert pack_files == source_files | {Path("_validation_scenario.json"), Path("_privacy.md"), Path("연결-지도.yaml")}
     for relative in source_files - {Path("_persona.md"), Path("_intake_schema.md")}:
         assert (PACK_DIR / relative).read_bytes() == (SOURCE_DIR / relative).read_bytes(), relative
 

@@ -11,8 +11,9 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
-from app import addiction, consent, intake, knowledge, llm, prompting, safety, storage
+from app import addiction, consent, intake, knowledge, llm, prompting, referral, safety, storage
 from app.config import Settings
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ class ChatSession:
     consent_version: str | None = None
     consented_at: str | None = None
     consent_pack: str | None = None
+    handoff: dict | None = None
+    map_gap_logged: bool = False
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -307,6 +310,45 @@ def _build_interpersonal_safety_reply(kind: str) -> str:
     )
 
 
+def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
+    summary = intake.build_summary_json(schema, session.slots)
+    if session.handoff is not None:
+        summary["referral"] = {
+            "institution_ids": [item["id"] for item in session.handoff["institutions"]],
+            "fallback_used": session.handoff["fallback_used"],
+            "map_status": session.handoff["map_status"],
+        }
+    return summary
+
+
+def _build_handoff(session: ChatSession, schema: intake.Schema, settings: Settings) -> dict | None:
+    # This exit belongs to the region / age / contact intake, not other packs.
+    if not {"area", "age_band", "contact_pref"} <= {slot.id for slot in schema.slots}:
+        return None
+    summary = intake.build_summary_json(schema, session.slots)
+    if summary["track"] in {"위기", "중독"} or summary["red_flags"] or session.crisis_ever_detected:
+        return None
+    institutions = referral.load_map(Path(settings.knowledge_dir) / referral.MAP_FILENAME)
+    matched = referral.match(summary, institutions or [], settings.referral_min_check)
+    safe_summary = {
+        **summary,
+        "slots": {key: storage.redact_pii(value) for key, value in summary["slots"].items()},
+    }
+    handoff = {
+        "note": referral.build_handoff_note(safe_summary, schema),
+        **matched,
+        "map_status": "missing" if institutions is None else "loaded",
+    }
+    if handoff["fallback_used"] and not session.map_gap_logged:
+        logger.warning(
+            "map_gap session_hash=%s map_status=%s",
+            hashlib.sha256(session.session_id.encode("utf-8")).hexdigest(),
+            handoff["map_status"],
+        )
+        session.map_gap_logged = True
+    return handoff
+
+
 def _persist_intake_snapshot(
     session: ChatSession,
     schema: intake.Schema,
@@ -314,7 +356,7 @@ def _persist_intake_snapshot(
 ) -> None:
     storage.update_metadata(
         session.session_id,
-        {"intake_snapshot": intake.build_summary_json(schema, session.slots)},
+        {"intake_snapshot": _session_summary(session, schema)},
         participant_id=participant_id,
     )
 
@@ -669,11 +711,17 @@ def handle_message(
     if crisis_signal:
         session.crisis_ever_detected = True
     if session.turns >= MAX_TURNS and not crisis_signal and not session.crisis_ever_detected:
-        return {
+        result = {
             "reply": _ensure_crisis_hotline(LIMIT_MESSAGE),
             "turn": session.turns,
             "limit_reached": True,
         }
+        if session.handoff is not None:
+            result["handoff"] = session.handoff
+        return result
+
+    # A subsequent safety / addiction turn must not retain an earlier exit card.
+    session.handoff = None
 
     new_fills: dict[str, str] = {}
     unfilled: list[intake.Slot] = []
@@ -847,10 +895,23 @@ def handle_message(
             reply,
             _build_guardrail_reply(schema, fallback_unfilled),
         )
-        if session.slots.get("track") == "위기" or session.crisis_ever_detected:
+        if (
+            session.slots.get("track") == "위기"
+            or session.crisis_ever_detected
+            or intake.build_summary_json(schema, session.slots)["red_flags"]
+        ):
             reply = _ensure_crisis_hotline(reply)
     else:
         reply = safety.sanitize_model_reply(reply, _build_guardrail_reply(None, []))
+
+    if schema is not None:
+        final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        if not final_unfilled or session.turns + 1 >= MAX_TURNS:
+            session.handoff = _build_handoff(session, schema, settings)
+            if session.handoff is not None:
+                reply = "이야기를 정리했어요. 아래 정리문을 기관에 그대로 전할 수 있어요."
+                if session.handoff["fallback_used"]:
+                    reply += "\n\n" + referral.DEFAULT_GUIDANCE
 
     storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
     storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
@@ -863,7 +924,7 @@ def handle_message(
         if schema is not None:
             # 채워진 슬롯이 이미 세션 상태에 있으므로 LLM을 부를 이유가 없다 —
             # 결정론 생성이라 fake 모드에서도 동일하게 돈다(CAP08).
-            summary_json = intake.build_summary_json(schema, session.slots)
+            summary_json = _session_summary(session, schema)
             storage.append_turn(
                 session_id,
                 "intake_summary",
@@ -897,4 +958,6 @@ def handle_message(
         session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
         _persist_intake_snapshot(session, schema, effective_participant_id)
         result["intake"] = _intake_state(schema, session.slots, final_unfilled)
+        if session.handoff is not None:
+            result.update(handoff=session.handoff, conversation_ended=True)
     return result

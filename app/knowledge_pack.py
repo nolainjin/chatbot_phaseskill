@@ -8,6 +8,8 @@ from typing import cast
 
 import yaml
 
+from app.referral import MAP_FILENAME, MapValidationError, load_map
+
 REQUIRED_FILES = (
     "_persona.md",
     "_tone.md",
@@ -268,6 +270,13 @@ def validate_pack(pack_dir: str | Path, exercise: bool = False) -> ValidationRes
 
     if (root / "_intake_schema.md").is_file():
         _validate_schema(root, errors)
+
+    map_path = root / MAP_FILENAME
+    if map_path.exists() and not map_path.is_symlink():
+        try:
+            load_map(map_path)
+        except (MapValidationError, OSError) as exc:
+            errors.append(ValidationIssue("REFERRAL_MAP_INVALID", MAP_FILENAME, str(exc)))
 
     docs = [path for path in sorted(root.glob("*.md")) if not path.name.startswith(RESERVED_PREFIX)]
     if not docs:

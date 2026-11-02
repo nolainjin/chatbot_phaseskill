@@ -1826,3 +1826,29 @@ details[open] > .privacy-summary::after {
   border: 1px solid var(--input-border); border-radius: 8px; font: inherit;
 }
 .review-form button { justify-self: start; }
+.handoff-card {
+  list-style: none;
+  padding: 1.25rem;
+  border: 1px solid #c8ddd6;
+  border-radius: 1rem;
+  background: #f3faf7;
+  color: #243c34;
+  overflow-wrap: anywhere;
+}
+.handoff-card h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+.handoff-card h2:not(:first-child) { margin-top: 1.25rem; }
+.handoff-note { white-space: pre-wrap; line-height: 1.8; user-select: text; }
+.handoff-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.handoff-actions button {
+  min-height: 44px;
+  padding: .5rem .8rem;
+  border: 1px solid #8db9a8;
+  border-radius: .5rem;
+  background: white;
+  color: #243c34;
+  cursor: pointer;
+}
+.handoff-institution { margin-top: .9rem; padding-top: .9rem; border-top: 1px solid #c8ddd6; }
+.handoff-institution h3 { display: inline; margin-right: .6rem; font-size: 1rem; }
+.handoff-badge { display: inline-block; padding: .15rem .4rem; border-radius: .4rem; background: #dcefe6; font-size: .8rem; }
+.handoff-institution a { color: #235e49; text-decoration: underline; }

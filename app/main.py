@@ -14,7 +14,7 @@ from fastapi import Body, Cookie, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app import access_log, chat, consent, intake, ratelimit, retention, review, stats, storage
+from app import access_log, chat, consent, intake, ratelimit, referral, retention, review, stats, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
@@ -44,6 +44,7 @@ async def lifespan(_app):
     settings = Settings.from_env()
     consent.load_privacy(settings.knowledge_dir, settings)
     intake.load_schema(settings.knowledge_dir)
+    referral.load_map(Path(settings.knowledge_dir) / referral.MAP_FILENAME)
     yield
 
 
@@ -287,6 +288,8 @@ def get_config():
     if privacy is not None:
         config.update(consent_required=True, privacy=privacy.as_dict(),
                       opening_question=schema.opening_question if schema else None)
+    if schema is not None and any(slot.id == "area" for slot in schema.slots):
+        config["slot_labels"] = {slot.id: slot.label for slot in schema.slots}
     return config
 
 

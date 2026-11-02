@@ -26,6 +26,13 @@
   var allRecords = [];
   var visibleRecords = [];
   var activeTag = "all";
+  var slotLabels = {};
+
+  function missingLabels(record) {
+    return Array.isArray(record.missing) ? record.missing.map(function (id) {
+      return slotLabels[id] || id;
+    }) : [];
+  }
 
   function text(value, fallback) {
     var normalized = String(value == null ? "" : value).trim();
@@ -125,7 +132,7 @@
       detailRow("현재 대처", record.coping),
       detailRow("주변 도움", record.support),
       detailRow("상담 기대", record.expectation),
-      detailRow("추가 확인", Array.isArray(record.missing) && record.missing.length ? record.missing.join(", ") : "없음")
+      detailRow("추가 확인", missingLabels(record).join(", ") || "없음")
     );
 
     var footer = document.createElement("footer");
@@ -246,7 +253,7 @@
         record.coping,
         record.support,
         record.expectation,
-        Array.isArray(record.missing) ? record.missing.join(" / ") : ""
+        missingLabels(record).join(" / ")
       ]);
     });
     return rows;
@@ -289,7 +296,14 @@
   async function loadStats() {
     statusEl.textContent = "내담자 접수 기록을 불러오는 중입니다.";
     try {
-      var response = await fetch("/api/stats");
+      var responses = await Promise.all([
+        fetch("/api/stats"),
+        fetch("/api/config").then(function (response) {
+          return response.ok ? response.json() : {};
+        }).catch(function () { return {}; })
+      ]);
+      var response = responses[0];
+      slotLabels = responses[1].slot_labels || {};
       if (!response.ok) throw new Error("HTTP " + response.status);
       var data = await response.json();
       reviewPendingEl.textContent = "위기 확인 대기 " + Number(data.review_pending || 0).toLocaleString("ko-KR") + "건";

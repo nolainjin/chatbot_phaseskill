@@ -138,6 +138,103 @@
   var previousDeleteEl = document.getElementById("previous-delete");
   var acceptEl = document.getElementById("consent-accept");
   var declineEl = document.getElementById("consent-decline");
+  var handoffCardEl = null;
+
+  function renderHandoff(handoff) {
+    if (handoffCardEl) handoffCardEl.remove();
+    handoffCardEl = null;
+    if (!handoff) return;
+
+    var card = document.createElement("li");
+    card.className = "handoff-card";
+    var title = document.createElement("h2");
+    title.textContent = "기관에 전할 정리";
+    card.appendChild(title);
+    var note = Array.isArray(handoff.note) ? handoff.note.join("\n") : "";
+    var noteEl = document.createElement("p");
+    noteEl.className = "handoff-note";
+    noteEl.textContent = note;
+    card.appendChild(noteEl);
+
+    var actions = document.createElement("div");
+    actions.className = "handoff-actions";
+    var feedback = document.createElement("p");
+    feedback.setAttribute("role", "status");
+    var copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "정리문 복사";
+    copy.addEventListener("click", async function () {
+      try {
+        await navigator.clipboard.writeText(note);
+        feedback.textContent = "정리문을 복사했어요.";
+      } catch (error) {
+        feedback.textContent = "복사하지 못했어요. 정리문을 선택해 복사하거나 내려받아 주세요.";
+      }
+    });
+    actions.appendChild(copy);
+    var download = document.createElement("button");
+    download.type = "button";
+    download.textContent = ".txt 내려받기";
+    download.addEventListener("click", function () {
+      var blob = new Blob([note + "\n"], { type: "text/plain;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = "기관에-전할-정리.txt";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      feedback.textContent = "정리문 내려받기를 시작했어요.";
+    });
+    actions.appendChild(download);
+    card.appendChild(actions);
+    card.appendChild(feedback);
+
+    var places = document.createElement("h2");
+    places.textContent = "연결할 수 있는 곳";
+    card.appendChild(places);
+    if (handoff.fallback_used) {
+      var gap = document.createElement("p");
+      gap.textContent = "가까운 기관을 아직 정리하지 못했어요";
+      card.appendChild(gap);
+      var guidance = document.createElement("p");
+      guidance.textContent = "광역 단위 정신건강 상담 전화 1577-0199 또는 자살예방상담전화 109로 도움을 요청할 수 있어요.";
+      card.appendChild(guidance);
+    }
+    (handoff.institutions || []).slice(0, 3).forEach(function (institution) {
+      var place = document.createElement("article");
+      place.className = "handoff-institution";
+      var name = document.createElement("h3");
+      name.textContent = institution.name;
+      place.appendChild(name);
+      var badge = document.createElement("span");
+      badge.className = "handoff-badge";
+      badge.textContent = institution.check_level === "verified" ? "전화 확인됨" : "웹 확인";
+      place.appendChild(badge);
+      var procedure = document.createElement("p");
+      procedure.textContent = "이용 절차: " + (institution.referral || "정보 없음");
+      place.appendChild(procedure);
+      var phone = document.createElement("p");
+      phone.textContent = "전화: " + (institution.phone || "정보 없음");
+      place.appendChild(phone);
+      try {
+        var homepage = new URL(institution.homepage);
+        if (homepage.protocol === "https:" || homepage.protocol === "http:") {
+          var link = document.createElement("a");
+          link.textContent = "홈페이지";
+          link.href = homepage.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          place.appendChild(link);
+        }
+      } catch (error) { /* An absent / unsafe homepage is never a link. */ }
+      card.appendChild(place);
+    });
+    handoffCardEl = card;
+    messagesEl.appendChild(card);
+    card.scrollIntoView({ block: "nearest" });
+  }
 
   function getSessionId() {
     var id = sessionStorage.getItem(SESSION_KEY);
@@ -506,6 +603,7 @@
     inputEl.disabled = !configReady || consentRequired;
     inputEl.value = "";
     messagesEl.textContent = "";
+    handoffCardEl = null;
     slotListEl.textContent = "";
     panelEl.hidden = true;
     if (coachingStatusEl) coachingStatusEl.hidden = true;
@@ -585,6 +683,7 @@
             renderContextualReplies(data.intake, replyText);
           }
           renderCoachingStatus(data);
+          renderHandoff(data.handoff);
           requestPending = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
 
