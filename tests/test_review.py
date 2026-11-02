@@ -1,6 +1,7 @@
 """Synthetic crisis confirmation, pending counts, note redaction and erasure."""
 
 import json
+import os
 import stat
 from datetime import date, timedelta
 from pathlib import Path
@@ -79,7 +80,8 @@ def test_pending_then_confirmation_and_reconfirmation(review_client):
     assert review.latest_actions()[access_log.hash_value(SESSION)] == "연락 불가"
     assert next(r for r in _stats(review_client)["individual_flags"] if r["session_id"] == SESSION)["review_status"] == "연락 불가"
     path = data_paths.reviews_path()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows 에는 POSIX 권한 비트가 없다
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert SESSION not in path.read_text() and TOKEN not in path.read_text()
     assert set(records[0]) == {"session_hash", "action", "at", "actor"}
     audit = [json.loads(line) for line in data_paths.access_log_path().read_text().splitlines()]

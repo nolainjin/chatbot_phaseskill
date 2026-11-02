@@ -22,7 +22,10 @@ def append_private_record(filename: str, record: dict, base_dir=None) -> None:
         path = paths.data_path(filename, base_dir)
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8", newline="\n") as handle:
-            os.fchmod(handle.fileno(), 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(handle.fileno(), 0o600)
+            else:  # Windows Python < 3.13: 권한 비트 대신 사용자 프로필 ACL 이 보호한다
+                os.chmod(path, 0o600)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             os.fsync(handle.fileno())

@@ -1,6 +1,7 @@
 """Bearer deletion, private code persistence, all-day deletion and abuse limits."""
 import json
 import sqlite3
+import os
 import stat
 from datetime import date, timedelta
 from pathlib import Path
@@ -80,7 +81,8 @@ def test_delete_removes_all_days_sql_memory_and_hash_with_minimal_tombstone(dele
 def test_code_is_only_salted_hash_on_disk_and_private(deletion_client):
     result = _seed(deletion_client)
     path = data_paths.delete_codes_path()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows 에는 POSIX 권한 비트가 없다
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     record = json.loads(path.read_text().splitlines()[0])
     assert set(record) == {"session_id", "salt", "code_hash"}
     assert len(record["salt"]) == len(record["code_hash"]) == 64

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -53,7 +54,8 @@ def test_stats_and_raw_view_log_once_without_plain_credentials(audit_client):
         assert entry["ip_hash"] == hashlib.sha256(b"testclient").hexdigest()
         assert datetime.fromisoformat(entry["at"]).tzinfo is not None
     path = data_paths.access_log_path()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows 에는 POSIX 권한 비트가 없다
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert all(value not in path.read_text() for value in (TOKEN, SESSION, "testclient", "합성 접수 내용"))
 
 
@@ -97,7 +99,8 @@ def test_existing_access_file_permissions_are_tightened(audit_client):
     path.touch(mode=0o644)
     path.chmod(0o644)
     assert audit_client.get("/api/stats", headers={"X-Stats-Token": TOKEN}).status_code == 200
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows 에는 POSIX 권한 비트가 없다
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_concurrent_appends_are_complete_lines(tmp_path):
