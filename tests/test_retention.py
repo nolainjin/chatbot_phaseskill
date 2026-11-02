@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def test_dry_run_is_read_only_for_both_layers_and_cli():
     result = retention.purge_expired(today=TODAY, dry_run=True)
     assert result["sessions"] == 2
     assert _snapshot() == before
-    process = subprocess.run([str(ROOT / ".venv/bin/python"), str(ROOT / "scripts/purge_expired.py"), "--dry-run", "--today", TODAY.isoformat()],
+    process = subprocess.run([sys.executable, str(ROOT / "scripts/purge_expired.py"), "--dry-run", "--today", TODAY.isoformat()],
                              env=os.environ.copy(), capture_output=True, text=True)
     assert process.returncode == 0, process.stderr
     assert json.loads(process.stdout)["sessions"] == 2
@@ -147,7 +148,7 @@ def test_cli_purge_invalidates_live_state_in_another_process():
 
     path, _, _ = _seed("external-purge", 0)
     session = chat._sessions["external-purge"]
-    process = subprocess.run([str(ROOT / ".venv/bin/python"), str(ROOT / "scripts/purge_expired.py"), "--today", "2030-01-01"],
+    process = subprocess.run([sys.executable, str(ROOT / "scripts/purge_expired.py"), "--today", "2030-01-01"],
                              env=os.environ.copy(), capture_output=True, text=True)
     assert process.returncode == 0, process.stderr
     assert not path.exists()
