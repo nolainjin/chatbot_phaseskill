@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>내담자 접수 확인</title>
-  <link rel="stylesheet" href="style.css?v=14" />
+  <link rel="stylesheet" href="style.css?v=15" />
 </head>
 <body class="stats-body counselor-dashboard">
   <main class="stats-shell">
@@ -75,9 +75,16 @@
     </section>
 
     <aside class="management-help no-print">
-      <h2>관리번호 연결 방법</h2>
-      <p>예약 링크 뒤에 <code>?management_id=관리번호</code>를 붙이면 해당 번호로 접수 기록이 연결됩니다. 전화번호·이름은 챗봇에 저장하지 않습니다.</p>
-      <p class="management-example">예: <code>http://127.0.0.1:8000/?management_id=BX-2026-001</code></p>
+      <h2>링크 만들기</h2>
+      <p>센터의 관리번호를 입력해 링크를 만들고 직접 문자로 보내세요. 이름·연락처는 센터에서만 관리합니다. 이 서버는 문자를 보내지 않습니다.</p>
+      <form id="link-form" class="client-search-form">
+        <label for="link-management-id">관리번호</label>
+        <input id="link-management-id" autocomplete="off" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9-]{0,31}" placeholder="예: 2026-003" required />
+        <button id="issue-link" type="submit" class="tool-button primary-tool">링크 만들기</button>
+      </form>
+      <p id="issued-link" class="issued-link" aria-label="발급한 링크"></p>
+      <button id="copy-issued-link" type="button" class="tool-button" disabled>링크 복사</button>
+      <p id="link-status" role="status"></p>
     </aside>
 
     <dialog id="conversation-dialog" class="conversation-dialog">

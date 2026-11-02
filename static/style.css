@@ -531,6 +531,24 @@ details[open] > .privacy-summary::after {
   transform: translateY(-1px);
 }
 
+.reply-suggestion-send {
+  background: #245a48;
+  color: #fff;
+  border: 2px solid #163d30;
+  font-weight: 700;
+  padding: 12px 20px;
+}
+
+.reply-suggestion-send:hover {
+  background: #163d30;
+  color: #fff;
+}
+
+.issued-link {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .reply-suggestion-alert {
   color: var(--error);
   border-color: rgba(173, 101, 79, 0.35);

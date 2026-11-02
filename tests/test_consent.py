@@ -9,7 +9,7 @@ from app import chat, consent, main, ratelimit
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "knowledge-maeum"
-VERSION = "maeum-2026-11-02"
+VERSION = "maeum-2026-11-03"
 
 
 @pytest.fixture

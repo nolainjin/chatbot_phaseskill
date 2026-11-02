@@ -168,6 +168,12 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
     if not _is_nonempty_str(schema.get("opening_question")):
         errors.append(ValidationIssue("SCHEMA_OPENING_QUESTION", "schema.opening_question", "opening_question이 필요합니다."))
 
+    from app.intake import HandoffConfigError, validate_handoff_config
+    try:
+        validate_handoff_config(schema, uses_exit=(root / MAP_FILENAME).exists())
+    except HandoffConfigError as exc:
+        errors.append(ValidationIssue("HANDOFF_CONFIG", "schema.ui.handoff_mode", str(exc)))
+
     slots = _as_list(schema.get("slots"))
     if not slots:
         errors.append(ValidationIssue("SCHEMA_SLOTS", "schema.slots", "slots는 비어있지 않은 목록이어야 합니다."))
@@ -221,8 +227,13 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
     known_ids = set(ids)
     for index, slot in enumerate(slot_maps):
         path = f"schema.slots[{index}]"
-        for key in ("when", "unless"):
-            condition = slot.get(key)
+        conditions = [(key, slot.get(key)) for key in ("when", "unless")]
+        if "when_any" in slot:
+            if not _list_of_strings(slot["when_any"]) or not slot["when_any"]:
+                errors.append(ValidationIssue("SLOT_CONDITION_SYNTAX", f"{path}.when_any", "when_any는 비어있지 않은 조건 목록이어야 합니다."))
+            else:
+                conditions.extend(("when_any", condition) for condition in slot["when_any"])
+        for key, condition in conditions:
             if condition is None:
                 continue
             if not isinstance(condition, str) or not _SAFE_WHEN_RE.fullmatch(condition):

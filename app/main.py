@@ -5,10 +5,12 @@ import hmac
 import ipaddress
 import logging
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import Body, Cookie, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
@@ -33,8 +35,10 @@ _PUBLIC_CHAT_UI_ENV = "PUBLIC_CHAT_UI"
 
 _STATS_COOKIE_NAME = "lmwiki_stats_session"
 _ADMIN_PATHS = frozenset(
-    {"/stats.html", "/stats.js", "/csv.js", "/api/stats", "/api/stats/session", "/api/review"}
+    {"/stats.html", "/stats.js", "/csv.js", "/api/stats", "/api/stats/session", "/api/review", "/api/admin/links"}
 )
+_MANAGEMENT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,31}")
+_INVALID_LINK_NOTICE = "링크가 올바르지 않아요. 센터에 다시 요청해 주세요."
 # Every request is dark unless explicit private mode proves both a loopback
 # Host header and a loopback transport peer.
 _DARK_RESPONSE_BODY = b'{"detail":"public service disabled"}'
@@ -87,9 +91,14 @@ def _sign_participant_id(participant_id: str) -> str:
 
 
 def _verify_participant_ticket(participant_id: str, ticket: str | None) -> bool:
-    if not ticket or not storage.valid_participant_id(participant_id):
+    if not isinstance(ticket, str) or not ticket or not storage.valid_participant_id(participant_id):
         return False
-    return hmac.compare_digest(ticket, _sign_participant_id(participant_id))
+    return hmac.compare_digest(ticket.encode("utf-8"), _sign_participant_id(participant_id).encode("utf-8"))
+
+
+def _valid_management_id(value) -> bool:
+    return (isinstance(value, str) and _MANAGEMENT_ID_RE.fullmatch(value) is not None
+            and storage.valid_participant_id(value))
 
 
 def _new_participant_id() -> str:
@@ -219,6 +228,13 @@ def post_consent(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="accepted는 boolean이어야 합니다.")
     if payload.get("consent_version") != privacy.consent_version:
         raise HTTPException(status_code=409, detail="고지 버전이 바뀌었습니다. 다시 읽어 주세요." + _PUBLIC_TERMINAL_SAFETY_NOTICE)
+    linked_id = None
+    if "management_id" in payload or "link_ticket" in payload:
+        management_id, ticket = payload.get("management_id"), payload.get("link_ticket")
+        if not (_valid_management_id(management_id) and isinstance(ticket, str)
+                and len(ticket) <= 128 and _verify_participant_ticket(management_id, ticket)):
+            raise HTTPException(status_code=400, detail=_INVALID_LINK_NOTICE + _PUBLIC_TERMINAL_SAFETY_NOTICE)
+        linked_id = management_id
     if not accepted:
         return {"accepted": False, "reply": "말로 하기 어려우면 전화로도 도움을 받을 수 있어요." + _PUBLIC_TERMINAL_SAFETY_NOTICE}
     session_id = payload.get("session_id")
@@ -236,7 +252,9 @@ def post_consent(request: Request, payload: dict = Body(...)):
         intro = schema.ui.get("intro", "안녕하세요. 편한 만큼 이야기해 주세요.") if schema else "안녕하세요."
         question = schema.opening_question if schema else "어떤 도움이 필요하신가요?"
         session = chat._get_session(session_id)
-        session.participant_id = _new_participant_id()
+        session.participant_id = linked_id or _new_participant_id()
+        if schema is not None and schema.handoff_mode == "center":
+            session.last_question_slot_id = "chief_complaint"
         session.consent_pack = settings.knowledge_dir
         consent.record_consent(session, privacy)
         delete_code = consent.issue_delete_code(session_id)
@@ -288,7 +306,7 @@ def get_config():
     if privacy is not None:
         config.update(consent_required=True, privacy=privacy.as_dict(),
                       opening_question=schema.opening_question if schema else None)
-    if schema is not None and any(slot.id == "area" for slot in schema.slots):
+    if schema is not None and schema.handoff_mode is not None:
         config["slot_labels"] = {slot.id: slot.label for slot in schema.slots}
     return config
 
@@ -347,6 +365,23 @@ def _record_access(request: Request, kind: str, token: str, **kwargs) -> None:
         logger.error("Access record could not be written (%s)", kind, exc_info=True)
         if kind != "stats":
             raise HTTPException(status_code=503, detail="열람·확인 기록을 저장하지 못했습니다.") from exc
+
+
+@app.post("/api/admin/links")
+def post_admin_link(
+    request: Request,
+    payload: dict = Body(...),
+    stats_token: str | None = Header(default=None, alias="X-Stats-Token"),
+    stats_session: str | None = Cookie(default=None, alias=_STATS_COOKIE_NAME),
+):
+    token = _require_stats_auth(request, stats_token, stats_session)
+    management_id = payload.get("management_id")
+    if not _valid_management_id(management_id):
+        raise HTTPException(status_code=400, detail="관리번호는 영문·숫자로 시작하는 1~32자의 영문·숫자·하이픈이어야 하며 전화번호·주민번호는 사용할 수 없습니다.")
+    ticket = _sign_participant_id(management_id)
+    url = str(request.base_url) + "?" + urlencode({"management_id": management_id, "link_ticket": ticket})
+    _record_access(request, "link_issue", token, management_id=management_id)
+    return {"management_id": management_id, "url": url}
 
 
 @app.get("/api/stats")

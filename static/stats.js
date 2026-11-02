@@ -22,6 +22,12 @@
   var conversationStatusEl = document.getElementById("conversation-status");
   var closeConversationEl = document.getElementById("close-conversation");
   var reviewPendingEl = document.getElementById("review-pending");
+  var linkFormEl = document.getElementById("link-form");
+  var linkIdEl = document.getElementById("link-management-id");
+  var issueLinkEl = document.getElementById("issue-link");
+  var issuedLinkEl = document.getElementById("issued-link");
+  var copyLinkEl = document.getElementById("copy-issued-link");
+  var linkStatusEl = document.getElementById("link-status");
 
   var allRecords = [];
   var visibleRecords = [];
@@ -70,6 +76,20 @@
 
   function renderConversation(detail) {
     clear(conversationTurnsEl);
+    if (detail.summary) {
+      var summary = document.createElement("section");
+      var heading = document.createElement("h3");
+      heading.textContent = "접수 요약표";
+      var rows = document.createElement("dl");
+      Object.entries(detail.summary.slots || {}).forEach(function (entry) {
+        rows.appendChild(detailRow(slotLabels[entry[0]] || entry[0], entry[1]));
+      });
+      var requests = Array.isArray(detail.summary.center_requests) ? detail.summary.center_requests : [];
+      if (!requests.length) rows.appendChild(detailRow("센터에 바라는 점·질문", "없음"));
+      requests.forEach(function (item) { rows.appendChild(detailRow(item.label, item.text)); });
+      summary.append(heading, rows);
+      conversationTurnsEl.appendChild(summary);
+    }
     var turns = Array.isArray(detail.turns) ? detail.turns : [];
     turns.forEach(function (turn) {
       var item = document.createElement("article");
@@ -357,6 +377,37 @@
   exportEl.addEventListener("click", exportCsv);
   printEl.addEventListener("click", function () {
     window.print();
+  });
+
+  if (linkFormEl) linkFormEl.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    issueLinkEl.disabled = true;
+    copyLinkEl.disabled = true;
+    issuedLinkEl.textContent = "";
+    linkStatusEl.textContent = "링크를 만드는 중입니다.";
+    try {
+      var response = await fetch("/api/admin/links", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({management_id: linkIdEl.value.trim()})
+      });
+      var data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "링크를 만들지 못했습니다.");
+      issuedLinkEl.textContent = data.url;
+      copyLinkEl.disabled = false;
+      linkStatusEl.textContent = "관리번호 " + data.management_id + " 링크를 만들었습니다. 센터에서 직접 보내 주세요.";
+    } catch (error) {
+      linkStatusEl.textContent = error.message;
+    } finally {
+      issueLinkEl.disabled = false;
+    }
+  });
+  if (copyLinkEl) copyLinkEl.addEventListener("click", async function () {
+    try {
+      await navigator.clipboard.writeText(issuedLinkEl.textContent);
+      linkStatusEl.textContent = "링크를 복사했습니다.";
+    } catch (error) {
+      linkStatusEl.textContent = "복사하지 못했습니다. 표시된 링크를 선택해 복사해 주세요.";
+    }
   });
 
   loadStats();

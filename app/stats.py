@@ -29,6 +29,7 @@ _SLOT_LABELS = {
     "support": "지지체계",
     "expectation": "상담 기대",
 }
+_ALL_SLOT_LABELS = {**_SLOT_LABELS, "cause": "원인·계기"}
 
 
 def sync_today() -> int:
@@ -101,12 +102,17 @@ def read_session_detail(
                 (day, session_id),
             ).fetchall()
         ]
-        return {
+        summary = next((item for item in _load_summaries(conn, None, session_id)
+                        if item["date"] == day and item["session_id"] == session_id), None)
+        result = {
             "date": day,
             "session_id": session_id,
             "participant_id": str(conversation[0]),
             "turns": turns,
         }
+        if summary is not None and "center_requests" in summary:
+            result["summary"] = summary
+        return result
     finally:
         conn.close()
 
@@ -193,6 +199,10 @@ def _load_summaries(
         if isinstance(parsed, dict):
             key = (day, session_id)
             rank = priority.get(str(role), 0)
+            # Center snapshots are the current state, including safety signals
+            # received after delivery. A prior terminal summary must not hide them.
+            if role == "intake_snapshot" and "center_requests" in parsed:
+                rank = 3
             if chosen_priority.get(key, -1) >= rank:
                 continue
             parsed["date"] = day
@@ -280,7 +290,7 @@ def _individual_flag_record(
         return None
 
     severity = {3: "high", 2: "medium", 1: "low"}[severity_rank]
-    missing_labels = [_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled.keys()]
+    missing_labels = [_ALL_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled.keys()]
     return {
         "date": day,
         "session_id": session_id,
@@ -403,7 +413,7 @@ def read_stats(
             slot_completion.append(
                 {
                     "slot_id": slot_id,
-                    "label": _SLOT_LABELS.get(slot_id, slot_id),
+                    "label": _ALL_SLOT_LABELS.get(slot_id, slot_id),
                     "completed": completed,
                     "missing": missing,
                     "rate": round(completed / denominator, 3),
@@ -483,7 +493,7 @@ def read_stats(
                     "support": "[recorded]" if slots.get("support") else "",
                     "expectation": "[recorded]" if slots.get("expectation") else "",
                     "missing": [
-                        _SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled
+                        _ALL_SLOT_LABELS.get(slot_id, slot_id) for slot_id in unfilled
                     ],
                     "summary_available": bool(summary),
                     "user_turns": user_turn_count,

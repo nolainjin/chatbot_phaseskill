@@ -75,6 +75,9 @@ class ChatSession:
     consent_pack: str | None = None
     handoff: dict | None = None
     map_gap_logged: bool = False
+    closing_started: bool = False
+    closing_pending: str | None = None
+    center_requests: list[dict[str, str]] = field(default_factory=list)
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -312,7 +315,11 @@ def _build_interpersonal_safety_reply(kind: str) -> str:
 
 def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
     summary = intake.build_summary_json(schema, session.slots)
-    if session.handoff is not None:
+    if schema.handoff_mode == "center":
+        summary["center_requests"] = list(session.center_requests)
+        if session.handoff is not None:
+            summary["handoff"] = session.handoff
+    elif session.handoff is not None:
         summary["referral"] = {
             "institution_ids": [item["id"] for item in session.handoff["institutions"]],
             "fallback_used": session.handoff["fallback_used"],
@@ -322,12 +329,13 @@ def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
 
 
 def _build_handoff(session: ChatSession, schema: intake.Schema, settings: Settings) -> dict | None:
-    # This exit belongs to the region / age / contact intake, not other packs.
-    if not {"area", "age_band", "contact_pref"} <= {slot.id for slot in schema.slots}:
+    if schema.handoff_mode is None:
         return None
     summary = intake.build_summary_json(schema, session.slots)
     if summary["track"] in {"위기", "중독"} or summary["red_flags"] or session.crisis_ever_detected:
         return None
+    if schema.handoff_mode == "center":
+        return {"mode": "center", "sent": True}
     institutions = referral.load_map(Path(settings.knowledge_dir) / referral.MAP_FILENAME)
     matched = referral.match(summary, institutions or [], settings.referral_min_check)
     safe_summary = {
@@ -347,6 +355,82 @@ def _build_handoff(session: ChatSession, schema: intake.Schema, settings: Settin
         )
         session.map_gap_logged = True
     return handoff
+
+
+def _center_closing_safe(session: ChatSession, schema: intake.Schema) -> bool:
+    summary = intake.build_summary_json(schema, session.slots)
+    return (schema.handoff_mode == "center" and summary["track"] not in {"위기", "중독"}
+            and not summary["red_flags"] and not session.crisis_ever_detected)
+
+
+def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple[str, list[dict]]:
+    closing = schema.closing
+    if session.closing_pending is not None:
+        reply = f"「{session.closing_pending}」에 대해 센터에 전할 내용을 짧게 적어 주세요."
+        choices = []
+    else:
+        reply = closing["question"]
+        used = {item["label"] for item in session.center_requests}
+        choices = [{"label": label, "message": label} for label in closing["options"] if label not in used]
+    choices.append({"label": closing["send_label"], "message": closing["send_label"], "action": "send"})
+    return reply, choices
+
+
+def _center_sent_reply() -> str:
+    return ("센터에 전달했어요. 센터에서 확인한 뒤 연락드릴 거예요.\n"
+            "긴급 도움이 필요하면 자살예방상담전화 109 · 생명의전화 1588-9191 · 119에 연락해 주세요.\n"
+            "동의 후 받은 삭제 코드로 ‘이전 기록 지우기’에서 기록을 지울 수 있어요.")
+
+
+def _record_center_turn(session: ChatSession, schema: intake.Schema, participant_id: str,
+                        message: str, reply: str, quick_replies: list[dict]) -> dict:
+    storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
+    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
+    session.history.extend([{"role": "user", "content": message}, {"role": "assistant", "content": reply}])
+    session.turns += 1
+    session.last_question_slot_id = None
+    _persist_intake_snapshot(session, schema, participant_id)
+    ended = session.handoff is not None
+    if ended:
+        storage.append_turn(session.session_id, "intake_summary",
+                            json.dumps(_session_summary(session, schema), ensure_ascii=False),
+                            participant_id=participant_id)
+    result = {"reply": reply, "turn": session.turns, "limit_reached": False,
+              "conversation_ended": ended, "quick_replies": quick_replies,
+              "intake": _intake_state(schema, session.slots, schema.unfilled_by_priority(session.slots, ()))}
+    if ended:
+        result["handoff"] = session.handoff
+    else:
+        result["closing"] = {"stage": "answer" if session.closing_pending else "select",
+                             "remaining": 2 - len(session.center_requests)}
+    return result
+
+
+def _continue_center_closing(session: ChatSession, schema: intake.Schema, settings: Settings,
+                             participant_id: str, message: str) -> dict:
+    closing = schema.closing
+    send = message.strip() in {closing["send_label"], "이대로 보내기"}
+    used = {item["label"] for item in session.center_requests}
+    if not send:
+        if session.closing_pending is not None:
+            if message.strip() not in closing["options"]:
+                session.center_requests.append({"label": session.closing_pending,
+                                                "text": message.strip()})
+                session.closing_pending = None
+        elif message.strip() in closing["options"] and message.strip() not in used and len(used) < 2:
+            session.closing_pending = message.strip()
+    if send or len(session.center_requests) >= 2:
+        session.closing_pending = None
+        session.handoff = _build_handoff(session, schema, settings)
+        reply, choices = _center_sent_reply(), []
+    else:
+        reply, choices = _center_closing_prompt(session, schema)
+    try:
+        return _record_center_turn(session, schema, participant_id, message, reply, choices)
+    except OSError:
+        # A failed durable delivery must be retryable, never a cached success.
+        session.handoff = None
+        raise
 
 
 def _persist_intake_snapshot(
@@ -710,7 +794,8 @@ def handle_message(
     crisis_signal = schema is not None and intake.crisis_signal_present(message, schema)
     if crisis_signal:
         session.crisis_ever_detected = True
-    if session.turns >= MAX_TURNS and not crisis_signal and not session.crisis_ever_detected:
+    if (session.turns >= MAX_TURNS and not crisis_signal and not session.crisis_ever_detected
+            and not (schema and schema.handoff_mode == "center")):
         result = {
             "reply": _ensure_crisis_hotline(LIMIT_MESSAGE),
             "turn": session.turns,
@@ -721,6 +806,7 @@ def handle_message(
         return result
 
     # A subsequent safety / addiction turn must not retain an earlier exit card.
+    previous_handoff = session.handoff
     session.handoff = None
 
     new_fills: dict[str, str] = {}
@@ -774,6 +860,15 @@ def handle_message(
         if schema is not None and session.slots.get("track") == "위기":
             reply = _ensure_crisis_hotline(reply)
 
+        closing_choices = []
+        if schema is not None and session.closing_started and _center_closing_safe(session, schema):
+            if previous_handoff == {"mode": "center", "sent": True}:
+                session.handoff = previous_handoff
+                reply = _center_sent_reply()
+            else:
+                closing_prompt, closing_choices = _center_closing_prompt(session, schema)
+                reply = "그 요청은 여기서 다루지 않겠습니다. " + closing_prompt
+
         storage.append_turn(
             session_id,
             "user",
@@ -789,6 +884,12 @@ def handle_message(
             session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
             _persist_intake_snapshot(session, schema, effective_participant_id)
             result["intake"] = _intake_state(schema, session.slots, final_unfilled)
+            if closing_choices:
+                result.update(quick_replies=closing_choices,
+                              closing={"stage": "answer" if session.closing_pending else "select",
+                                       "remaining": 2 - len(session.center_requests)})
+            if session.handoff is not None and schema.handoff_mode == "center":
+                result.update(handoff=session.handoff, conversation_ended=True)
         return result
 
     # 차단 입력은 검색·페르소나·모델 경계로 넘기지 않는다.
@@ -830,6 +931,15 @@ def handle_message(
                 schema,
                 effective_participant_id,
             )
+        # Closing is deterministic and runs only after all existing safety routes.
+        if _center_closing_safe(session, schema):
+            if previous_handoff == {"mode": "center", "sent": True}:
+                session.handoff = previous_handoff
+                return {"reply": _center_sent_reply(), "turn": session.turns,
+                        "limit_reached": False, "conversation_ended": True,
+                        "handoff": session.handoff}
+            if session.closing_started:
+                return _continue_center_closing(session, schema, settings, effective_participant_id, message)
     if schema is None:
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"
@@ -839,9 +949,15 @@ def handle_message(
         # 생성에 집중시킨다. 추가 의미 추출은 아래 extract_real에서 보강한다.
         new_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
 
+        if schema.handoff_mode == "center" and session.turns == 0:
+            new_fills.update(_answer_to_previous_question(
+                message, schema, {**session.slots, **new_fills}, "chief_complaint"
+            ))
+
         filled_after_signals = {**session.slots, **new_fills}
         asked_slot = _slot_by_id(schema, session.last_question_slot_id)
-        if not new_fills or (asked_slot is not None and asked_slot.extract == "when_asked"):
+        if (schema.handoff_mode == "center" or not new_fills
+                or (asked_slot is not None and asked_slot.extract == "when_asked")):
             new_fills.update(
                 _answer_to_previous_question(
                     message, schema, filled_after_signals, session.last_question_slot_id
@@ -906,7 +1022,12 @@ def handle_message(
 
     if schema is not None:
         final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
-        if not final_unfilled or session.turns + 1 >= MAX_TURNS:
+        if (not final_unfilled or session.turns + 1 >= MAX_TURNS) and _center_closing_safe(session, schema):
+            session.closing_started = True
+            session.last_question_slot_id = None
+            reply, choices = _center_closing_prompt(session, schema)
+            return _record_center_turn(session, schema, effective_participant_id, message, reply, choices)
+        if schema.handoff_mode != "center" and (not final_unfilled or session.turns + 1 >= MAX_TURNS):
             session.handoff = _build_handoff(session, schema, settings)
             if session.handoff is not None:
                 reply = "이야기를 정리했어요. 아래 정리문을 기관에 그대로 전할 수 있어요."

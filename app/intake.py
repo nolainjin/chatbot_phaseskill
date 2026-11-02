@@ -31,6 +31,35 @@ class SchemaExtractError(ValueError):
     """Unknown extraction policies are configuration errors, never a fallback."""
 
 
+class HandoffConfigError(ValueError):
+    """Exit-enabled packs must explicitly declare their destination and closing UI."""
+
+
+def validate_handoff_config(data: dict, uses_exit: bool = False) -> None:
+    ui = data.get("ui") or {}
+    mode = ui.get("handoff_mode") if isinstance(ui, dict) else None
+    slots = data.get("slots")
+    slot_ids = {slot["id"] for slot in slots
+                if isinstance(slot, dict) and isinstance(slot.get("id"), str)} if isinstance(slots, list) else set()
+    uses_exit = uses_exit or "closing" in data or {"area", "age_band", "contact_pref"} <= slot_ids
+    if mode is None and not uses_exit and (not isinstance(ui, dict) or "handoff_mode" not in ui):
+        return  # Packs without an exit retain their existing behavior.
+    if not isinstance(mode, str) or mode not in {"center", "referral"}:
+        raise HandoffConfigError("ui.handoff_mode는 center 또는 referral이어야 합니다.")
+    if mode == "center":
+        closing = data.get("closing")
+        if not isinstance(closing, dict):
+            raise HandoffConfigError("center 모드에는 closing 설정이 필요합니다.")
+        options = closing.get("options")
+        if (not isinstance(options, list) or not options
+                or not all(isinstance(item, str) and item.strip() for item in options)
+                or len(set(options)) != len(options)
+                or not isinstance(closing.get("question"), str) or not closing["question"].strip()
+                or not isinstance(closing.get("send_label"), str) or not closing["send_label"].strip()
+                or closing["send_label"] in options):
+            raise HandoffConfigError("closing 질문·선택지·보내기 문구를 확인해 주세요.")
+
+
 @dataclass
 class Slot:
     id: str
@@ -49,12 +78,18 @@ class Slot:
     ask: str | None = None
     capture: str | None = None
     extract: str | None = None
+    when_any: list[str] | None = None
 
     def accepts_answer(self, last_question_slot_id=None):
         return self.extract != "when_asked" or last_question_slot_id == self.id
 
     def is_active(self, filled: dict) -> bool:
         """``when`` 조건은 일치할 때, ``unless`` 조건은 불일치할 때 활성화한다."""
+        if self.when_any is not None and not any(
+            filled.get(condition.partition("=")[0]) == condition.partition("=")[2]
+            for condition in self.when_any
+        ):
+            return False
         if self.when is not None:
             cond_id, _, cond_value = self.when.partition("=")
             if filled.get(cond_id) != cond_value:
@@ -74,6 +109,11 @@ class Schema:
     # 화면 고정 문구(제목·인사말·칩 등)도 스키마 데이터가 소유한다 — 모듈
     # 상단 원칙의 UI 연장. 비어 있으면 static/의 기본(상담) 문구를 쓴다.
     ui: dict = field(default_factory=dict)
+    closing: dict | None = None
+
+    @property
+    def handoff_mode(self) -> str | None:
+        return self.ui.get("handoff_mode")
 
     def active_slots(self, filled: dict) -> list[Slot]:
         return [slot for slot in self.slots if slot.is_active(filled)]
@@ -331,6 +371,12 @@ def _parse_slot(raw) -> Slot:
         raise TypeError("slot 항목은 매핑이어야 한다")
     if "extract" in raw and raw["extract"] != "when_asked":
         raise SchemaExtractError("slot.extract는 when_asked만 허용합니다.")
+    if "when_any" in raw and (
+        not isinstance(raw["when_any"], list) or not raw["when_any"]
+        or not all(isinstance(item, str) and re.fullmatch(r"[^=\s]+=[^=\s]+", item)
+                   for item in raw["when_any"])
+    ):
+        raise SchemaExtractError("slot.when_any는 slot=value 조건 목록이어야 합니다.")
     return Slot(
         id=raw["id"],
         label=raw["label"],
@@ -360,6 +406,7 @@ def _parse_slot(raw) -> Slot:
         ask=raw.get("ask"),
         capture=raw.get("capture") if isinstance(raw.get("capture"), str) else None,
         extract=raw.get("extract"),
+        when_any=raw.get("when_any"),
     )
 
 
@@ -391,6 +438,8 @@ def load_schema(knowledge_dir) -> Schema | None:
     if not isinstance(data, dict):
         return None
 
+    validate_handoff_config(data, uses_exit=(Path(knowledge_dir) / "연결-지도.yaml").exists())
+
     version = data.get("version")
     opening_question = data.get("opening_question")
     slots_raw = data.get("slots")
@@ -408,4 +457,5 @@ def load_schema(knowledge_dir) -> Schema | None:
     if not isinstance(ui, dict):
         ui = {}
 
-    return Schema(version=version, opening_question=opening_question, slots=slots, ui=ui)
+    return Schema(version=version, opening_question=opening_question, slots=slots, ui=ui,
+                  closing=data.get("closing"))

@@ -7,7 +7,8 @@
   var CONSENT_KEY = "lmwiki_consent_version";
   var PARTICIPANT_TICKET_KEY = "lmwiki_participant_ticket";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
-  var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+  var INTAKE_LINK_KEY = "lmwiki_pending_intake_link";
+  var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,31}$/;
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
   var CONTEXTUAL_REPLIES = {
@@ -143,7 +144,7 @@
   function renderHandoff(handoff) {
     if (handoffCardEl) handoffCardEl.remove();
     handoffCardEl = null;
-    if (!handoff) return;
+    if (!handoff || handoff.mode === "center") return;
 
     var card = document.createElement("li");
     card.className = "handoff-card";
@@ -247,21 +248,28 @@
 
   function getParticipantId() {
     var url = new URL(window.location.href);
-    var linkedId = url.searchParams.get("management_id") || url.searchParams.get("client_id") || "";
     var storedId = localStorage.getItem(PARTICIPANT_KEY);
-
-    if (linkedId && MANAGEMENT_ID_PATTERN.test(linkedId)) {
-      if (storedId !== linkedId) {
-        localStorage.setItem(PARTICIPANT_KEY, linkedId);
-        sessionStorage.removeItem(SESSION_KEY);
-        sessionStorage.removeItem(SESSION_TOKEN_KEY);
-        sessionStorage.removeItem(CONSENT_KEY);
-        localStorage.removeItem(PARTICIPANT_TICKET_KEY);
-      }
+    if (url.searchParams.has("management_id") || url.searchParams.has("link_ticket")) {
+      var managementId = url.searchParams.get("management_id");
+      var linkTicket = url.searchParams.get("link_ticket");
+      // Keep even incomplete / invalid links for server-side validation, including
+      // after a reload. Never turn an unverified URL label into record ownership.
+      sessionStorage.setItem(INTAKE_LINK_KEY, JSON.stringify({
+        management_id: managementId,
+        link_ticket: linkTicket
+      }));
+      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(CONSENT_KEY);
+      localStorage.removeItem(PARTICIPANT_KEY);
+      localStorage.removeItem(PARTICIPANT_TICKET_KEY);
+      storedId = null;
       url.searchParams.delete("management_id");
-      url.searchParams.delete("client_id");
+      url.searchParams.delete("link_ticket");
       window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-      return linkedId;
+      if (!MANAGEMENT_ID_PATTERN.test(managementId || "") || !linkTicket) {
+        setStatus("링크가 올바르지 않아요. 센터에 다시 요청해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
+      }
     }
 
     if (!storedId) {
@@ -269,6 +277,11 @@
       localStorage.setItem(PARTICIPANT_KEY, storedId);
     }
     return storedId;
+  }
+
+  function pendingIntakeLink() {
+    try { return JSON.parse(sessionStorage.getItem(INTAKE_LINK_KEY)) || {}; }
+    catch (error) { return {}; }
   }
 
   function getSessionToken() {
@@ -498,7 +511,7 @@
     turnCounterEl.textContent = turn + "/" + MAX_TURNS;
     var progressEl = document.getElementById("turn-progress");
     if (progressEl) {
-      progressEl.style.width = (turn / MAX_TURNS) * 100 + "%";
+      progressEl.style.width = Math.min(100, (turn / MAX_TURNS) * 100) + "%";
     }
   }
 
@@ -572,7 +585,7 @@
       if (!reply || !reply.label || !reply.message) return;
       var button = document.createElement("button");
       button.type = "button";
-      button.className = "reply-suggestion";
+      button.className = "reply-suggestion" + (reply.action === "send" ? " reply-suggestion-send" : "");
       button.textContent = reply.label;
       button.addEventListener("click", function () {
         sendMessage(reply.message);
@@ -676,6 +689,8 @@
         typeAssistantMessage(replyText).then(function () {
           setStatus("");
           updateTurnCounter(data.turn);
+          if (data.closing) turnCounterEl.textContent = "마지막 확인";
+          if (data.handoff && data.handoff.mode === "center") turnCounterEl.textContent = "전달 완료";
           renderIntake(data.intake);
           if (Array.isArray(data.quick_replies) && data.quick_replies.length) {
             renderServerQuickReplies(data.quick_replies);
@@ -856,9 +871,9 @@
     acceptEl.disabled = true;
     declineEl.disabled = true;
     resetSessionEl.disabled = true;
-    postJson("/api/consent", {
+    postJson("/api/consent", Object.assign({
       session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version
-    }).then(function (data) {
+    }, pendingIntakeLink())).then(function (data) {
       consentCardEl.hidden = true;
       if (!data.accepted) {
         var refusal = addMessage("assistant", data.reply);
@@ -867,6 +882,7 @@
         return;
       }
       rememberCredentials(data);
+      sessionStorage.removeItem(INTAKE_LINK_KEY);
       sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
       consentGranted = true;
       deleteCodeValueEl.textContent = data.delete_code;

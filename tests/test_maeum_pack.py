@@ -1,6 +1,7 @@
 """대구 마음 이야기 입구 팩의 복사 경계와 실제 fake 대화 경로를 검증한다."""
 
 import json
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -13,14 +14,7 @@ from app.intake import extract_fake, load_schema
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_DIR = REPO_ROOT / "knowledge"
 PACK_DIR = REPO_ROOT / "knowledge-maeum"
-CONNECTION_SLOTS = {
-    "area": [
-        "중구", "동구", "서구", "남구", "북구", "수성구", "달서구", "달성군",
-        "군위군", "대구 밖", "말하지 않음",
-    ],
-    "age_band": ["10대", "20대", "30대", "40대", "50대", "60대 이상", "말하지 않음"],
-    "contact_pref": ["전화", "방문", "온라인·문자", "아직 모름"],
-}
+REMOVED_SLOTS = {"area", "age_band", "contact_pref"}
 
 
 @pytest.fixture
@@ -39,12 +33,13 @@ def maeum_settings(monkeypatch, tmp_path):
     return settings
 
 
-def test_schema_loads_with_three_connection_slots(monkeypatch):
+def test_schema_loads_with_minimal_center_slots(monkeypatch):
     monkeypatch.chdir(REPO_ROOT)
     schema = load_schema(Path("knowledge-maeum"))
-
     assert schema is not None
-    assert [slot.id for slot in schema.slots[-3:]] == list(CONNECTION_SLOTS)
+    assert not REMOVED_SLOTS & {slot.id for slot in schema.slots}
+    assert "cause" in {slot.id for slot in schema.slots}
+    assert schema.handoff_mode == "center"
     assert schema.opening_question != load_schema(SOURCE_DIR).opening_question
     assert "상담을 받으러" not in schema.opening_question
 
@@ -68,7 +63,11 @@ def test_existing_slots_and_crisis_flags_are_preserved():
     schema = load_schema(PACK_DIR)
 
     # dataclass 전체 비교로 values, signals, red_flag, when/unless까지 보호한다.
-    assert schema.slots[:-3] == original.slots
+    assert [slot for slot in schema.slots if slot.id != "cause"] == [
+        replace(slot, priority=slot.priority + 1)
+        if slot.id in {"coping", "support", "expectation"} else slot
+        for slot in original.slots
+    ]
     track = schema.slots[0]
     assert track.values == ["위기", "중독", "관계", "정서"]
     assert list(track.signals) == ["위기", "중독", "관계", "정서"]
@@ -76,33 +75,21 @@ def test_existing_slots_and_crisis_flags_are_preserved():
     assert original.ui == {}
     assert schema.ui == {
         "title": "마음 이야기 입구",
-        "subtitle": "마음에 걸리는 이야기를 정리하고 알맞은 기관을 찾아봐요",
+        "handoff_mode": "center",
+        "subtitle": "센터에 전할 이야기를 편한 만큼 정리해요",
         "intro": "안녕하세요. 편한 만큼만 이야기해 주세요. 이름이나 연락처는 쓰지 않아도 됩니다.",
         "privacy_summary": "개인정보 처리와 기록 삭제 안내",
         "lock_notice": "원문 90일·요약 365일 보관, 삭제 코드로 내 기록 지우기",
     }
 
 
-@pytest.mark.parametrize("slot_id,values", CONNECTION_SLOTS.items())
-def test_connection_slots_are_optional_last_and_disabled_in_crisis(slot_id, values):
+@pytest.mark.parametrize("track,active", [("정서", True), ("관계", True), ("위기", False), ("중독", False)])
+def test_cause_is_only_active_in_emotional_and_relationship_tracks(track, active):
     schema = load_schema(PACK_DIR)
-    slot = next(slot for slot in schema.slots if slot.id == slot_id)
-    original_max_priority = max(slot.priority for slot in load_schema(SOURCE_DIR).slots)
-
-    assert slot.values == values
-    assert set(slot.signals) == set(values)
-    assert slot.required is False
-    assert slot.priority > original_max_priority
-    assert slot.unless == "track=위기"
-    assert "말하고 싶지 않으면 넘어가도" in slot.ask
-    assert slot.is_active({"track": "정서"})
-    assert not slot.is_active({"track": "위기"})
-    assert slot.extract == "when_asked"
-    for value in values:
-        assert slot_id not in extract_fake(value, schema, {"track": "정서"})
-        assert extract_fake(value, schema, {"track": "정서"}, slot_id)[slot_id] == value
-    if slot_id == "area":
-        assert slot.signals == {value: [value] for value in values}
+    cause = next(slot for slot in schema.slots if slot.id == "cause")
+    assert cause.capture == "full_message"
+    assert cause.extract == "when_asked"
+    assert cause.is_active({"track": track}) is active
 
 
 @pytest.mark.parametrize(
@@ -120,55 +107,48 @@ def test_track_priority_is_unchanged(message, expected_track):
 def test_opening_uses_pack_question(maeum_settings):
     result = chat.handle_message("maeum-opening", "안녕하세요", maeum_settings)
 
-    assert load_schema(PACK_DIR).opening_question in result["reply"]
+    assert load_schema(PACK_DIR).opening_question not in result["reply"]
+    assert "안녕하세요" not in result["reply"].split(" | ", 1)[0]
+    assert chat._sessions["maeum-opening"].slots["chief_complaint"] == "안녕하세요"
     assert result["turn"] == 1
     assert result["intake"]["unfilled"][0]["id"] == "track"
 
 
-def _reach_area_question(session_id, settings):
+def _reach_closing_question(session_id, settings):
     first = chat.handle_message(session_id, "우울해서 잠을 못 자요", settings)
     assert first["intake"]["unfilled"][0]["id"] == "symptom_context"
     for message in (
         "두 달 전부터 시작됐고 일상에서 집중이 어려워요",
+        "잘 모르겠어요",
         "산책을 해봤어요",
         "친구에게 말했어요",
         "어떤 도움을 받을 수 있을지 알고 싶어요",
     ):
         result = chat.handle_message(session_id, message, settings)
     assert chat._sessions[session_id].slots["track"] == "정서"
-    assert result["intake"]["unfilled"][0]["id"] == "area"
-    assert "말하고 싶지 않으면 넘어가도" in result["reply"]
-
-
-def test_emotional_conversation_fills_connection_slots_and_snapshot(maeum_settings, tmp_path):
-    session_id = "maeum-emotional"
-    _reach_area_question(session_id, maeum_settings)
-
-    area_result = chat.handle_message(session_id, "수성구에 살아요", maeum_settings)
-    assert chat._sessions[session_id].slots["area"] == "수성구"
-    assert area_result["intake"]["unfilled"][0]["id"] == "age_band"
-    assert {item["id"]: item["value"] for item in area_result["intake"]["filled"]}["area"] == "수성구"
-
-    age_result = chat.handle_message(session_id, "스물여덟이에요", maeum_settings)
-    assert chat._sessions[session_id].slots["age_band"] == "20대"
-    assert age_result["intake"]["unfilled"][0]["id"] == "contact_pref"
-
-    result = chat.handle_message(session_id, "온라인·문자가 편해요", maeum_settings)
-    assert result["turn"] == 8
-    assert result["limit_reached"] is False
     assert result["intake"]["unfilled"] == []
+    assert result["closing"]["stage"] == "select"
+    assert "마지막으로 센터" in result["reply"]
+
+
+def test_emotional_conversation_saves_cause_and_center_handoff(maeum_settings, tmp_path):
+    session_id = "maeum-emotional"
+    _reach_closing_question(session_id, maeum_settings)
+    result = chat.handle_message(session_id, "없음, 이대로 보내기", maeum_settings)
+    assert result["conversation_ended"] is True
+    assert result["handoff"] == {"mode": "center", "sent": True}
     path = tmp_path / "data" / "conversations" / date.today().isoformat() / f"{session_id}.json"
     snapshot = json.loads(path.read_text(encoding="utf-8"))["intake_snapshot"]
-    assert {slot_id: snapshot["slots"][slot_id] for slot_id in CONNECTION_SLOTS} == {
-        "area": "수성구", "age_band": "20대", "contact_pref": "온라인·문자",
-    }
+    assert snapshot["slots"]["cause"] == "잘 모르겠어요"
+    assert not REMOVED_SLOTS & set(snapshot["slots"])
+    assert snapshot["center_requests"] == []
 
 
 @pytest.mark.parametrize("after_emotional", [False, True])
 def test_crisis_route_keeps_safety_first_and_never_asks_area(maeum_settings, after_emotional):
     session_id = "maeum-crisis"
     if after_emotional:
-        _reach_area_question(session_id, maeum_settings)
+        _reach_closing_question(session_id, maeum_settings)
 
     result = chat.handle_message(session_id, "죽고 싶어요", maeum_settings)
     session = chat._sessions[session_id]
@@ -181,11 +161,11 @@ def test_crisis_route_keeps_safety_first_and_never_asks_area(maeum_settings, aft
 
     schema = load_schema(PACK_DIR)
     for response in (result, chat.handle_message(session_id, "수성구에 살아요", maeum_settings)):
-        assert not set(CONNECTION_SLOTS) & {item["id"] for item in response["intake"]["unfilled"]}
-        for slot in schema.slots[-3:]:
-            assert slot.ask not in response["reply"]
+        assert not REMOVED_SLOTS & {item["id"] for item in response["intake"]["unfilled"]}
+        cause = next(slot for slot in schema.slots if slot.id == "cause")
+        assert cause.ask not in response["reply"]
         assert "거주 구·군" not in response["reply"]
-    assert not set(CONNECTION_SLOTS) & set(session.slots)
+    assert not REMOVED_SLOTS & set(session.slots)
 
 
 @pytest.mark.parametrize("message", [
@@ -196,42 +176,17 @@ def test_crisis_route_keeps_safety_first_and_never_asks_area(maeum_settings, aft
 def test_incidental_connection_words_do_not_fill_optional_slots(maeum_settings, message):
     schema = load_schema(PACK_DIR)
     fills = extract_fake(message, schema, {})
-    assert not set(CONNECTION_SLOTS) & set(fills)
+    assert not REMOVED_SLOTS & set(fills)
     chat.handle_message("incidental", message, maeum_settings)
-    assert not set(CONNECTION_SLOTS) & set(chat._sessions["incidental"].slots)
+    assert not REMOVED_SLOTS & set(chat._sessions["incidental"].slots)
 
 
-@pytest.mark.parametrize("slot_id,message,value", [
-    ("area", "수성구요", "수성구"),
-    ("age_band", "30대예요", "30대"),
-    ("contact_pref", "전화가 편해요", "전화"),
-    ("area", "넘어갈게요", "말하지 않음"),
-    ("age_band", "넘어갈게요", "말하지 않음"),
-    ("contact_pref", "넘어갈게요", "아직 모름"),
-    ("area", "글쎄요", "말하지 않음"),
-    ("age_band", "글쎄요", "말하지 않음"),
-    ("contact_pref", "글쎄요", "아직 모름"),
-])
-def test_direct_connection_answer_is_accepted_only_after_its_question(maeum_settings, slot_id, message, value):
-    session_id = "direct-answer"
-    _reach_area_question(session_id, maeum_settings)
-    session = chat._sessions[session_id]
-    for prior, answer in (("area", "수성구요"), ("age_band", "30대예요")):
-        if session.last_question_slot_id == slot_id:
-            break
-        chat.handle_message(session_id, answer, maeum_settings)
-    assert session.last_question_slot_id == slot_id
-    result = chat.handle_message(session_id, message, maeum_settings)
-    assert session.slots[slot_id] == value
-    assert slot_id not in {s["id"] for s in result["intake"]["unfilled"]}
-
-
-def test_real_extraction_cannot_bypass_when_asked():
+def test_real_extraction_cannot_fill_removed_slots():
     from app.intake import extract_real
     schema = load_schema(PACK_DIR)
     reply = '답변\n```slots\n{"area":"수성구","age_band":"30대","contact_pref":"전화"}\n```'
     assert extract_real(reply, schema, {"track": "정서"}) == ("답변", {})
-    assert extract_real(reply, schema, {"track": "정서"}, "수성구요", "area") == ("답변", {"area": "수성구"})
+    assert extract_real(reply, schema, {"track": "정서"}, "수성구요", "area") == ("답변", {})
     assert chat._answer_to_previous_question("전화", schema, {}, None) == {}
 
 

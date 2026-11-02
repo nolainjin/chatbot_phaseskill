@@ -122,16 +122,18 @@ Windows PowerShell에서 `python`이 Microsoft Store로 튀면 `py -3 run.py`를
 - 관리자 통계: http://127.0.0.1:8000/stats.html
 ### 현재 운영 경로: 1주 로컬 데모
 
-`.env.example`의 안전 기본값은 `MODEL=fake`, `PRIVATE_LOCAL_UI=1`입니다. 현재
+`.env.example`은 `MODEL=auto`, `PRIVATE_LOCAL_UI=1`입니다. Codex 기본 모델은
+`app/llm.py`의 `CODEX_DEFAULT_MODEL = "gpt-6.1-sol"`에서 관리합니다. 기본 체인은
+`codex-cli:gpt-6.1-sol,claude-cli,fake`이며 `MODEL=fake`로 오프라인 검증할 수 있습니다. 현재
 승인된 1주 개인 테스트에서는 Mac의 개인 Codex 로그인으로
-`codex-cli:gpt-5.6-luna`를 `high` 강도로 사용합니다. `run.py`와 스모크 실행기는
+`codex-cli:gpt-6.1-sol`를 `high` 강도로 사용합니다. `run.py`와 스모크 실행기는
 `127.0.0.1`·`::1`·`localhost`에만 바인딩하며, 외부 IP, `0.0.0.0`, 리버스
 프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
 
 현재 개인 테스트 명령은 다음과 같습니다.
 
 ```bash
-python run.py --model codex-cli:gpt-5.6-luna
+python run.py --model codex-cli:gpt-6.1-sol
 ```
 
 브라우저에서 한 세션은 10턴까지 진행할 수 있습니다. 한도를 채웠거나 새 사례를
@@ -176,7 +178,7 @@ python run.py --model fake --knowledge knowledge --reload
   맡기면 한국어 Windows(cp949)에서 한글이 깨집니다.
 - canonical launcher는 기본적으로 `fake`를 사용하며, 로컬 Mac에서만 명시적인
   `codex-cli:<model>` 값을 허용합니다. 현재 개인 테스트 설정은
-  `codex-cli:gpt-5.6-luna`와 `high` 추론 강도입니다.
+  `codex-cli:gpt-6.1-sol`와 `high` 추론 강도입니다.
 - CLI 모델 경로는 `127.0.0.1`·`::1`·`localhost` 바인딩에서만 허용합니다.
   외부 IP, 리버스 프록시, Quick Tunnel을 통한 공개 CLI 실행은 지원하지 않습니다.
 - 관리자 통계 API는 `STATS_API_TOKEN`이 설정된 경우에만 열립니다. 브라우저에서
@@ -280,7 +282,7 @@ cluster: optional-cluster-name
 말투 평가는 비공개 원문을 읽지 않는 합성 문장만 사용합니다.
 
 ```bash
-.venv/bin/python scripts/tone_eval.py --model codex-cli:gpt-5.4
+.venv/bin/python scripts/tone_eval.py --model codex-cli:gpt-6.1-sol
 ```
 
 ## 데이터 저장 구조
@@ -368,7 +370,7 @@ node gui-smoke.mjs
 ```bash
 .venv/bin/python scripts/persona_eval.py \
   --runs 1 --workers 1 --persona crisis-hidden \
-  --patient-mode codex --patient-model gpt-5.6-luna --bot-model fake
+  --patient-mode codex --patient-model gpt-6.1-sol --bot-model fake
 ```
 
 ## 프로젝트 지도
@@ -406,3 +408,23 @@ tests/             단위·통합 회귀 테스트
 - [배포 체크리스트](deploy/checklist.md)
 - [발표 슬라이드 원고](docs/slides/chatbot_phaseskill_keynote.md)
 - [Keynote에서 열 수 있는 PPTX](docs/slides/chatbot_phaseskill_keynote.pptx)
+
+### 센터 관리번호 링크 (`knowledge-maeum`)
+
+통계 인증이 된 내부 `/stats.html`의 **링크 만들기**에 `1`, `2`, `2026-003`처럼
+센터 관리번호를 넣습니다. `POST /api/admin/links`는 기존 통계 토큰 또는 쿠키를
+검증하고 요청 호스트 기준의 `/?management_id=…&link_ticket=…` 링크를 반환합니다.
+번호는 영문·숫자로 시작하는 1~32자의 영문·숫자·하이픈이며, 전화번호·주민번호는
+거부합니다. 센터가 직접 문자로 보내며 서버는 문자를 보내지 않습니다.
+
+화면은 링크의 두 값을 주소창에서 지우고 동의 요청에 전달합니다. 서버 서명이
+맞을 때만 해당 관리번호로 세션을 연결합니다. 링크 없이 직접 접속하면 `p_…`
+번호를 새로 발급합니다. 발급 기록에는 관리번호의 해시만 저장합니다.
+`PARTICIPANT_TICKET_SECRET`을 32바이트 이상으로 고정하면 재시작 후에도 링크를
+검증할 수 있습니다. 비워 두면 프로세스별 키를 써 재시작 때 이전 링크가 무효가 됩니다.
+
+`knowledge-maeum`은 `ui.handoff_mode: center`로, 원문과 요약표를 센터 확인 화면에
+저장합니다. 마지막에 센터에 바라는 점·질문을 최대 두 개 받고, 전달 완료와 위기
+번호·삭제 코드 안내를 보여 줍니다. 센터가 관리번호로 직접 식별하고 상담사를
+배정합니다. 이 도구는 매칭이나 센터 결정을 보조하지 않습니다. `referral` 모드는
+코드에 남아 있으며, 출구 기능을 쓰는 팩은 종료 모드를 명시해야 합니다.

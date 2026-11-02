@@ -6,7 +6,7 @@ import logging
 import shutil
 import subprocess
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -22,12 +22,41 @@ PACK = ROOT / "knowledge-maeum"
 FIXTURE = ROOT / "tests/fixtures/maeum_map_fixture.yaml"
 
 
+def _referral_schema():
+    # Contract D makes the real maeum pack center-only. Exercise the retained
+    # referral mode with an explicit synthetic pack and the previous slot set.
+    schema = intake.load_schema(ROOT / "knowledge")
+    connection_slots = [
+        intake.Slot(id="area", label="거주 구·군", priority=7, unless="track=위기",
+                    values=["수성구", "말하지 않음"], extract="when_asked",
+                    signals={"수성구": ["수성구"], "말하지 않음": ["말하지 않음"]}),
+        intake.Slot(id="age_band", label="연령대", priority=8, unless="track=위기",
+                    values=["20대", "말하지 않음"], extract="when_asked",
+                    signals={"20대": ["20대"], "말하지 않음": ["말하지 않음"]}),
+        intake.Slot(id="contact_pref", label="연결 방식", priority=9, unless="track=위기",
+                    values=["전화", "아직 모름"], extract="when_asked",
+                    signals={"전화": ["전화"], "아직 모름": ["아직 모름"]}),
+    ]
+    return replace(schema, slots=schema.slots + connection_slots, ui={"handoff_mode": "referral"})
+
+
+def _write_referral_schema(pack):
+    schema = _referral_schema()
+    raw = {"version": schema.version, "opening_question": schema.opening_question, "ui": schema.ui,
+           "slots": [{key: value for key, value in asdict(slot).items() if value is not None}
+                     for slot in schema.slots]}
+    (pack / "_intake_schema.md").write_text("```yaml\n" + yaml.safe_dump({"intake_schema": raw}, allow_unicode=True) + "```\n")
+
+
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(chat, "_sessions", {})
     monkeypatch.setenv("MODEL", "fake")
-    monkeypatch.setenv("KNOWLEDGE_DIR", str(PACK))
+    pack = tmp_path / "synthetic-referral-pack"
+    shutil.copytree(PACK, pack)
+    _write_referral_schema(pack)
+    monkeypatch.setenv("KNOWLEDGE_DIR", str(pack))
     monkeypatch.delenv("REFERRAL_MIN_CHECK", raising=False)
 
 
@@ -84,7 +113,7 @@ def test_inclusive_age_overlap_and_unknown_track(institutions):
 
 
 def test_note_is_five_fixed_lines_and_preserves_the_users_words():
-    schema = intake.load_schema(PACK)
+    schema = _referral_schema()
     summary = _summary(chief_complaint="불안해서 힘들어요", symptom_context="두 달 전부터 잠을 설쳐요",
                        coping="미확인", expectation="마음을 정리하고 싶어요", contact_pref="전화")
     assert referral.build_handoff_note(summary, schema) == [
@@ -142,6 +171,7 @@ def test_real_empty_map_is_loaded_and_gap_is_logged_once(caplog, tmp_path):
 def test_matching_exit_and_metadata_use_fixture_ids(tmp_path):
     pack = tmp_path / "pack"
     shutil.copytree(PACK, pack)
+    _write_referral_schema(pack)
     shutil.copyfile(FIXTURE, pack / referral.MAP_FILENAME)
     settings = replace(Settings.from_env(), knowledge_dir=str(pack))
     result = _finish(settings)
@@ -153,7 +183,7 @@ def test_matching_exit_and_metadata_use_fixture_ids(tmp_path):
 def test_missing_map_and_turn_limit_with_unfilled_slots(tmp_path, caplog):
     pack = tmp_path / "missing-map-pack"
     pack.mkdir()
-    shutil.copyfile(PACK / "_intake_schema.md", pack / "_intake_schema.md")
+    _write_referral_schema(pack)
     settings = replace(Settings.from_env(), knowledge_dir=str(pack))
     with caplog.at_level(logging.WARNING):
         for _ in range(chat.MAX_TURNS):
@@ -178,7 +208,7 @@ def test_real_model_cannot_rewrite_handoff(monkeypatch, tmp_path):
 
 
 def test_handoff_redacts_direct_identifiers(monkeypatch):
-    schema = intake.load_schema(PACK)
+    schema = _referral_schema()
     session = chat._get_session("synthetic-redaction")
     session.slots = {"track": "정서", "chief_complaint": "연락은 010-1234-5678, synthetic@example.invalid"}
     result = chat._build_handoff(session, schema, Settings.from_env())
@@ -206,7 +236,7 @@ def test_addiction_keeps_its_existing_specialist_path():
 
 
 def test_red_flags_block_the_exit_even_without_crisis_track(monkeypatch):
-    schema = intake.load_schema(PACK)
+    schema = _referral_schema()
     flagged = replace(schema, slots=[replace(slot, red_flag=True) if slot.id == "chief_complaint" else slot for slot in schema.slots])
     monkeypatch.setattr(intake, "load_schema", lambda _: flagged)
     session = chat._get_session("synthetic-red-flag")
@@ -387,7 +417,7 @@ const walk = node => [node, ...node.children.flatMap(walk)];
 
 @pytest.mark.parametrize("fallback", [False, True])
 def test_real_ui_script_renders_text_safely_copies_downloads_and_resets(fallback):
-    note = referral.build_handoff_note(_summary(chief_complaint="<script>합성 텍스트</script>"), intake.load_schema(PACK))
+    note = referral.build_handoff_note(_summary(chief_complaint="<script>합성 텍스트</script>"), _referral_schema())
     places = [
         {"name": "가상 <img src=x>센터", "referral": "가상 예약", "phone": "000-0000-0000",
          "homepage": "https://synthetic.example.invalid", "check_level": "verified"},

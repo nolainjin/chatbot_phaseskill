@@ -27,7 +27,7 @@ def deletion_client(monkeypatch, tmp_path):
 
 
 def _seed(client):
-    result = client.post("/api/consent", json={"session_id": "delete-me", "accepted": True, "consent_version": "maeum-2026-11-02"}).json()
+    result = client.post("/api/consent", json={"session_id": "delete-me", "accepted": True, "consent_version": client.get("/api/config").json()["privacy"]["consent_version"]}).json()
     response = client.post("/api/chat", json={"session_id": "delete-me", "session_token": result["session_token"], "message": "합성 고민: 요즘 불안해서 잠을 못 자요"})
     assert response.status_code == 200
     storage.append_turn("keep-me", "user", "보존할 합성 기록", participant_id=result["participant_id"])

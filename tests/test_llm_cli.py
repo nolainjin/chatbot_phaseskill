@@ -259,7 +259,7 @@ def test_codex_backend_uses_output_file_and_gpt54_default(monkeypatch):
     assert "--ignore-rules" in argv
     assert "--skip-git-repo-check" in argv
     assert argv[argv.index("--sandbox") + 1] == "read-only"
-    assert argv[argv.index("-m") + 1] == "gpt-5.4"
+    assert argv[argv.index("-m") + 1] == llm.CODEX_DEFAULT_MODEL
     assert seen["kwargs"]["stdin"] is subprocess.DEVNULL
     assert seen["kwargs"]["cwd"]
     prompt = argv[-1]
@@ -418,7 +418,7 @@ def test_auto_backend_tries_codex_first_then_claude(monkeypatch):
     )
 
     assert reply == "2차 모델 응답"
-    assert calls == [("codex", "gpt-5.4"), ("claude", "claude-haiku-4-5")]
+    assert calls == [("codex", llm.CODEX_DEFAULT_MODEL), ("claude", "claude-haiku-4-5")]
 
 
 def test_auto_backend_uses_fake_only_after_configured_chain_fails(monkeypatch):

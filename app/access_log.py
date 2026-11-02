@@ -28,8 +28,8 @@ def append_private_record(filename: str, record: dict, base_dir=None) -> None:
             os.fsync(handle.fileno())
 
 
-def record_access(kind: str, token: str, ip: str, *, filters=None, session_id=None, base_dir=None) -> dict:
-    if kind not in {"stats", "raw_view", "review"}:
+def record_access(kind: str, token: str, ip: str, *, filters=None, session_id=None, management_id=None, base_dir=None) -> dict:
+    if kind not in {"stats", "raw_view", "review", "link_issue"}:
         raise ValueError("Invalid access kind")
     record = {
         "at": datetime.now(timezone.utc).isoformat(),
@@ -39,6 +39,8 @@ def record_access(kind: str, token: str, ip: str, *, filters=None, session_id=No
     }
     if kind == "stats":
         record["filters"] = filters or {}
+    elif kind == "link_issue":
+        record["management_id_hash"] = hash_value(management_id)
     else:
         record["session_hash"] = hash_value(session_id)
     append_private_record("access_log.jsonl", record, base_dir)
