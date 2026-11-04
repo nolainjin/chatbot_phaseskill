@@ -16,6 +16,10 @@ async function api(path, method = "GET", body) {
 }
 function clearWorkspace() { $("workspace").hidden = true; $("verify").hidden = true; $("email-verify").hidden = true; $("signup").hidden = true; $("registration-panel").hidden = true; $("login").hidden = false; $("cases").replaceChildren(); $("report").replaceChildren(el("h2","접수 보고서")); selected = null; }
 const emailMode = document.body.dataset.emailLogin === "true";
+const googleMode = document.body.dataset.googleLogin === "true";
+$("google-login-options").hidden = !googleMode;
+$("email-login-details").open = !googleMode;
+$("email-login-details").querySelector("summary").hidden = !googleMode;
 let pendingEmail = "";
 let isRegistrar = false;
 if (emailMode) {
@@ -152,6 +156,15 @@ async function showReport(id) {
   }
   target.append(raw);target.tabIndex=-1;target.focus();await list();
 }
+$("google-login").onclick = () => work(async () => {
+  $("google-login").disabled = true;
+  try {
+    const response = await fetch("/api/portal/auth/google-start", {method:"POST", credentials:"same-origin", cache:"no-store"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Google 로그인을 시작하지 못했습니다.");
+    location.assign(data.url);
+  } finally { $("google-login").disabled = false; }
+});
 form("login-form",async()=>{
   if (emailMode) { pendingEmail = $("email").value.trim(); await startEmail(); return; }
   const result=await api("/auth/login","POST",{email:$("email").value,password:$("password").value});$("password").value="";csrf=result.csrf;await load();

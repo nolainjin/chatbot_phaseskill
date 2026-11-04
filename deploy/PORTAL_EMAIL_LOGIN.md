@@ -30,6 +30,16 @@
   기존 기관/접수/보고서를 이관하거나 다시 생성하지 않는다.
 - 최종 배포/실메일 결과는 별도 공개 시험 증거에 기록한다. 로컬 검사만으로 실제 수신을 주장하지 않는다.
 
+## Google 로그인
+
+- 기존 `PORTAL_EMAIL_LOGIN=1`과 Supabase 서버 인증에서 `PORTAL_GOOGLE_LOGIN=1`을 설정한다(기본 off).
+- 운영자가 Supabase 대시보드에서 Google 공급자를 활성화하고 Google OAuth 클라이언트를 연결한다.
+- Supabase Redirect URL 허용 목록에 `<origin>/portal/google-return`을 추가한다.
+- Google OAuth 클라이언트의 redirect URI는 `https://<ref>.supabase.co/auth/v1/callback`이다.
+- 기본 버튼은 Google 로그인, 보조 버튼은 이메일 링크 로그인이며 사전 등록·활성 기관 권한 정책은 같다.
+- Google은 앱 내장 브라우저를 제한하므로 카카오톡 등에서 열었다면 Safari나 Chrome에서 다시 연다.
+- 이 코드 변경에는 공급자 설정·공개 배포·실제 Google 인증 시험이 포함되지 않는다.
+
 ## 숫자 코드 후보의 사용 흐름 (현재 공개는 위의 링크 방식)
 
 - 로그인 첫 화면: 이메일 한 칸, `인증번호 받기`, `회원가입/신청`.

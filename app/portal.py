@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from app import cloud_store, intake, portal_auth as auth, portal_store as store
 from app.config import Settings
 from app.portal_config import Policy
-from app import portal_config, portal_email
+from app import portal_config, portal_email, portal_google
 
 router = APIRouter()
 
@@ -43,6 +43,15 @@ def portal_page():
             html = html.replace('등록된 담당자는 이메일 인증번호로 로그인합니다.', 'Gmail 이메일 링크 로그인 · 현재 지정된 시험계정만 인증 메일을 받을 수 있습니다.')
             html = html.replace('등록한 뒤 코드로 로그인할 수 있습니다.', '등록합니다. 현재 지정된 Gmail 시험계정 외의 인증 메일 발송은 준비 중입니다.')
             html = html.replace('신청 이메일의 실제 소유 여부는 코드 로그인 때 확인합니다.', '이메일 소유는 로그인 때 확인합니다. 현재 지정된 Gmail 시험계정 외의 인증 메일은 발송하지 않습니다.')
+    if portal_google.enabled():
+        html = html.replace('data-google-login="false"', 'data-google-login="true"')
+        html = html.replace('id="google-login-options" hidden', 'id="google-login-options"')
+        html = html.replace('id="email-login-details" open', 'id="email-login-details"')
+        html = html.replace('<summary hidden>이메일 링크로 로그인</summary>', '<summary>이메일 링크로 로그인</summary>')
+        html = html.replace('Gmail 이메일 링크 로그인 · 현재 지정된 시험계정만 인증 메일을 받을 수 있습니다.',
+                            '등록된 Gmail 담당자는 Google 계정으로 로그인합니다.')
+        html = html.replace('등록합니다. 현재 지정된 Gmail 시험계정 외의 인증 메일 발송은 준비 중입니다.',
+                            '등록한 뒤 Google 계정으로 로그인할 수 있습니다.')
     return HTMLResponse(html)
 
 
@@ -88,6 +97,29 @@ def verify(request: Request, response: Response, payload: dict = Body(...)):
 def email_mode():
     if not portal_email.enabled():
         raise HTTPException(404)
+
+
+def google_mode():
+    if not portal_google.enabled():
+        raise HTTPException(404)
+
+
+@router.post('/api/portal/auth/google-start')
+def google_start(request: Request, response: Response):
+    google_mode()
+    return portal_google.start(request, response)
+
+
+@router.get('/portal/google-return')
+def google_return():
+    google_mode()
+    return FileResponse(Path(__file__).resolve().parents[1] / 'static/portal/google-return.html')
+
+
+@router.post('/api/portal/auth/google-exchange')
+def google_exchange(request: Request, response: Response, payload: dict = Body(default={})):
+    google_mode()
+    return portal_google.exchange(request, response, payload)
 
 
 @router.post('/api/portal/auth/email-start')
@@ -175,7 +207,7 @@ def me(request: Request, response: Response):
                 "email": s["email"], "expires_at": s["expires_at"],
                 "verification": "email_link" if portal_config.cloud() else "code",
                 "account_changes": not portal_config.cloud() and not portal_email.enabled(),
-                "registrar": registrar}
+                "registrar": registrar, "google_login": portal_google.enabled()}
 
 
 @router.post("/api/portal/auth/logout")

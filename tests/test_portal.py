@@ -12,7 +12,7 @@ import secrets
 import subprocess
 import sys
 import time
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 from uuid import uuid4
 
 import psycopg
@@ -719,6 +719,279 @@ def provider_env(env, monkeypatch):
     c = TestClient(app, base_url=origin, headers={'Origin': origin})
     login(c)
     return c, sent, provider
+
+
+@pytest.fixture
+def google_env(provider_env, monkeypatch):
+    """Google authorization is simulated; all database access remains loopback."""
+    import base64
+    c, sent, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_GOOGLE_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    monkeypatch.setenv('PORTAL_EMAIL_DOMAINS', 'gmail.com')
+    with owner() as conn:
+        uid = conn.execute("UPDATE maeum.portal_users SET email='a0@gmail.com' WHERE id='A0' RETURNING supabase_user_id").fetchone()[0]
+    identity = {'id': str(uid), 'email': 'A0@GMAIL.COM', 'email_confirmed_at': '2026-11-04'}
+    calls = []
+
+    def api(path, body, **kwargs):
+        calls.append((path, body, kwargs))
+        if path == '/token?grant_type=pkce':
+            actual = base64.urlsafe_b64encode(hashlib.sha256(body['code_verifier'].encode()).digest()).decode().rstrip('=')
+            if body['auth_code'] != 'synthetic-valid-auth-code' or actual != sent['challenge']:
+                raise auth.HTTPException(401)
+            return {'user': dict(identity), 'access_token': 'synthetic-google-token'}
+        if path == '/logout?scope=local':
+            assert kwargs == {'access_token': 'synthetic-google-token'}
+            return {}
+        raise AssertionError('unexpected provider request: ' + path)
+
+    monkeypatch.setattr(provider, 'request_api', api)
+    c.headers.pop('X-CSRF-Token', None)
+    return c, sent, provider, identity, calls
+
+
+def google_start(c, sent):
+    response = post(c, '/auth/google-start')
+    assert response.status_code == 200, response.text
+    params = parse_qs(urlparse(response.json()['url']).query)
+    sent['challenge'] = params['code_challenge'][0]
+    return response, params
+
+
+def assert_google_state_cleared(c, response):
+    assert not c.cookies.get('maeum_google_state')
+    assert any(header.startswith('maeum_google_state=') and 'Max-Age=0' in header
+               for header in response.headers.get_list('set-cookie'))
+
+
+@pytest.mark.parametrize('email_flag,google_flag', [(None, None), ('1', None), (None, '1'), ('0', '1'), ('1', '0')])
+def test_google_disabled_flags_return_404(provider_env, monkeypatch, email_flag, google_flag):
+    c, _, _ = provider_env
+    for name, value in [('PORTAL_EMAIL_LOGIN', email_flag), ('PORTAL_GOOGLE_LOGIN', google_flag)]:
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    assert post(c, '/auth/google-start').status_code == 404
+    assert post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'}).status_code == 404
+    assert c.get('/portal/google-return').status_code == 404
+    assert c.get('/api/portal/me').json()['google_login'] is False
+    html = c.get('/portal').text
+    assert 'data-google-login="false"' in html
+    assert 'id="email-login-details" open' in html
+    assert 'id="google-login-options" hidden' in html
+
+
+def test_google_requires_cloud(email_env, monkeypatch):
+    monkeypatch.setenv('PORTAL_GOOGLE_LOGIN', '1')
+    c = client()
+    email_enter(c)
+    assert post(c, '/auth/google-start').status_code == 404
+    assert post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'}).status_code == 404
+    assert c.get('/portal/google-return').status_code == 404
+    assert c.get('/api/portal/me').json()['google_login'] is False
+
+
+def test_google_start_pkce_cookie_and_ui(google_env):
+    import base64
+    import hmac
+    c, sent, _, _, calls = google_env
+    assert c.post('/api/portal/auth/google-start', headers={'Origin': 'https://other.example.test'}).status_code == 403
+    assert not c.cookies.get('maeum_google_state')
+    response, params = google_start(c, sent)
+    assert urlparse(response.json()['url'])._replace(query='').geturl() == os.environ['SUPABASE_URL'] + '/auth/v1/authorize'
+    assert params['provider'] == ['google']
+    assert params['redirect_to'] == ['https://portal.example.test/portal/google-return']
+    assert params['code_challenge_method'] == ['s256']
+    assert params['scopes'] == ['openid email profile']
+    state = c.cookies.get('maeum_google_state')
+    assert 32 <= len(state) <= 128
+    expected = base64.urlsafe_b64encode(hmac.new(os.environ['PORTAL_CODE_SECRET'].encode(),
+        json.dumps(['google-v1', state]).encode(), hashlib.sha256).digest()).decode().rstrip('=')
+    assert sent['challenge'] == base64.urlsafe_b64encode(hashlib.sha256(expected.encode()).digest()).decode().rstrip('=')
+    header = next(v for v in response.headers.get_list('set-cookie') if v.startswith('maeum_google_state='))
+    assert all(part in header for part in ['Max-Age=600', 'HttpOnly', 'Secure', 'SameSite=strict', 'Path=/'])
+    assert calls == []
+    with owner() as conn:
+        assert conn.execute('SELECT count(*) FROM maeum.email_login_attempts').fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM maeum.portal_sessions').fetchone()[0] == 1
+        key, stamps = conn.execute("SELECT id,stamps FROM maeum.portal_limits WHERE id LIKE 'google-start-peer:%'").fetchone()
+        assert key == 'google-start-peer:' + store.digest('testclient') and len(stamps) == 1
+    for path in ['/portal', '/portal/', '/portal/index.html', '/portal/login']:
+        html = c.get(path).text
+        assert 'data-google-login="true"' in html
+        assert 'id="google-login-options" hidden' not in html
+        assert 'id="email-login-details" open' not in html
+        assert '<summary>이메일 링크로 로그인</summary>' in html
+        assert html.index('id="google-login"') < html.index('id="login-form"')
+        assert '카카오톡 등 앱 안에서 열었다면 Safari나 Chrome에서 열어 주세요.' in html
+    callback = c.get('/portal/google-return')
+    assert callback.status_code == 200 and callback.headers['cache-control'] == 'no-store'
+
+
+def test_google_exchange_session_rotation_and_tenant_boundary(google_env, capsys):
+    c, sent, _, _, calls = google_env
+    old_session = c.cookies.get(auth.SESSION)
+    for name in ['maeum_email', 'maeum_email_browser', auth.DEVICE]:
+        c.cookies.set(name, 'old-synthetic-cookie', domain='portal.example.test', path='/')
+    google_start(c, sent)
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 200, response.text
+    assert response.json()['state'] == 'verified'
+    c.headers['X-CSRF-Token'] = response.json()['csrf']
+    assert_google_state_cleared(c, response)
+    assert c.cookies.get(auth.SESSION) != old_session
+    for name in ['maeum_email', 'maeum_email_browser', auth.DEVICE]:
+        assert not c.cookies.get(name)
+    for name in [auth.SESSION, auth.NONCE]:
+        header = next(v for v in response.headers.get_list('set-cookie') if v.startswith(name + '='))
+        assert all(part in header for part in ['Max-Age=1209600', 'HttpOnly', 'Secure', 'SameSite=strict'])
+    assert c.get('/api/portal/me').json()['google_login'] is True
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert c.get('/api/portal/intakes?org_id=B').status_code == 403
+    with owner() as conn:
+        assert conn.execute('SELECT revoked FROM maeum.portal_sessions WHERE token_hash=%s', (store.digest(old_session),)).fetchone()[0]
+        created, expiry, device_expiry = conn.execute(
+            'SELECT s.created_at,s.expires_at,d.expires_at FROM maeum.portal_sessions s '
+            'JOIN maeum.trusted_devices d ON d.id=s.device_id WHERE s.token_hash=%s',
+            (store.digest(c.cookies.get(auth.SESSION)),)).fetchone()
+        assert expiry - created == pytest.approx(14 * 86400)
+        assert device_expiry == pytest.approx(expiry, abs=2, rel=0)
+    assert [call[0] for call in calls] == ['/token?grant_type=pkce', '/logout?scope=local']
+    assert json.loads(capsys.readouterr().out) == {'event': 'portal_google_login', 'outcome': 'ok'}
+    retry = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert retry.status_code == 400
+    assert_google_state_cleared(c, retry)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('state', [None, 'x' * 31, 'x' * 129])
+def test_google_exchange_requires_browser_cookie(google_env, state):
+    c, _, _, _, calls = google_env
+    if state is not None:
+        c.cookies.set('maeum_google_state', state, domain='portal.example.test', path='/')
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Google 로그인을 시작한 브라우저에서 다시 시도해 주세요.'
+    assert_google_state_cleared(c, response)
+    assert calls == []
+
+
+@pytest.mark.parametrize('code', [None, 1234567890, '', 'x' * 9, 'x' * 513])
+def test_google_exchange_code_validation(google_env, code):
+    c, sent, _, _, calls = google_env
+    google_start(c, sent)
+    response = post(c, '/auth/google-exchange', {'code': code})
+    assert response.status_code == 400
+    assert_google_state_cleared(c, response)
+    assert calls == []
+
+
+def test_google_exchange_wrong_origin_clears_cookie(google_env):
+    c, sent, _, _, calls = google_env
+    google_start(c, sent)
+    response = c.post('/api/portal/auth/google-exchange', json={'code': 'synthetic-valid-auth-code'},
+                      headers={'Origin': 'https://other.example.test'})
+    assert response.status_code == 403
+    assert_google_state_cleared(c, response)
+    assert calls == []
+
+
+def test_google_exchange_rejects_changed_browser_state(google_env):
+    c, sent, _, _, calls = google_env
+    google_start(c, sent)
+    c.cookies.set('maeum_google_state', 'x' * 43, domain='portal.example.test', path='/')
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 400
+    assert_google_state_cleared(c, response)
+    assert [call[0] for call in calls] == ['/token?grant_type=pkce']
+
+
+@pytest.mark.parametrize('endpoint,maximum', [('google-start', 30), ('google-exchange', 60)])
+def test_google_peer_limits(google_env, endpoint, maximum):
+    c, sent, _, _, calls = google_env
+    google_start(c, sent)
+    prefix = 'google-start-peer:' if endpoint == 'google-start' else 'google-verify-peer:'
+    with owner() as conn:
+        conn.execute('INSERT INTO maeum.portal_limits VALUES(%s,%s) ON CONFLICT(id) DO UPDATE SET stamps=excluded.stamps',
+                     (prefix + store.digest('testclient'), Jsonb([time.time()] * maximum)))
+    response = post(c, '/auth/' + endpoint, {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 429
+    if endpoint == 'google-exchange':
+        assert_google_state_cleared(c, response)
+    assert calls == []
+
+
+@pytest.mark.parametrize('failure', ['http', 'json', 'malformed'])
+def test_google_provider_failure_discards_and_clears_cookie(google_env, monkeypatch, capsys, failure):
+    c, sent, provider, _, _ = google_env
+    google_start(c, sent)
+    discarded = []
+    def fail(path, body, **kwargs):
+        if failure == 'malformed':
+            return None
+        if failure == 'json':
+            raise ValueError('synthetic invalid JSON')
+        raise auth.HTTPException(503)
+    monkeypatch.setattr(provider, 'request_api', fail)
+    monkeypatch.setattr(provider, 'discard_provider_session', lambda result: discarded.append(result))
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'Google 로그인을 확인하지 못했습니다. 다시 시도해 주세요.'
+    assert_google_state_cleared(c, response)
+    assert discarded == [{}]
+    assert json.loads(capsys.readouterr().out) == {'event': 'portal_google_login', 'outcome': 'provider_error'}
+
+
+@pytest.mark.parametrize('boundary,status', [
+    ('unregistered', 403), ('inactive_user', 403), ('inactive_membership', 403),
+    ('inactive_org', 403), ('different_uuid', 403), ('unconfirmed', 400),
+    ('invalid_uuid', 400), ('foreign_domain', 400)])
+def test_google_identity_and_registration_boundaries(google_env, capsys, boundary, status):
+    c, sent, _, identity, calls = google_env
+    with owner() as conn:
+        if boundary == 'inactive_user':
+            conn.execute("UPDATE maeum.portal_users SET active=false WHERE id='A0'")
+        elif boundary == 'inactive_membership':
+            conn.execute("UPDATE maeum.memberships SET active=false WHERE user_id='A0'")
+        elif boundary == 'inactive_org':
+            conn.execute("UPDATE maeum.organizations SET active=false WHERE id='A'")
+    if boundary == 'unregistered':
+        identity['email'] = 'unregistered@gmail.com'
+    elif boundary == 'different_uuid':
+        identity['id'] = str(uuid4())
+    elif boundary == 'unconfirmed':
+        identity.pop('email_confirmed_at')
+    elif boundary == 'invalid_uuid':
+        identity['id'] = 'invalid-uuid'
+    elif boundary == 'foreign_domain':
+        identity['email'] = 'a0@example.test'
+    google_start(c, sent)
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == status, response.text
+    if status == 403:
+        assert response.json()['detail'] == '등록된 담당자 계정이 아닙니다. 가입 신청 후 관리자 승인을 받아 주세요.'
+    assert_google_state_cleared(c, response)
+    assert [call[0] for call in calls] == ['/token?grant_type=pkce', '/logout?scope=local']
+    assert json.loads(capsys.readouterr().out) == {'event': 'portal_google_login',
+        'outcome': 'denied' if status == 403 else 'provider_error'}
+    with owner() as conn:
+        assert conn.execute("SELECT count(*) FROM maeum.portal_sessions WHERE state='verified'").fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM maeum.trusted_devices').fetchone()[0] == 0
+
+
+def test_google_first_login_binds_null_provider_id(google_env):
+    c, sent, _, identity, _ = google_env
+    with owner() as conn:
+        conn.execute("UPDATE maeum.portal_users SET supabase_user_id=NULL WHERE id='A0'")
+    google_start(c, sent)
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 200, response.text
+    with owner() as conn:
+        assert str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0]) == identity['id']
+    assert_google_state_cleared(c, response)
 
 
 def test_cloud_pkce_browser_session_rotation(provider_env):
