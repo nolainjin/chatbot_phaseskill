@@ -1,0 +1,764 @@
+"""P1-P4 integration evidence against a disposable real PostgreSQL database.
+
+Run with scripts/portal_local.py test. No production credentials or DB are read.
+"""
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, timedelta
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+import time
+from urllib.parse import urlparse, urlunparse
+from uuid import uuid4
+
+import psycopg
+from psycopg import sql
+from psycopg.types.json import Jsonb
+import pytest
+from fastapi.testclient import TestClient
+
+from app import chat, cloud_store, portal_auth as auth, portal_store as store
+from app.main import app
+from scripts.portal_local import seed
+
+pytestmark = pytest.mark.skipif(not os.getenv("PORTAL_TEST_CONFIG"), reason="requires isolated local PostgreSQL runner")
+PASSWORD = "synthetic-test-password-only"
+ORIGIN = "http://testserver"
+
+
+@pytest.fixture(scope="module")
+def database():
+    config = json.loads(Path(os.environ["PORTAL_TEST_CONFIG"]).read_text())
+    original = urlparse(config["MAEUM_DATABASE_URL"])
+    assert original.hostname == "127.0.0.1" and original.path.startswith("/maeum_test_")
+    name = "maeum_test_" + uuid4().hex[:12]
+    admin_url = urlunparse(original._replace(path="/postgres"))
+    owner_url = urlunparse(original._replace(path="/" + name))
+    runtime_url = urlunparse(urlparse(config["PORTAL_DATABASE_URL"])._replace(path="/" + name))
+    auth_url = urlunparse(urlparse(config["PORTAL_AUTH_DATABASE_URL"])._replace(path="/" + name))
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    with psycopg.connect(owner_url) as conn:
+        for filename in ("202611040001_cloud_store.sql", "202611040002_portal.sql", "202611040003_portal_sources_identity.sql", "202611040004_portal_runtime_boundary.sql", "202611040005_portal_cloud_identity.sql"):
+            conn.execute((Path("supabase/migrations") / filename).read_text())
+    yield config | {"MAEUM_DATABASE_URL": owner_url, "PORTAL_DATABASE_URL": runtime_url, "PORTAL_AUTH_DATABASE_URL": auth_url}
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
+
+
+@pytest.fixture
+def env(database, monkeypatch, tmp_path):
+    for key, value in database.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("PORTAL_ORIGIN", ORIGIN)
+    monkeypatch.setenv("PORTAL_MAIL_DIR", str(tmp_path / "mail"))
+    with psycopg.connect(database["MAEUM_DATABASE_URL"]) as conn:
+        conn.execute("TRUNCATE maeum.records,maeum.organizations,maeum.portal_users,maeum.portal_limits CASCADE")
+        seed(conn, PASSWORD)
+    chat._sessions.clear()
+    yield database
+    chat._sessions.clear()
+
+
+def client():
+    return TestClient(app, base_url=ORIGIN, headers={"Origin": ORIGIN})
+
+
+def post(c, path, body=None, method="POST"):
+    return c.request(method, "/api/portal" + path, json=body or {})
+
+
+def login(c, email="a0@example.test"):
+    r = post(c, "/auth/login", {"email": email, "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    c.headers["X-CSRF-Token"] = r.json()["csrf"]
+    return r.json()
+
+
+def latest_mail(email="a0@example.test", purpose="device"):
+    messages = [json.loads(p.read_text()) for p in Path(os.environ["PORTAL_MAIL_DIR"]).glob("*.json")]
+    messages = [m for m in messages if m["to"] == email and m["purpose"] == purpose]
+    return max(messages, key=lambda m: m.get("created_at", 0))
+
+
+@pytest.fixture
+def provider_env(env, monkeypatch):
+    """Real isolated DB + provider boundary stub; never sends email."""
+    from app import portal_supabase as provider
+    from urllib.parse import parse_qs
+    import base64
+    origin = 'https://portal.example.test'
+    monkeypatch.setenv('PORTAL_AUTH_PROVIDER', 'supabase')
+    monkeypatch.setenv('PORTAL_LOCAL_TEST', '0')
+    monkeypatch.setenv('PORTAL_ORIGIN', origin)
+    monkeypatch.setenv('PUBLIC_CHAT_UI', '1')
+    monkeypatch.setenv('SUPABASE_URL', 'https://ojhuuipsyxewtiubujom.supabase.co')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_synthetic')
+    monkeypatch.setattr(store, 'require_database_url', lambda url: None)
+    original_connect = psycopg.connect
+    def local_connect(url, **kwargs):
+        assert urlparse(url).hostname == '127.0.0.1'
+        kwargs['sslmode'] = 'disable'
+        return original_connect(url, **kwargs)
+    monkeypatch.setattr(psycopg, 'connect', local_connect)
+    uid = str(uuid4())
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute('UPDATE maeum.portal_users SET supabase_user_id=%s WHERE id=%s', (uid, 'A0'))
+    sent = {}
+    def api(path, body, **kwargs):
+        user = {'id': uid, 'email': 'a0@example.test', 'email_confirmed_at': '2026-11-04'}
+        if path.startswith('/logout'):
+            return {}
+        if path == '/token?grant_type=password':
+            if body['password'] != PASSWORD:
+                raise auth.HTTPException(401)
+            return {'user': user, 'access_token': 'synthetic-provider-token'}
+        if path.startswith('/otp?'):
+            redirect = parse_qs(path.split('?', 1)[1])['redirect_to'][0]
+            sent.update(state=parse_qs(urlparse(redirect).query)['state'][0], challenge=body['code_challenge'])
+            assert body['create_user'] is False
+            return {}
+        if path == '/token?grant_type=pkce':
+            actual = base64.urlsafe_b64encode(hashlib.sha256(body['code_verifier'].encode()).digest()).decode().rstrip('=')
+            if body['auth_code'] != 'synthetic-valid-auth-code' or actual != sent['challenge']:
+                raise auth.HTTPException(401)
+            return {'user': user, 'access_token': 'synthetic-provider-token'}
+        raise AssertionError('unexpected provider request')
+    monkeypatch.setattr(provider, 'request_api', api)
+    c = TestClient(app, base_url=origin, headers={'Origin': origin})
+    login(c)
+    return c, sent, provider
+
+
+def test_cloud_pkce_browser_session_rotation(provider_env):
+    c, sent, _ = provider_env
+    assert post(c, '/auth/device-challenge').json()['verification'] == 'email_link'
+    pending = c.cookies.get(auth.SESSION)
+    other = TestClient(app, base_url='https://portal.example.test', headers={'Origin': 'https://portal.example.test'})
+    assert post(other, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': sent['state']}).status_code == 401
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 403
+    r = post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': sent['state'], 'remember': True})
+    assert r.status_code == 200
+    assert c.cookies.get(auth.SESSION) != pending
+    assert all(cookie.secure for cookie in c.cookies.jar)
+    c.headers['X-CSRF-Token'] = r.json()['csrf']
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert c.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': sent['state']}).status_code == 409
+
+
+def test_cloud_pkce_wrong_state_and_identity(provider_env, monkeypatch):
+    c, sent, provider = provider_env
+    assert post(c, '/auth/device-challenge').status_code == 200
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': 'x' * 43}).status_code == 400
+    original = provider.request_api
+    def wrong_user(path, body, **kwargs):
+        result = original(path, body, **kwargs)
+        if 'user' in result:
+            result['user']['id'] = str(uuid4())
+        return result
+    monkeypatch.setattr(provider, 'request_api', wrong_user)
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': sent['state']}).status_code == 400
+    assert c.get('/api/portal/me').json()['state'] == 'pending_device'
+
+
+def test_cloud_pkce_expiry_logout_and_csrf(provider_env):
+    c, sent, _ = provider_env
+    assert post(c, '/auth/device-challenge').status_code == 200
+    payload = {'code': 'synthetic-valid-auth-code', 'state': sent['state']}
+    csrf_token = c.headers['X-CSRF-Token']
+    c.headers['X-CSRF-Token'] = 'wrong'
+    assert post(c, '/auth/exchange', payload).status_code == 403
+    c.headers['X-CSRF-Token'] = csrf_token
+    with auth.connect() as conn:
+        conn.execute('UPDATE maeum.device_challenges SET expires_at=0')
+    assert post(c, '/auth/exchange', payload).status_code == 400
+    assert post(c, '/auth/logout').status_code == 200
+    assert post(c, '/auth/exchange', payload).status_code == 401
+
+
+def test_cloud_cannot_use_local_identity_mutations(provider_env):
+    c, _, _ = provider_env
+    for endpoint in ['/invitations', '/auth/accept-invitation', '/auth/password', '/auth/email-challenge', '/auth/email-verify']:
+        assert post(c, endpoint).status_code == 404
+    assert post(c, '/auth/device-verify', {'code': '12345678'}).status_code == 400
+
+
+def test_cloud_failed_mail_does_not_refund_send_budget(provider_env, monkeypatch):
+    c, _, provider = provider_env
+    calls = []
+    def fail(path, body, **kwargs):
+        calls.append(path)
+        raise auth.HTTPException(503)
+    monkeypatch.setattr(provider, 'request_api', fail)
+    assert post(c, '/auth/device-challenge').status_code == 503
+    for _ in range(5):
+        assert post(c, '/auth/device-challenge').status_code == 429
+    assert len(calls) == 1
+
+
+def test_cloud_pkce_failed_codes_are_bounded(provider_env):
+    c, sent, _ = provider_env
+    assert post(c, '/auth/device-challenge').status_code == 200
+    for _ in range(5):
+        assert post(c, '/auth/exchange', {'code': 'wrong-auth-code', 'state': sent['state']}).status_code == 400
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': sent['state']}).status_code == 400
+    assert c.get('/api/portal/me').json()['state'] == 'pending_device'
+
+
+def test_cloud_pkce_nonce_and_superseded_challenge(provider_env):
+    c, sent, _ = provider_env
+    assert post(c, '/auth/device-challenge').status_code == 200
+    old_state = sent['state']
+    nonce = c.cookies.get(auth.NONCE)
+    c.cookies.set(auth.NONCE, 'wrong-nonce', domain='portal.example.test', path='/')
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': old_state}).status_code == 401
+    c.cookies.set(auth.NONCE, nonce, domain='portal.example.test', path='/')
+    with auth.connect() as conn:
+        conn.execute('UPDATE maeum.device_challenges SET created_at=created_at-120')
+        conn.execute("UPDATE maeum.portal_limits SET stamps='[]' WHERE id LIKE 'provider-mail-%'")
+    assert post(c, '/auth/device-challenge').status_code == 200
+    assert post(c, '/auth/exchange', {'code': 'synthetic-valid-auth-code', 'state': old_state}).status_code == 400
+
+
+def test_cloud_pkce_concurrent_single_success(provider_env):
+    c, sent, _ = provider_env
+    assert post(c, '/auth/device-challenge').status_code == 200
+    payload = {'code': 'synthetic-valid-auth-code', 'state': sent['state']}
+    peers = []
+    for _ in range(2):
+        peer = TestClient(app, base_url='https://portal.example.test', headers=dict(c.headers))
+        peer.cookies.update(c.cookies)
+        peers.append(peer)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda peer: post(peer, '/auth/exchange', payload).status_code, peers))
+    assert sorted(statuses) == [200, 401]
+
+
+def test_expectation_is_not_inferred_from_cause():
+    from app import intake
+    schema = intake.load_schema('knowledge-maeum')
+    cause = '지난달 팀이 바뀌면서 맡은 업무가 갑자기 늘어났어요.'
+    _, fields = intake.extract_real('답변\n```slots\n' + json.dumps({'expectation': cause}) + '\n```',
+                                     schema, {'track': '정서'}, cause, 'cause')
+    assert 'expectation' not in fields
+
+
+def test_opaque_identifiers_survive_cloud_redaction(env):
+    sid = 'synthetic-opaque-01012345678'
+    token = 'opaque-token-01012345678-do-not-redact'
+    participant = 'p_e27b9e9a201012345678e1279'
+    with cloud_store.session_scope(sid):
+        chat._sessions[sid] = chat.ChatSession(session_id=sid, session_token=token,
+                                              participant_id=participant,
+                                              history=[{'role':'user', 'content':'전화 010-1234-5678'}])
+    saved = cloud_store.get('session', sid)
+    assert saved['session_id'] == sid and saved['session_token'] == token and saved['participant_id'] == participant
+    assert '010-1234-5678' not in saved['history'][0]['content']
+
+
+def test_cloud_identity_trigger_and_engine_role(env, monkeypatch):
+    # Simulate provider table shape only in the disposable local database.
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='maeum_engine'").fetchone():
+            conn.execute('CREATE ROLE maeum_engine NOLOGIN NOSUPERUSER NOBYPASSRLS')
+        conn.execute('CREATE SCHEMA auth')
+        conn.execute('CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,encrypted_password text,banned_until timestamptz,deleted_at timestamptz)')
+        conn.execute(Path('deploy/portal_cloud_roles.sql').read_text())
+        uid = str(uuid4())
+        conn.execute('INSERT INTO auth.users(id,email,encrypted_password) VALUES(%s,%s,%s)', (uid, 'a0@example.test', 'synthetic-v1'))
+        conn.execute('UPDATE maeum.portal_users SET supabase_user_id=%s WHERE id=%s', (uid, 'A0'))
+    c = verified()
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute('UPDATE auth.users SET encrypted_password=%s WHERE id=%s', ('synthetic-v2', uid))
+    assert c.get('/api/portal/me').status_code == 401
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET active=false WHERE id='A0'")
+        conn.execute('UPDATE auth.users SET encrypted_password=%s WHERE id=%s', ('synthetic-v3', uid))
+        assert conn.execute("SELECT active FROM maeum.portal_users WHERE id='A0'").fetchone()[0] is False
+    assert post(client(), '/auth/login', {'email': 'a0@example.test', 'password': PASSWORD}).status_code == 401
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        with pytest.raises(RuntimeError, match='restricted non-owner'):
+            cloud_store.require_engine_role(conn)
+        conn.execute('SET LOCAL ROLE maeum_engine')
+        cloud_store.require_engine_role(conn)
+        conn.execute("INSERT INTO maeum.records(kind,record_key,payload) VALUES('health','synthetic','{}')")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT * FROM maeum.portal_users')
+        conn.rollback()
+    from app import portal_config
+    original_connect = psycopg.connect
+    opened = []
+    def local_connect(url, **kwargs):
+        kwargs['sslmode'] = 'disable'
+        connection = original_connect(url, **kwargs)
+        opened.append(connection)
+        return connection
+    monkeypatch.setattr(psycopg, 'connect', local_connect)
+    monkeypatch.setattr(store, 'require_database_url', lambda url: None)
+    monkeypatch.setattr(portal_config, 'cloud', lambda: True)
+    with pytest.raises(RuntimeError, match='restricted non-owner'):
+        cloud_store._connect()
+    assert opened[-1].closed
+
+
+def verified(email="a0@example.test", remember=True):
+    c = client()
+    login(c, email)
+    assert post(c, "/auth/device-challenge").status_code == 200
+    r = post(c, "/auth/device-verify", {"code": latest_mail(email)["code"], "remember": remember})
+    assert r.status_code == 200, r.text
+    c.headers["X-CSRF-Token"] = r.json()["csrf"]
+    return c
+
+
+def issue(c, org="A", management="D-101"):
+    r = post(c, "/links", {"org_id": org, "management_id": management})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def exchange(c, link):
+    return c.post("/api/intake-link/exchange", json={"token": link["url"].split("#intake=")[1]})
+
+
+def intake_case(staff, org="A", text="요즘 회사 일 때문에 마음이 불안하고 잠을 잘 못 자요."):
+    link = issue(staff, org)
+    c = client()
+    assert exchange(c, link).status_code == 200
+    sid = str(uuid4())
+    version = c.get("/api/config").json()["privacy"]["consent_version"]
+    payload = {"session_id": sid, "accepted": True, "consent_version": version, "idempotency_key": str(uuid4())}
+    r = c.post("/api/consent", json=payload)
+    assert r.status_code == 200, r.text
+    receipt = r.json()
+    r = c.post("/api/chat", json={"session_id": sid, "session_token": receipt["session_token"], "message": text})
+    assert r.status_code == 200, r.text
+    return c, sid, receipt, payload, link
+
+
+def owner():
+    return psycopg.connect(os.environ["MAEUM_DATABASE_URL"])
+
+
+def report(c, intake_id, org="A", suffix=""):
+    return c.get("/api/portal/intakes/" + intake_id + suffix, params={"org_id": org})
+
+
+def test_T01_T13_actual_saved_content_and_restart(env):
+    a, b = verified(), verified("b0@example.test")
+    _, sid_a, ra, _, _ = intake_case(a)
+    _, sid_b, rb, _, _ = intake_case(b, "B", "친구와 다툰 이후 관계가 힘들어요.")
+    for staff, org, sid, receipt in ((a,"A",sid_a,ra), (b,"B",sid_b,rb)):
+        rows = staff.get("/api/portal/intakes", params={"org_id":org}).json()["items"]
+        assert len(rows) == 1 and rows[0]["id"] == receipt["intake_id"] and rows[0]["management_id"] == "D-101"
+        assert staff.get("/api/portal/summary",params={"org_id":org}).json()["total"] == 1
+        detail = report(staff,receipt["intake_id"],org).json()
+        with owner() as conn:
+            documents = conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s ORDER BY record_key",(sid,)).fetchall()
+        assert detail["summary"] == documents[-1][0]["intake_snapshot"]
+        assert "[recorded]" not in json.dumps(detail)
+        raw = report(staff,receipt["intake_id"],org,"/transcript").json()
+        assert raw["documents"][0]["turns"] == documents[0][0]["turns"]
+        # Read from a separate Python process with empty engine memory.
+        code = "from app.portal_store import connect,context,detail; import sys,json;\nwith connect() as c:\n context(c,sys.argv[1],sys.argv[2],'report:read',sys.stdin.read()); print(json.dumps(detail(c,sys.argv[2],sys.argv[3])['summary'],sort_keys=True))"
+        output = subprocess.check_output([sys.executable,"-c",code,"A0" if org=="A" else "B0",org,receipt["intake_id"]], input=store.digest(staff.cookies.get(auth.SESSION)), text=True)
+        assert json.loads(output) == detail["summary"]
+
+
+def test_T02_cross_institution_endpoints(env):
+    a,b=verified(),verified("b0@example.test")
+    _,_,rb,_,lb=intake_case(b,"B")
+    for suffix in ("","/transcript"):
+        assert report(a,rb["intake_id"],"A",suffix).status_code == 404
+    assert post(a,"/intakes/"+rb["intake_id"]+"/review",{"org_id":"A","status":"reviewed"}).status_code == 404
+    assert post(a,"/links/"+lb["id"]+"?org_id=A",method="DELETE").status_code == 404
+    for path in ("/intakes","/summary","/links","/members","/audit"):
+        assert a.get("/api/portal"+path,params={"org_id":"B"}).status_code == 403
+    assert post(a,"/links",{"org_id":"B","management_id":"D-101"}).status_code == 403
+    assert post(a,"/members/B0",{"org_id":"A","permissions":[],"active":False},method="PATCH").status_code == 404
+    assert a.get("/api/portal/intakes/export?org_id=A").status_code == 404
+
+
+def test_T03_pending_and_anonymous_all_protected(env):
+    for c,expected in ((client(),401),(client(),403)):
+        if expected==403:login(c)
+        for path in ("/intakes?org_id=A","/summary?org_id=A","/intakes/missing?org_id=A",
+                     "/intakes/missing/transcript?org_id=A","/devices","/links?org_id=A","/members?org_id=A","/audit?org_id=A"):
+            assert c.get("/api/portal"+path).status_code==expected
+        for path,payload,method in (("/links",{"org_id":"A","management_id":"D-101"},"POST"),
+                                    ("/intakes/missing/review",{"org_id":"A","status":"reviewed"},"POST"),
+                                    ("/devices/missing",{},"DELETE"),
+                                    ("/invitations",{"org_id":"A","email":"new@example.test","permissions":[]},"POST"),
+                                    ("/members/A1",{"org_id":"A","permissions":[],"active":False},"PATCH")):
+            assert post(c,path,payload,method).status_code==expected
+
+
+def test_T04_summary_only_no_raw(env):
+    a=verified();_,_,r,_,_=intake_case(a)
+    a2=verified("a2@example.test")
+    assert report(a2,r["intake_id"]).status_code==200
+    assert report(a2,r["intake_id"],suffix="/transcript").status_code==403
+    assert post(a2,"/links",{"org_id":"A","management_id":"D-101"}).status_code==403
+
+
+def test_T05_T06_device_cookie_is_not_login_and_ip_no_challenge(env):
+    c=verified()
+    assert post(c,"/auth/logout").status_code==200
+    assert c.get("/api/portal/intakes?org_id=A").status_code==401
+    # Changing transport IP as well as forwarded IP, with same authenticated browser cookies.
+    other=TestClient(app,base_url=ORIGIN,client=("127.0.0.2",54321),headers={"Origin":ORIGIN,"X-Forwarded-For":"203.0.113.9"})
+    other.cookies.update(c.cookies)
+    assert login(other)["state"]=="verified"
+    assert other.get("/api/portal/intakes?org_id=A").status_code==200
+
+
+def test_T07_new_browser_public_pc_other_user(env):
+    c=verified(remember=False)
+    post(c,"/auth/logout")
+    assert login(c)["state"]=="pending_device"
+    remembered=verified("b0@example.test")
+    remembered.cookies.delete(auth.SESSION)
+    assert login(remembered,"a1@example.test")["state"]=="pending_device"
+    assert login(client())["state"]=="pending_device"
+
+
+def test_T08_expiry_attempts_resend_binding(env):
+    c=client();login(c);assert post(c,"/auth/device-challenge").status_code==200
+    good=latest_mail()["code"]
+    assert post(c,"/auth/device-challenge").status_code==429
+    wrong="00000000" if good!="00000000" else "11111111"
+    for _ in range(5):
+        assert post(c,"/auth/device-verify",{"code":wrong}).status_code==400
+    assert post(c,"/auth/device-verify",{"code":good}).status_code==400
+    with owner() as conn:
+        conn.execute("UPDATE maeum.device_challenges SET created_at=created_at-61")
+    assert post(c,"/auth/device-challenge").status_code==200
+    new=latest_mail()["code"]
+    assert post(c,"/auth/device-verify",{"code":good}).status_code==400
+    other=client();login(other)
+    assert post(other,"/auth/device-verify",{"code":new}).status_code==400
+    with owner() as conn:
+        conn.execute("UPDATE maeum.device_challenges SET expires_at=0")
+    assert post(c,"/auth/device-verify",{"code":new}).status_code==400
+
+
+def test_T08_concurrent_one_use_and_rotation(env):
+    c=client();login(c);post(c,"/auth/device-challenge");code=latest_mail()["code"]
+    old=c.cookies.get(auth.SESSION)
+    def attempt():
+        x=client();x.cookies.update(c.cookies);x.headers["X-CSRF-Token"]=c.headers["X-CSRF-Token"]
+        return post(x,"/auth/device-verify",{"code":code,"remember":True})
+    with ThreadPoolExecutor(max_workers=2) as pool: results=list(pool.map(lambda _:attempt(), range(2)))
+    assert sorted(r.status_code for r in results)==[200,401]
+    assert next(r for r in results if r.status_code==200).cookies.get(auth.SESSION)!=old
+    assert c.get("/api/portal/me").status_code==401
+
+
+def test_T09_revoke_device_membership_user_organization(env):
+    a=verified();a1=verified("a1@example.test")
+    assert post(a,"/members/A1",{"org_id":"A","permissions":["report:read"],"active":False},method="PATCH").status_code==200
+    assert a1.get("/api/portal/intakes?org_id=A").status_code==403
+    dev=a.get("/api/portal/devices").json()[0]["id"]
+    assert post(a,"/devices/"+dev,method="DELETE").status_code==200
+    assert a.get("/api/portal/me").status_code==401
+    b=verified("b0@example.test")
+    with owner() as conn:conn.execute("UPDATE maeum.organizations SET active=false WHERE id='B'")
+    assert b.get("/api/portal/intakes?org_id=B").status_code==403
+    with owner() as conn:conn.execute("UPDATE maeum.portal_users SET active=false WHERE id='B0'")
+    assert b.get("/api/portal/me").status_code==401
+
+
+def test_T10_csrf_origin_permission_escalation(env):
+    a=verified()
+    assert post(a,"/invitations",{"org_id":"A","email":"new@example.test","permissions":["platform:admin"]}).status_code==403
+    for header,value in (("Origin","http://evil.test"),("X-CSRF-Token","wrong")):
+        saved=a.headers[header];a.headers[header]=value
+        assert post(a,"/links",{"org_id":"A","management_id":"D-101"}).status_code==403
+        a.headers[header]=saved
+
+
+def test_T11_actual_runtime_role_no_records_or_foreign_rows(env):
+    a,b=verified(),verified("b0@example.test");_,_,ra,_,_=intake_case(a);_,_,rb,_,_=intake_case(b,"B")
+    with store.connect() as conn:
+        assert conn.execute("SELECT * FROM maeum.intakes").fetchall()==[]
+        store.context(conn,"A0","A","report:read",store.digest(a.cookies.get(auth.SESSION)))
+        assert [r["id"] for r in conn.execute("SELECT id FROM maeum.intakes").fetchall()]==[ra["intake_id"]]
+        assert conn.execute("SELECT maeum.read_transcript(%s)",(rb["intake_id"],)).fetchall()==[]
+        conn.commit()
+        assert conn.execute("SELECT * FROM maeum.intakes").fetchall()==[]
+        store.context(conn,"B0","B","report:read",store.digest(b.cookies.get(auth.SESSION)))
+        assert [r["id"] for r in conn.execute("SELECT id FROM maeum.intakes").fetchall()]==[rb["intake_id"]]
+    with store.connect() as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("SELECT * FROM maeum.records")
+    with store.connect() as conn:
+        store.context(conn,"A0","A","link:issue",store.digest(a.cookies.get(auth.SESSION)))
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("INSERT INTO maeum.intake_links VALUES('attack','B','attack','D-101',9999999999,false,NULL)")
+
+
+def test_T12_decline_expiry_revoke_revisit_idempotency(env):
+    a=verified();link=issue(a);c=client();assert exchange(c,link).status_code==200
+    version=c.get("/api/config").json()["privacy"]["consent_version"]
+    body={"accepted":False,"consent_version":version,"session_id":str(uuid4()),"idempotency_key":str(uuid4())}
+    assert c.post("/api/consent",json=body).json()["accepted"] is False
+    with owner() as conn:
+        assert conn.execute("SELECT count(*) FROM maeum.intakes").fetchone()[0]==0
+        assert conn.execute("SELECT count(*) FROM maeum.records WHERE kind='conversation'").fetchone()[0]==0
+    body["accepted"]=True
+    r=c.post("/api/consent",json=body);assert r.status_code==200
+    assert c.post("/api/consent",json=body).status_code==410
+    body["session_token"]=r.json()["session_token"]
+    assert c.post("/api/consent",json=body).json()["resumed"]
+    assert exchange(client(),link).status_code==410
+    unused=issue(a)
+    with owner() as conn:conn.execute("UPDATE maeum.intake_links SET expires_at=0 WHERE id=%s",(unused["id"],))
+    assert exchange(client(),unused).status_code==410
+    unused=issue(a);post(a,"/links/"+unused["id"]+"?org_id=A",method="DELETE")
+    assert exchange(client(),unused).status_code==410
+
+
+def test_T12_concurrent_consent_one_winner(env):
+    a=verified();link=issue(a)
+    clients=[client(),client()]
+    for c in clients:assert exchange(c,link).status_code==200
+    version=clients[0].get("/api/config").json()["privacy"]["consent_version"]
+    def accept(c):
+        return c.post("/api/consent",json={"accepted":True,"consent_version":version,"session_id":str(uuid4()),"idempotency_key":str(uuid4())})
+    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(accept,clients))
+    assert sorted(r.status_code for r in results)==[200,410]
+
+
+def test_T13_atomic_projection_failure_rollback(env,monkeypatch):
+    a=verified();c,sid,r,_,_=intake_case(a)
+    before=report(a,r["intake_id"]).json()
+    with owner() as conn:raw_before=conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchall()
+    def fail(_):raise psycopg.OperationalError("synthetic")
+    monkeypatch.setattr(store,"project",fail)
+    response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"주말에는 쉬고 있어요."})
+    assert response.status_code==503
+    assert report(a,r["intake_id"]).json()==before
+    with owner() as conn:assert conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchall()==raw_before
+
+
+def test_T14_audit_review_and_fail_closed(env):
+    a=verified();_,_,r,_,_=intake_case(a);iid=r["intake_id"]
+    assert report(a,iid,suffix="/transcript").status_code==200
+    assert post(a,"/intakes/"+iid+"/review",{"org_id":"A","status":"reviewed"}).status_code==200
+    with owner() as conn:
+        actions=[r[0] for r in conn.execute("SELECT action FROM maeum.audit_events WHERE org_id='A'").fetchall()]
+        assert "raw_view" in actions and "review" in actions
+        conn.execute("ALTER TABLE maeum.audit_events ADD CONSTRAINT fail_audit CHECK(action <> 'raw_view') NOT VALID")
+    try:
+        response=report(a,iid,suffix="/transcript")
+        assert response.status_code==503
+        assert "turns" not in response.text
+    finally:
+        with owner() as conn:conn.execute("ALTER TABLE maeum.audit_events DROP CONSTRAINT fail_audit")
+
+
+@pytest.mark.parametrize("age,raw,exists",[(90,True,True),(91,False,True),(365,False,True),(366,False,False)])
+def test_T15_retention_boundary(env,age,raw,exists):
+    a=verified();_,sid,r,_,_=intake_case(a)
+    cloud_store.purge_expired(today=date.today()+timedelta(days=age))
+    result=report(a,r["intake_id"])
+    assert (result.status_code==200)==exists
+    if exists:
+        assert result.json()["raw_expired"] is not raw
+        docs=report(a,r["intake_id"],suffix="/transcript").json()["documents"]
+        assert any(t["role"]=="user" for d in docs for t in d["turns"]) is raw
+    else:
+        with owner() as conn:assert conn.execute("SELECT count(*) FROM maeum.records WHERE payload->>'session_id'=%s",(sid,)).fetchone()[0]==0
+
+
+def test_T15_delete_no_reappearance(env):
+    a=verified();c,sid,r,payload,link=intake_case(a)
+    response=c.post("/api/session/delete",json={"session_id":sid,"session_token":r["session_token"]})
+    assert response.status_code==200
+    assert report(a,r["intake_id"]).status_code==404
+    assert c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"계속"}).status_code in (401,403)
+    assert exchange(client(),link).status_code==410
+    with owner() as conn:
+        assert conn.execute("SELECT count(*) FROM maeum.report_snapshots").fetchone()[0]==0
+        assert conn.execute("SELECT count(*) FROM maeum.portal_reviews").fetchone()[0]==0
+
+
+def test_T16_mail_failure_rate_limit_and_no_secret_response(env,monkeypatch):
+    c=client();login(c)
+    def fail(_):raise OSError("synthetic")
+    monkeypatch.setattr(auth,"capture_mail",fail)
+    assert post(c,"/auth/device-challenge").status_code==503
+    assert c.get("/api/portal/intakes?org_id=A").status_code==403
+    with owner() as conn:assert conn.execute("SELECT count(*) FROM maeum.device_challenges").fetchone()[0]==0
+    for _ in range(20):post(client(),"/auth/login",{"email":"unknown@example.test","password":"wrong"})
+    assert post(client(),"/auth/login",{"email":"unknown@example.test","password":"wrong"}).status_code==429
+
+
+def test_T17_remote_legacy_and_no_store(env):
+    c=verified()
+    for path in ("/portal","/api/portal/me","/api/portal/intakes?org_id=A"):
+        assert c.get(path).headers["cache-control"]=="no-store"
+    remote=TestClient(app,base_url="http://example.test",client=("203.0.113.1",1000))
+    for path in ("/stats.html","/api/stats","/api/stats/session","/api/review","/csv.js","/portal","/api/portal/me","/portal/app.js"):
+        assert remote.get(path).status_code==404
+    post(c,"/auth/logout")
+    assert c.get("/api/portal/intakes?org_id=A").status_code==401
+
+
+def test_T19_password_change_and_trust_expiry(env):
+    c=verified()
+    assert post(c,"/auth/password",{"current_password":PASSWORD,"new_password":"changed-synthetic-password"}).status_code==200
+    assert c.get("/api/portal/me").status_code==401
+    r=post(c,"/auth/login",{"email":"a0@example.test","password":"changed-synthetic-password"})
+    assert r.json()["state"]=="pending_device"
+    b=verified("b0@example.test")
+    with owner() as conn:conn.execute("UPDATE maeum.trusted_devices SET expires_at=0 WHERE user_id='B0'")
+    assert b.get("/api/portal/me").status_code==401
+    assert login(b,"b0@example.test")["state"]=="pending_device"
+
+
+def test_invitation_accept_requires_device_and_is_once(env):
+    a=verified()
+    assert post(a,"/invitations",{"org_id":"A","email":"new@example.test","permissions":["report:read"]}).status_code==200
+    token=latest_mail("new@example.test","invitation")["token"]
+    c=client()
+    assert post(c,"/auth/accept-invitation",{"token":token,"password":PASSWORD}).status_code==200
+    assert post(c,"/auth/accept-invitation",{"token":token,"password":PASSWORD}).status_code==410
+    assert login(c,"new@example.test")["state"]=="pending_device"
+
+
+def test_unassigned_legacy_not_visible_and_composite_fk(env):
+    a=verified();_,_,r,_,_=intake_case(a)
+    with owner() as conn:
+        conn.execute("INSERT INTO maeum.records VALUES('conversation','legacy',%s,now())",(Jsonb({"session_id":"legacy","turns":[]}),))
+    assert a.get("/api/portal/summary?org_id=A").json()["total"]==1
+    with owner() as conn:
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            conn.execute("UPDATE maeum.report_snapshots SET org_id='B' WHERE intake_id=%s",(r["intake_id"],))
+
+def test_database_context_requires_verified_session(env):
+    a=verified();_,_,r,_,_=intake_case(a)
+    with store.connect() as conn:
+        with pytest.raises(Exception) as error:
+            store.context(conn,"A0","A","report:read")
+        assert error.value.status_code==403
+    pending=client();login(pending)
+    with store.connect() as conn:
+        with pytest.raises(Exception) as error:
+            store.context(conn,"A0","A","report:read",store.digest(pending.cookies.get(auth.SESSION)))
+        assert error.value.status_code==403
+    for table in ("portal_users","portal_sessions","trusted_devices","records"):
+        with store.connect() as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(sql.SQL("SELECT * FROM maeum.{}").format(sql.Identifier(table)))
+    with auth.connect() as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("SELECT * FROM maeum.report_snapshots")
+
+
+def test_T19_email_owner_verification_before_change(env):
+    a=verified()
+    assert post(a,"/auth/email-challenge",{"email":"changed@example.test","password":PASSWORD}).status_code==200
+    with owner() as conn:assert conn.execute("SELECT email FROM maeum.portal_users WHERE id='A0'").fetchone()[0]=="a0@example.test"
+    token=latest_mail("changed@example.test","email_change")["token"]
+    assert post(a,"/auth/email-verify",{"token":"wrong"}).status_code==400
+    assert post(a,"/auth/email-verify",{"token":token}).status_code==200
+    assert a.get("/api/portal/me").status_code==401
+    assert login(a,"changed@example.test")["state"]=="pending_device"
+
+
+def test_T16_dependency_failures_are_clean_and_fail_closed(env,monkeypatch):
+    a=verified()
+    def fail(*args,**kwargs):
+        raise psycopg.OperationalError("SYNTHETIC_PRIVATE_DIAGNOSTIC")
+    monkeypatch.setattr(auth,"password_ok",fail)
+    r=post(client(),"/auth/login",{"email":"a0@example.test","password":PASSWORD})
+    assert r.status_code==503 and "SYNTHETIC_PRIVATE" not in r.text
+    monkeypatch.undo()
+    # Restore this fixture environment after undo resets it as well.
+    for k,v in env.items():monkeypatch.setenv(k,v)
+    monkeypatch.setenv("PORTAL_ORIGIN",ORIGIN)
+    monkeypatch.setattr(store,"connect",fail)
+    r=a.get("/api/portal/intakes?org_id=A")
+    assert r.status_code==503 and "SYNTHETIC_PRIVATE" not in r.text
+
+
+def test_T13_source_links_and_completion(env):
+    a=verified();c,sid,r,_,_=intake_case(a)
+    for message in ("한 달 전부터 잠을 잘 못 자요.","업무가 바뀌어 부담이 늘었어요.","쉬거나 산책하고 있어요.","친구가 도와주고 있어요.","마음이 편해지고 싶어요.","없음, 이대로 보내기"):
+        response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":message})
+        assert response.status_code==200
+    detail=report(a,r["intake_id"]).json()
+    docs=report(a,r["intake_id"],suffix="/transcript").json()["documents"]
+    assert detail["status"]=="complete"
+    assert detail["sources"]
+    for slot,refs in detail["sources"].items():
+        for ref in refs:
+            turns=next(d["turns"] for d in docs if d["day"]==ref["day"])
+            turn=next(t for t in turns if t["seq"]==ref["seq"])
+            assert turn["role"]=="user" and detail["summary"]["slots"][slot] in turn["text"]
+    with owner() as conn:
+        latest=conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s ORDER BY record_key DESC",(sid,)).fetchone()[0]
+    assert detail["summary"]==latest["intake_snapshot"]
+
+
+def test_T15_concurrent_delete_and_read_and_chat(env):
+    a=verified();c,sid,r,_,_=intake_case(a)
+    def remove():
+        return c.post("/api/session/delete",json={"session_id":sid,"session_token":r["session_token"]})
+    def read():
+        return report(a,r["intake_id"],suffix="/transcript")
+    def talk():
+        return c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"산책하고 쉬고 있어요."})
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures=[pool.submit(f) for f in (remove,read,talk)]
+        results=[f.result() for f in futures]
+    assert results[0].status_code==200
+    assert results[1].status_code in (200,404)
+    assert results[2].status_code in (200,401,403,409)
+    assert report(a,r["intake_id"],suffix="/transcript").status_code==404
+    with owner() as conn:
+        assert conn.execute("SELECT count(*) FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchone()[0]==0
+
+
+def test_T20_local_retention_endpoint_and_original_modes(env,monkeypatch):
+    a=verified();_,_,r,_,_=intake_case(a)
+    c=client()
+    assert c.get("/api/maintenance/retention").status_code==401
+    secret=secrets.token_urlsafe(40);monkeypatch.setenv("CRON_SECRET",secret)
+    assert c.get("/api/maintenance/retention",headers={"Authorization":"Bearer "+secret}).status_code==200
+    assert report(a,r["intake_id"]).status_code==200
+
+def test_T16_model_failure_rolls_back_without_fake_success(env,monkeypatch):
+    import anthropic
+    import httpx
+    a=verified();c,sid,r,_,_=intake_case(a)
+    before=report(a,r["intake_id"]).json()
+    def fail(*args,**kwargs):
+        raise anthropic.APIConnectionError(request=httpx.Request("POST","https://synthetic.invalid"))
+    monkeypatch.setattr(chat,"handle_message",fail)
+    response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"추가 합성 발화"})
+    assert response.status_code==502
+    assert report(a,r["intake_id"]).json()==before
+
+def test_T15_raw_expiry_cleans_serialized_summary_quotes(env):
+    a=verified();_,sid,r,_,_=intake_case(a)
+    marker="SYNTHETIC-RAW-QUOTE-ONLY"
+    with owner() as conn:
+        key,payload=conn.execute("SELECT record_key,payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchone()
+        summary=payload["intake_snapshot"] | {"center_requests":[{"label":"요청","text":marker}],"sources":[marker]}
+        payload["intake_snapshot"]=summary
+        payload["turns"].append({"seq":99,"role":"intake_summary","text":json.dumps(summary)})
+        conn.execute("UPDATE maeum.records SET payload=%s WHERE kind='conversation' AND record_key=%s",(Jsonb(payload),key))
+    cloud_store.purge_expired(today=date.today()+timedelta(days=91))
+    with owner() as conn:
+        remaining=conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchall()
+        assert marker not in json.dumps(remaining)
+        assert conn.execute("SELECT count(*) FROM maeum.records WHERE kind='session' AND record_key=%s",(sid,)).fetchone()[0]==0
+    detail=report(a,r["intake_id"]).json()
+    assert detail["sources"]=={} and marker not in json.dumps(detail)

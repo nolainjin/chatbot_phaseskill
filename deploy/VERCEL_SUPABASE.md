@@ -3,6 +3,10 @@
 2026-11-04 사용자가 요청한 외부 연결 후보. 기존 로컬 운영은 기본 동작을 유지한다.
 `MAEUM_DATABASE_URL`이 있을 때만 Postgres를 사용하며 기존 `data/`는 업로드하지 않는다.
 
+2026-11-04 후속: 기관 포털 P0~P4는 [로컬 구현·검증 안내](PORTAL_LOCAL.md)를 따른다.
+현재 포털은 로컬 합성 환경으로 제한되어 있으며 이 문서의 기존 외부 배포 절차를
+자동 실행하지 않는다. P5의 Auth·메일·운영 DB 역할 연결과 배포 승인이 남아 있다.
+
 ## 구조
 
 - Vercel: `app/main.py` FastAPI, 기존 `static/` 챗봇 UI, Anthropic Messages API.
@@ -38,8 +42,10 @@ CLI subprocess 분기를 선택할 수 없다. Claude 호출은 요청당 45초,
 
 ## 적용 순서
 
-1. Supabase 무료 프로젝트를 만들고 `supabase/migrations/202611040001_cloud_store.sql`을
-   해당 프로젝트에 적용한다. 앱 시작 시 DDL이나 자동 이관은 실행하지 않는다.
+1. 기존 Supabase `maeum-intake` (`ojhuuipsyxewtiubujom`)와 Vercel `maeum-intake`
+   (`prj_E3EmUR9zhFQecS0VGPdjmmtEBHUR`)를 재확인해 이어 쓴다. 새 프로젝트를 만들지 않는다.
+   기존 001 migration은 인계상 적용되어 있으므로 재적용을 추정해 실행하지 않는다.
+   후속 기관 스키마는 별도 승인된 P5에서 검토·적용한다. 앱 시작 시 DDL이나 자동 이관은 실행하지 않는다.
 2. 합성 데이터로 `scripts/cloud_smoke.py`를 실행한다. DB URI는 환경변수 또는
    `--config`가 가리키는 별도 비공개 JSON의 `MAEUM_DATABASE_URL`에서 읽는다.
 3. 검증한 Git 브랜치를 Vercel에 연결하고 필수 환경변수를 설정한 뒤 배포한다.

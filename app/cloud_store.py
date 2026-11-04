@@ -28,12 +28,34 @@ def enabled():
 def _connect():
     import psycopg
 
-    return psycopg.connect(
+    sslmode = "require"
+    if os.getenv("PORTAL_ENABLED") == "1":
+        from app.portal_store import require_database_url
+        from app.portal_config import cloud
+        require_database_url(os.environ["MAEUM_DATABASE_URL"])
+        sslmode = "require" if cloud() else "disable"
+
+    conn = psycopg.connect(
         os.environ["MAEUM_DATABASE_URL"],
         connect_timeout=10,
-        sslmode="require",
+        sslmode=sslmode,
         prepare_threshold=None,  # Supavisor transaction pooling has no prepared statements.
     )
+    try:
+        from app.portal_config import cloud
+        if cloud():
+            require_engine_role(conn)
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def require_engine_role(conn):
+    role = conn.execute("SELECT current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
+    owner = conn.execute("SELECT pg_has_role(current_user,tableowner,'USAGE') FROM pg_tables WHERE schemaname='maeum' AND tablename='records'").fetchone()
+    if not role or role[0] != 'maeum_engine' or role[1] or role[2] or not owner or owner[0]:
+        raise RuntimeError('Cloud engine requires its restricted non-owner database role')
 
 
 def _lock(conn, name):
@@ -108,6 +130,9 @@ def session_scope(session_id):
         yield
         return
     with transaction("session:" + session_id):
+        if os.getenv("PORTAL_ENABLED") == "1":
+            with connection() as conn:
+                conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (session_id,))
         state = get("session", session_id)
         chat._sessions.pop(session_id, None)
         if state is not None:
@@ -116,8 +141,15 @@ def session_scope(session_id):
             yield
             session = chat._sessions.get(session_id)
             if session is not None:
-                # Raw model context receives the same direct-identifier redaction as transcripts.
-                put("session", session_id, storage._redact_obj(asdict(session)))
+                # Redact user/model content, not random IDs, tokens or timestamps:
+                # an opaque ID can accidentally contain phone-like digit runs.
+                state = asdict(session)
+                for field in ('history', 'slots', 'handoff', 'center_requests'):
+                    state[field] = storage._redact_obj(state[field])
+                put("session", session_id, state)
+                if os.getenv("PORTAL_ENABLED") == "1":
+                    from app.portal_store import project
+                    project(session_id)
             else:
                 remove("session", session_id)
         finally:
@@ -161,6 +193,10 @@ def session_retired(session):
 def delete_session(session_id, via):
     from app import chat
 
+    if os.getenv("PORTAL_ENABLED") == "1":
+        from app.portal_store import delete_binding
+        delete_binding(session_id)
+
     with connection() as conn:
         deleted = conn.execute(
             "DELETE FROM maeum.records WHERE kind='conversation' "
@@ -188,6 +224,9 @@ def purge_expired(*, today=None, dry_run=False, raw_days=90, summary_days=365):
     for session_id in groups:
         # Re-read after taking the same lock as chat/delete; no stale snapshot writes.
         with transaction("session:" + session_id):
+            if os.getenv("PORTAL_ENABLED") == "1":
+                with connection() as conn:
+                    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (session_id,))
             with connection() as conn:
                 rows = conn.execute(
                     "SELECT record_key,payload FROM maeum.records WHERE kind='conversation' "
@@ -216,10 +255,26 @@ def purge_expired(*, today=None, dry_run=False, raw_days=90, summary_days=365):
                 for key, payload in rows:
                     payload["turns"] = [t for t in payload["turns"] if t.get("role") in SUMMARY_ROLES]
                     payload["raw_purged_at"] = today.isoformat()
+                    if os.getenv("PORTAL_ENABLED") == "1":
+                        # Free-form requests and quotations have the raw retention lifetime.
+                        from app.portal_store import retained_summary
+                        payload["intake_snapshot"] = retained_summary(payload.get("intake_snapshot", {}))
+                        cleaned_turns = []
+                        for turn in payload["turns"]:
+                            try:
+                                value = json.loads(turn["text"])
+                            except (ValueError, TypeError):
+                                continue  # unstructured raw text is not a retained projection
+                            if isinstance(value, dict):
+                                cleaned_turns.append({**turn, "text": json.dumps(retained_summary(value), ensure_ascii=False)})
+                        payload["turns"] = cleaned_turns
                     put("conversation", key, payload)
                 remove("session", session_id)
                 chat._sessions.pop(session_id, None)
                 _retired(session_id, "retention_raw")
+                if os.getenv("PORTAL_ENABLED") == "1":
+                    from app.portal_store import project
+                    project(session_id)
     return {"dry_run": dry_run, "sessions": len(targets),
             "turns": sum(t["json_turns"] for t in targets), "targets": targets}
 

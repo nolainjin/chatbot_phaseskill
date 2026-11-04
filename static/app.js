@@ -8,6 +8,19 @@
   var PARTICIPANT_TICKET_KEY = "lmwiki_participant_ticket";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
   var INTAKE_LINK_KEY = "lmwiki_pending_intake_link";
+  var institutionHash = new URL(window.location.href).hash;
+  var institutionToken = institutionHash.indexOf("#intake=") === 0 ? institutionHash.slice(8) : null;
+  if (institutionToken !== null) {
+    window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(CONSENT_KEY);
+  }
+  // Opening a second institution link in this same tab is a same-document
+  // navigation. Re-enter initialization instead of retaining the previous case.
+  if (typeof window.addEventListener === "function") window.addEventListener("hashchange", function () {
+    if (new URL(window.location.href).hash.indexOf("#intake=") === 0) window.location.reload();
+  });
   var MANAGEMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,31}$/;
   var MAX_TURNS = 10;
   var MAX_MESSAGE_LEN = 2000;
@@ -872,7 +885,8 @@
     declineEl.disabled = true;
     resetSessionEl.disabled = true;
     postJson("/api/consent", Object.assign({
-      session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version
+      session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version,
+      idempotency_key: getSessionId(), session_token: getSessionToken()
     }, pendingIntakeLink())).then(function (data) {
       consentCardEl.hidden = true;
       if (!data.accepted) {
@@ -964,6 +978,16 @@
     .then(function (response) {
       if (!response.ok) throw new Error("config fetch failed: " + response.status);
       return response.json();
+    })
+    .then(function (data) {
+      if (data.institution_link_required && !getSessionToken()) {
+        return postJson("/api/intake-link/exchange", institutionToken ? {token: institutionToken} : {}).then(function (link) {
+          data.privacy.body = "접수 기관: " + link.organization + "\n" + link.purpose + "\n\n" + data.privacy.body;
+          institutionToken = null;
+          return data;
+        });
+      }
+      return data;
     })
     .then(function (data) {
       if (data && data.mode === "coaching") applyCoachingMode();

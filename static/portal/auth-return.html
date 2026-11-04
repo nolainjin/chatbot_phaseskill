@@ -1,0 +1,24 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>이메일 기기 확인</title>
+<style>body{font:18px system-ui;max-width:520px;margin:12vh auto;padding:24px;background:#f4f7f4;color:#1c302a}button{display:block;margin-top:24px;padding:14px 24px;font:inherit;background:#285c4d;color:white;border:0;border-radius:10px}p{line-height:1.7}label{display:block;margin-top:24px}</style>
+<h1>이 기기 확인</h1><p>로그인을 시작한 브라우저에서 확인해 주세요. 공용 PC에서는 기기 기억을 선택하지 마세요.</p>
+<label><input id="remember" type="checkbox"> 개인 기기로 30일 기억</label><button id="confirm">이 기기 확인하고 계속</button><p id="result" role="status"></p><a href="/portal">로그인으로 돌아가기</a>
+<script>
+'use strict';
+const params = new URLSearchParams(location.search);
+const code = params.get('code'), state = params.get('state');
+history.replaceState(null, '', '/portal/auth-return');
+document.getElementById('confirm').onclick = async function () {
+ this.disabled = true;
+ const result = document.getElementById('result');
+ try {
+  if (!code || !state) throw new Error('올바른 이메일 링크를 다시 열어 주세요.');
+  const meResponse = await fetch('/api/portal/me', {cache:'no-store',credentials:'same-origin'});
+  const me = await meResponse.json();
+  if (!meResponse.ok || me.state !== 'pending_device') throw new Error('로그인을 시작한 브라우저에서 링크를 열어 주세요.');
+  const response = await fetch('/api/portal/auth/exchange', {method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':me.csrf},body:JSON.stringify({code,state,remember:document.getElementById('remember').checked})});
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || '이메일 확인에 실패했습니다.');
+  location.replace('/portal');
+ } catch (e) { result.textContent = e.message; this.disabled = false; }
+};
+</script></html>

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import access_log, chat, cloud_store, consent, intake, ratelimit, referral, retention, review, stats, storage
 from app.config import Settings
+from app import portal_config
 
 MAX_MESSAGE_LEN = 2000
 MIN_STATS_TOKEN_LEN = 16
@@ -47,6 +48,11 @@ _DARK_RESPONSE_BODY = b'{"detail":"public service disabled"}'
 
 @asynccontextmanager
 async def lifespan(_app):
+    if portal_config.enabled():
+        from app.portal_store import require_database_url
+        require_database_url(os.environ.get("MAEUM_DATABASE_URL", ""))
+        if not portal_config.cloud() and Settings.from_env().model != "fake":
+            raise RuntimeError("P0-P4 portal requires MODEL=fake; external connection is not enabled")
     if os.getenv("VERCEL") == "1":
         settings = Settings.from_env()
         if not cloud_store.enabled():
@@ -165,6 +171,20 @@ async def default_dark_boundary(request: Request, call_next):
     """Default dark; permit private loopback or an explicitly enabled public chat surface."""
     hostname = (request.url.hostname or "").lower()
     peer = request.client.host if request.client else ""
+    is_portal = request.url.path.startswith(("/portal", "/api/portal", "/api/intake-link", "/static/portal"))
+    cloud_portal = portal_config.cloud() and portal_config.enabled()
+    if cloud_portal:
+        from urllib.parse import urlparse
+        if hostname != urlparse(os.getenv('PORTAL_ORIGIN', '')).hostname:
+            return Response(status_code=404)
+        # Account provisioning/identity mutation is not enabled for the owner-only cloud trial.
+        if request.url.path in {'/api/portal/invitations','/api/portal/auth/accept-invitation',
+                               '/api/portal/auth/password','/api/portal/auth/email-challenge','/api/portal/auth/email-verify'}:
+            return Response(status_code=404)
+    if is_portal and (not portal_config.enabled() or (not cloud_portal and (not portal_config.local_only() or not _loopback_request(hostname, peer)))):
+        return Response(status_code=404)
+    if portal_config.enabled() and not cloud_portal and not _loopback_request(hostname, peer):
+        return Response(status_code=404)
     if request.url.path in _ADMIN_PATHS and not _loopback_request(hostname, peer):
         return Response(
             content=_DARK_RESPONSE_BODY,
@@ -179,12 +199,21 @@ async def default_dark_boundary(request: Request, call_next):
             status_code=404,
             media_type="application/json",
         )
-    return await call_next(request)
+    response = await call_next(request)
+    if is_portal or portal_config.enabled():
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 @app.post("/api/chat")
 def post_chat(request: Request, payload: dict = Body(...)):
     with cloud_store.session_scope(payload.get("session_id")):
+        if portal_config.enabled():
+            from app.portal_store import require_bound_session
+            require_bound_session(payload.get("session_id"))
         return _post_chat(request, payload)
 
 
@@ -258,6 +287,11 @@ def _post_chat(request: Request, payload: dict):
 
 @app.post("/api/consent")
 def post_consent(request: Request, payload: dict = Body(...)):
+    if portal_config.enabled():
+        from app.portal_store import consent_scope
+        from app.portal_auth import csrf
+        csrf(request)
+        return consent_scope(request, payload, _post_consent)
     with cloud_store.session_scope(payload.get("session_id")):
         return _post_consent(request, payload)
 
@@ -360,6 +394,8 @@ def get_config():
         "intake_schema": schema is not None,
         "ui": schema.ui if schema is not None else {},
     }
+    if portal_config.enabled():
+        config["institution_link_required"] = True
     # Legacy packs keep their existing JSON contract, including exact-key clients.
     # Consent-specific fields belong to packs that explicitly opt in.
     if privacy is not None:
@@ -524,6 +560,9 @@ def post_review(
             raise HTTPException(status_code=503, detail="확인 기록을 저장하지 못했습니다.") from exc
     return {"review_status": action}
 
+
+from app.portal import router as portal_router
+app.include_router(portal_router)
 
 if os.path.isdir(STATIC_DIR):
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

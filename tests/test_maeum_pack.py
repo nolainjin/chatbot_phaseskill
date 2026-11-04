@@ -63,8 +63,9 @@ def test_existing_slots_and_crisis_flags_are_preserved():
     schema = load_schema(PACK_DIR)
 
     # dataclass 전체 비교로 values, signals, red_flag, when/unless까지 보호한다.
+    # 실제 모델이 원인 설명을 상담 기대에 미리 채우는 오류를 막는 명시적 차이.
     assert [slot for slot in schema.slots if slot.id != "cause"] == [
-        replace(slot, priority=slot.priority + 1)
+        replace(slot, priority=slot.priority + 1, extract="when_asked" if slot.id == "expectation" else slot.extract)
         if slot.id in {"coping", "support", "expectation"} else slot
         for slot in original.slots
     ]

@@ -182,6 +182,7 @@ intake_schema:
       signals: [친구, 부모, 엄마, 아빠, 선생님, 동료]
     - id: expectation
       label: 상담 기대
+      extract: when_asked
       required: false
       priority: 7
       unless: "track=중독"
