@@ -7,7 +7,7 @@ from contextlib import nullcontext
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from app import consent, paths, review, storage
+from app import cloud_store, consent, paths, review, storage
 from app.config import Settings
 
 SUMMARY_ROLES = ("intake_summary", "intake_snapshot")
@@ -53,6 +53,8 @@ def tombstone(session_id, via, base_dir=None):
 
 def session_retired(session):
     """Invalidate live state if another local process purged/deleted its records."""
+    if cloud_store.enabled():
+        return cloud_store.session_retired(session)
     path = paths.tombstones_path()
     if not path.exists():
         return False
@@ -64,6 +66,8 @@ def session_retired(session):
 def delete_session(session_id, via, base_dir=None, db_path=None):
     if not isinstance(session_id, str) or not storage.valid_session_id(session_id):
         raise ValueError("Invalid session id")
+    if cloud_store.enabled() and base_dir is None and db_path is None:
+        return cloud_store.delete_session(session_id, via)
     root = paths.conversations_dir(base_dir)
     with storage.data_lock(root):
         review.remove_reviews(session_id, root)
@@ -91,6 +95,8 @@ def purge_expired(*, today=None, dry_run=False, base_dir=None, db_path=None, raw
     summary_days = settings.retention_summary_days if summary_days is None else summary_days
     if type(raw_days) is not int or type(summary_days) is not int or not 0 < raw_days <= summary_days:
         raise ValueError("Invalid retention periods")
+    if cloud_store.enabled() and base_dir is None and db_path is None:
+        return cloud_store.purge_expired(today=today, dry_run=dry_run, raw_days=raw_days, summary_days=summary_days)
     today = today or date.today()
     if isinstance(today, str):
         today = date.fromisoformat(today)

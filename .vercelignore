@@ -1,0 +1,14 @@
+.git
+.venv
+.env*
+data
+tests
+docs
+receipts
+.phase
+.omo
+.omc
+.omx
+.voice-model-cache
+__pycache__
+*.pyc

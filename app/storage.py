@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
-from app import paths
+from app import cloud_store, paths
 from app.filelock import exclusive_file_lock
 
 _DATA_LOCK = threading.RLock()
@@ -27,6 +27,10 @@ def data_lock(base_dir=None):
     with _DATA_LOCK:
         if getattr(_LOCK_STATE, "active", False):
             yield
+            return
+        if cloud_store.enabled() and base_dir is None:
+            with cloud_store.transaction("record-write"):
+                yield
             return
         lock_path = paths.records_lock_path(base_dir)
         _ensure_private_dir(lock_path.parent)
@@ -97,6 +101,8 @@ def conversation_exists(
 ) -> bool:
     if not valid_session_id(session_id):
         return False
+    if cloud_store.enabled() and base_dir is None:
+        return cloud_store.conversation_exists(session_id)
     return any(
         path.is_file()
         for path in paths.conversations_dir(base_dir).glob(f"*/{session_id}.json")
@@ -190,6 +196,9 @@ def append_turn(
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
     with data_lock(base_dir):
+        if cloud_store.enabled() and base_dir is None:
+            cloud_store.update_conversation(session_id, participant_id, turn=(role, text))
+            return
         day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
         _ensure_private_dir(day_dir)
         path = day_dir / f"{session_id}.json"
@@ -216,6 +225,9 @@ def update_metadata(
         raise ValueError(f"잘못된 participant_id: {participant_id!r}")
 
     with data_lock(base_dir):
+        if cloud_store.enabled() and base_dir is None:
+            cloud_store.update_conversation(session_id, participant_id, metadata=updates)
+            return
         day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
         _ensure_private_dir(day_dir)
         path = day_dir / f"{session_id}.json"

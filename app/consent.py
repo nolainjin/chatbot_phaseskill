@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from app import paths, storage
+from app import cloud_store, paths, storage
 
 _CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 
@@ -89,6 +89,8 @@ def data_path(filename, base_dir=None):
 
 
 def _read_codes(base_dir=None):
+    if cloud_store.enabled() and base_dir is None:
+        return [value for _, value in cloud_store.records("delete_code")]
     path = paths.delete_codes_path(base_dir)
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line] if path.exists() else []
 
@@ -114,6 +116,10 @@ def issue_delete_code(session_id, base_dir=None):
     """Return the only plaintext copy; persist a random salt and digest privately."""
     compact = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(12))
     salt = secrets.token_hex(32)
+    if cloud_store.enabled() and base_dir is None:
+        cloud_store.put("delete_code", session_id,
+                        {"session_id": session_id, "salt": salt, "code_hash": _code_hash(compact, salt)})
+        return "-".join(compact[i:i + 4] for i in range(0, 12, 4))
     with storage.data_lock(base_dir):
         records = _read_codes(base_dir)
         records.append({"session_id": session_id, "salt": salt, "code_hash": _code_hash(compact, salt)})
@@ -132,6 +138,9 @@ def session_for_delete_code(code, base_dir=None):
 
 
 def remove_delete_code(session_id, base_dir=None):
+    if cloud_store.enabled() and base_dir is None:
+        cloud_store.remove("delete_code", session_id)
+        return
     records = _read_codes(base_dir)
     remaining = [r for r in records if r["session_id"] != session_id]
     if remaining != records:

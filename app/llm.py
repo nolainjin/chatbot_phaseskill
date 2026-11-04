@@ -383,7 +383,10 @@ def _ask_single_backend(
             _codex_prompt(system, history, user),
             _codex_model(model),
         )
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.Anthropic(
+        api_key=settings.anthropic_api_key,
+        **({"timeout": 45.0, "max_retries": 0} if os.getenv("VERCEL") == "1" else {}),
+    )
     response = client.messages.create(
         model=model,
         max_tokens=MAX_TOKENS,

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Request
 
-from app import paths
+from app import cloud_store, paths
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,9 @@ class RateLimiter:
 
     def check(self, ip: str, session_id: str, daily_cap: int = 500) -> None:
         """Count every admitted turn; apply per-IP window only to new sessions."""
+        if cloud_store.enabled() and self._configured_path is None:
+            cloud_store.check_rate(ip, session_id, daily_cap, self._max_per_window)
+            return
         with self._lock:
             state = self._load()
             now = datetime.now(timezone.utc)

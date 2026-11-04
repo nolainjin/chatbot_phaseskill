@@ -7,16 +7,18 @@ import logging
 import os
 import re
 import secrets
+import anthropic
+import psycopg
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Body, Cookie, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app import access_log, chat, consent, intake, ratelimit, referral, retention, review, stats, storage
+from app import access_log, chat, cloud_store, consent, intake, ratelimit, referral, retention, review, stats, storage
 from app.config import Settings
 
 MAX_MESSAGE_LEN = 2000
@@ -45,6 +47,16 @@ _DARK_RESPONSE_BODY = b'{"detail":"public service disabled"}'
 
 @asynccontextmanager
 async def lifespan(_app):
+    if os.getenv("VERCEL") == "1":
+        settings = Settings.from_env()
+        if not cloud_store.enabled():
+            raise RuntimeError("Vercel requires MAEUM_DATABASE_URL; local disk is not durable.")
+        if settings.model in {"auto", "claude-cli", "codex-cli"} or settings.model.startswith("codex-cli:"):
+            raise RuntimeError("Vercel requires an API model or explicit fake test mode; CLI models are disabled.")
+        if len(os.getenv("PARTICIPANT_TICKET_SECRET", "")) < 32:
+            raise RuntimeError("Vercel requires a stable PARTICIPANT_TICKET_SECRET.")
+        if settings.model.startswith("claude-") and not settings.anthropic_api_key:
+            raise RuntimeError("Vercel requires ANTHROPIC_API_KEY for the configured Claude model.")
     settings = Settings.from_env()
     consent.load_privacy(settings.knowledge_dir, settings)
     intake.load_schema(settings.knowledge_dir)
@@ -53,6 +65,22 @@ async def lifespan(_app):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(psycopg.Error)
+async def cloud_storage_unavailable(_request, exc):
+    logger.error("Cloud storage unavailable (%s)", type(exc).__name__)
+    return JSONResponse(status_code=503, headers={"Retry-After": "3"},
+                        content={"detail": "기록 저장소 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요."})
+
+
+@app.exception_handler(anthropic.APIError)
+async def cloud_model_unavailable(_request, exc):
+    logger.error("Claude API unavailable (%s)", type(exc).__name__)
+    return JSONResponse(status_code=502,
+                        content={"detail": "답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요." + _PUBLIC_TERMINAL_SAFETY_NOTICE})
+
+
 _rate_limiter = ratelimit.RateLimiter()
 _participant_secret = os.environ.get("PARTICIPANT_TICKET_SECRET", "").encode("utf-8")
 if len(_participant_secret) < 32:
@@ -106,6 +134,9 @@ def _new_participant_id() -> str:
 
 
 def _failure_allowed(ip: str, failures: dict) -> bool:
+    if cloud_store.enabled():
+        kind = "stats" if failures is _stats_auth_failures else "deletion"
+        return cloud_store.auth_failure(kind, ip, limit=MAX_STATS_AUTH_FAILURES)
     now = datetime.now(timezone.utc)
     retained = []
     for ts in failures.get(ip, []):
@@ -123,6 +154,9 @@ def _stats_failure_allowed(ip: str) -> bool:
 
 
 def _record_stats_failure(ip: str) -> None:
+    if cloud_store.enabled():
+        cloud_store.auth_failure("stats", ip, record=True)
+        return
     _stats_auth_failures.setdefault(ip, []).append(datetime.now(timezone.utc).isoformat())
 
 
@@ -150,6 +184,11 @@ async def default_dark_boundary(request: Request, call_next):
 
 @app.post("/api/chat")
 def post_chat(request: Request, payload: dict = Body(...)):
+    with cloud_store.session_scope(payload.get("session_id")):
+        return _post_chat(request, payload)
+
+
+def _post_chat(request: Request, payload: dict):
     session_id = payload.get("session_id")
     message = payload.get("message")
     participant_id = payload.get("participant_id")
@@ -219,6 +258,11 @@ def post_chat(request: Request, payload: dict = Body(...)):
 
 @app.post("/api/consent")
 def post_consent(request: Request, payload: dict = Body(...)):
+    with cloud_store.session_scope(payload.get("session_id")):
+        return _post_consent(request, payload)
+
+
+def _post_consent(request: Request, payload: dict):
     settings = Settings.from_env()
     privacy = consent.load_privacy(settings.knowledge_dir, settings)
     if privacy is None:
@@ -267,6 +311,18 @@ def post_consent(request: Request, payload: dict = Body(...)):
 
 @app.post("/api/session/delete")
 def post_session_delete(request: Request, payload: dict = Body(...)):
+    session_id = payload.get("session_id")
+    if cloud_store.enabled() and "delete_code" in payload:
+        settings = Settings.from_env()
+        ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
+        if not _failure_allowed(ip, _deletion_auth_failures):
+            raise HTTPException(status_code=429, detail="삭제 인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.")
+        session_id = consent.session_for_delete_code(payload["delete_code"])
+    with cloud_store.session_scope(session_id):
+        return _post_session_delete(request, payload)
+
+
+def _post_session_delete(request: Request, payload: dict):
     settings = Settings.from_env()
     ip = ratelimit.client_ip(request, settings.trust_proxy_hops)
     with storage.data_lock():
@@ -284,7 +340,10 @@ def post_session_delete(request: Request, payload: dict = Body(...)):
                 session_id = None
             via = "session_token"
         if session_id is None:
-            _deletion_auth_failures.setdefault(ip, []).append(datetime.now(timezone.utc).isoformat())
+            if cloud_store.enabled():
+                cloud_store.auth_failure("deletion", ip, record=True)
+            else:
+                _deletion_auth_failures.setdefault(ip, []).append(datetime.now(timezone.utc).isoformat())
             raise HTTPException(status_code=401, detail="삭제 코드 또는 세션 인증이 올바르지 않습니다.")
         retention.delete_session(session_id, via)
         return {"deleted": True, "session_id": session_id, "reply": "내 기록을 지웠습니다."}
@@ -309,6 +368,24 @@ def get_config():
     if schema is not None and schema.handoff_mode is not None:
         config["slot_labels"] = {slot.id: slot.label for slot in schema.slots}
     return config
+
+
+@app.get("/api/health")
+def get_health():
+    if cloud_store.enabled():
+        cloud_store.get("health", "probe")
+    settings = Settings.from_env()
+    return {"status": "ok", "storage": "postgres" if cloud_store.enabled() else "local",
+            "model_configured": bool(settings.anthropic_api_key) if settings.model.startswith("claude-") else settings.model == "fake"}
+
+
+@app.get("/api/maintenance/retention")
+def maintenance_retention(authorization: str | None = Header(default=None)):
+    secret = os.getenv("CRON_SECRET", "")
+    if len(secret) < 32 or not authorization or not secrets.compare_digest(authorization, "Bearer " + secret):
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    result = retention.purge_expired()
+    return {key: result[key] for key in ("sessions", "turns")}
 
 
 @app.get("/stats.html")

@@ -3,7 +3,7 @@
 import json
 from datetime import date, datetime, timezone
 
-from app import access_log, paths, storage
+from app import access_log, cloud_store, paths, storage
 
 ACTIONS = ("안내 전화함", "기관 연결함", "해당 없음", "연락 불가")
 
@@ -28,6 +28,8 @@ def review_required(summary: dict) -> bool:
 
 
 def read_reviews(base_dir=None) -> list[dict]:
+    if cloud_store.enabled() and base_dir is None:
+        return sorted((value for _, value in cloud_store.records("reviews")), key=lambda value: value["at"])
     path = paths.reviews_path(base_dir)
     with storage.data_lock(base_dir):
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line] if path.exists() else []
@@ -50,6 +52,12 @@ def record_review(session_id: str, action: str, token: str, note: str = "", base
 
 
 def remove_reviews(session_id: str, base_dir=None) -> None:
+    if cloud_store.enabled() and base_dir is None:
+        digest = access_log.hash_value(session_id)
+        for key, value in cloud_store.records("reviews"):
+            if value["session_hash"] == digest:
+                cloud_store.remove("reviews", key)
+        return
     with storage.data_lock(base_dir):
         records = read_reviews(base_dir)
         digest = access_log.hash_value(session_id)

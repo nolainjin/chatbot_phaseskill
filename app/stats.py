@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app import access_log, paths, review
+from app import access_log, cloud_store, paths, review
 
 
 _SLOT_LABELS = {
@@ -32,6 +32,8 @@ _ALL_SLOT_LABELS = {**_SLOT_LABELS, "cause": "원인·계기"}
 
 def sync_today() -> int:
     """현재 날짜의 JSON 접수 기록을 내부 대시보드 SQLite에 멱등 반영한다."""
+    if cloud_store.enabled():
+        return 0
     from scripts import load_to_sqlite
 
     return load_to_sqlite.load_day(date.today())
@@ -68,6 +70,9 @@ def read_session_detail(
     db_path: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """상담자가 선택한 한 접수 세션의 대화 내역을 순서대로 반환한다."""
+    if cloud_store.enabled() and db_path is None:
+        with cloud_store.stats_snapshot() as snapshot:
+            return read_session_detail(day, session_id, db_path=snapshot)
     db_path = paths.db_path() if db_path is None else Path(db_path)
     if not db_path.exists():
         return None
@@ -312,6 +317,11 @@ def read_stats(
     participant_prefix: str | None = None,
     session_prefix: str | None = None,
 ) -> dict[str, Any]:
+    if cloud_store.enabled() and db_path is None:
+        with cloud_store.stats_snapshot() as snapshot:
+            result = read_stats(snapshot, participant_prefix, session_prefix)
+            result["database"] = "Supabase"
+            return result
     db_path = paths.db_path() if db_path is None else Path(db_path)
     filters = {"participant_prefix": participant_prefix, "session_prefix": session_prefix}
     if not db_path.exists():

@@ -3,9 +3,10 @@
 import hashlib
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 
-from app import paths, storage
+from app import cloud_store, paths, storage
 
 
 def hash_value(value: str) -> str:
@@ -18,6 +19,9 @@ def actor_hash(token: str) -> str:
 
 def append_private_record(filename: str, record: dict, base_dir=None) -> None:
     """Append under the shared record lock; propagate chmod/write/fsync errors."""
+    if cloud_store.enabled() and base_dir is None:
+        cloud_store.put(filename.removesuffix(".jsonl"), str(uuid.uuid4()), record)
+        return
     with storage.data_lock(base_dir):
         path = paths.data_path(filename, base_dir)
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
