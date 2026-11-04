@@ -34,6 +34,12 @@ def portal_page():
         html = html.replace('id="signup-open" class="secondary" hidden', 'id="signup-open" class="secondary"')
         html = html.replace('<details><summary>초대 수락</summary>', '<details hidden><summary>초대 수락</summary>')
         html = html.replace('등록된 담당자 이메일로 기기를 확인합니다.', '등록된 담당자는 이메일 인증번호로 로그인합니다.')
+        if portal_email.link_delivery():
+            html = html.replace('인증번호 받기</button>', '이메일 로그인 링크 받기</button>')
+            html = html.replace('등록된 이메일로 인증번호를 보내드립니다.', '등록된 Gmail로 로그인 링크를 보내드립니다.')
+            html = html.replace('등록된 담당자는 이메일 인증번호로 로그인합니다.', 'Gmail 이메일 링크 로그인 · 현재 지정된 시험계정만 인증 메일을 받을 수 있습니다.')
+            html = html.replace('등록한 뒤 코드로 로그인할 수 있습니다.', '등록합니다. 현재 지정된 Gmail 시험계정 외의 인증 메일 발송은 준비 중입니다.')
+            html = html.replace('신청 이메일의 실제 소유 여부는 코드 로그인 때 확인합니다.', '이메일 소유는 로그인 때 확인합니다. 현재 지정된 Gmail 시험계정 외의 인증 메일은 발송하지 않습니다.')
     return HTMLResponse(html)
 
 
@@ -97,6 +103,22 @@ def email_pending(request: Request):
 def email_verify(request: Request, response: Response, payload: dict = Body(...)):
     email_mode()
     return portal_email.verify(request, response, payload)
+
+
+@router.get('/portal/email-return')
+def email_return():
+    email_mode()
+    if not portal_email.link_delivery():
+        raise HTTPException(404)
+    return FileResponse(Path(__file__).resolve().parents[1] / 'static/portal/email-return.html')
+
+
+@router.post('/api/portal/auth/email-exchange')
+def email_exchange(request: Request, response: Response, payload: dict = Body(...)):
+    email_mode()
+    if not portal_email.link_delivery():
+        raise HTTPException(404)
+    return portal_email.verify(request, response, payload, link=True)
 
 
 @router.post('/api/portal/auth/email-cancel')

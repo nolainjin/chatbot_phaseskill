@@ -1,8 +1,25 @@
 # 이메일 코드 로그인 · 사전 등록 및 가입 신청
 
-2026-11-04 구현 후보. **로컬 구현과 검증 완료, 공개 사이트 활성화 전**이다.
-이 문서의 새 숫자 코드 방식은 이전 [비밀번호+PKCE 공개 시험](PORTAL_CLOUD.md)과 별개다.
-기존 공개 배포와 상담 자료는 유지했다. 새 실제 메일 발송·운영 DB 변경은 하지 않았다.
+2026-11-04. 사용자 지시에 따라 **Gmail만 허용하는 비밀번호 없는 이메일 링크 로그인**을 공개 반영한다.
+숫자 코드 로그인도 구현되어 있지만 현재 무료 기본 메일에서는 활성화하지 않는다.
+이전 [비밀번호+PKCE 공개 시험](PORTAL_CLOUD.md)의 같은 Vercel/Supabase 프로젝트와 상담 자료를 사용한다.
+
+## 현재 공개 방식과 제한
+
+- 로그인에는 이메일 한 칸과 `이메일 로그인 링크 받기`, `회원가입/신청`만 표시한다.
+- `PORTAL_EMAIL_LOGIN=1`, `PORTAL_EMAIL_DELIVERY=link`, `PORTAL_EMAIL_DOMAINS=gmail.com`을 사용한다.
+- 기본 SMTP의 조직 팀원 제한 때문에 `PORTAL_EMAIL_SEND_ALLOWLIST`에는 승인된 Owner Gmail 한 주소만 둔다.
+  다른 Gmail로 신청하고 관리자가 기관/역할을 지정할 수 있지만, SMTP 연결 전에는 인증 메일을 발송하지 않는다.
+  Gmail 도메인 허용이 모든 Gmail 주소로의 발송 가능을 뜻하지 않는다. 화면과 신청/승인 응답에도 제한을 표시한다.
+- 새 프로젝트, 새 발신 계정, 유료 플랜, SMTP 자격증명은 만들거나 선택하지 않았다.
+- 이메일 링크도 같은 브라우저에서 10분 내 한 번만 사용한다. callback에서 query를 즉시 지우고,
+  사용자가 확인 버튼을 누르면 Strict 쿠키의 시도/nonce 및 CSRF와 state·PKCE를 함께 확인한다.
+  최초 HTTP URL이 호스팅/인증 제공자 로그에 전혀 남지 않는다고 보장하지 않는다.
+- 숫자 코드와 링크 검증 API는 서버 설정으로 상호 차단한다. 시도에도 `link-v1:` 모드를 저장해
+  배포 설정 변경 전의 pending을 다른 검증 방식으로 해석하지 않는다. 기존 숫자 코드 구현은 아래에 기록한다.
+- migration006은 schema-only 비공개 백업 후 트랜잭션으로 적용하고, 기존 Owner만 등록 관리자로 지정한다.
+  기존 기관/접수/보고서를 이관하거나 다시 생성하지 않는다.
+- 최종 배포/실메일 결과는 별도 공개 시험 증거에 기록한다. 로컬 검사만으로 실제 수신을 주장하지 않는다.
 
 ## 사용 흐름
 
@@ -34,7 +51,7 @@
 별도 SMTP 연결 뒤 실제 공급자·Supabase 제한에 맞게 이 값과 Auth rate limit을 함께 결정한다.
 만료 인증 시도는 하루, 미승인/거절 신청은 30일 뒤 정리 대상이다.
 
-## 외부 활성화에 남은 설정
+## 나중에 숫자 코드와 다른 담당자 발송을 활성화할 때
 
 현재 Supabase 무료 기본 메일은 조직 팀원에게 시간당 2통만 보낸다.
 대시보드에서 확인한 기본 템플릿은 링크 형식이고, 제목/본문 수정은 custom SMTP 또는 Pro가 필요하다.
@@ -58,7 +75,7 @@
 6. 기존 사용자와 새로 사전 등록한 별도 시험 사용자의 실제 숫자 코드 수신·첫 UUID 연결,
    교차 기관 차단, 코드 재사용/만료, 로그아웃·재로그인과 재배포 지속성을 확인한다.
 
-위 순서를 마치기 전에는 공개 서비스에서 새 모드를 켜지 않는다.
+위 순서를 마치기 전에는 공개 서비스의 숫자 코드 모드를 켜지 않는다. 현재 공개 시험은 위의 링크 모드와 Owner 수신 제한을 사용한다.
 
 ## 이번 검증
 
@@ -81,3 +98,11 @@
 공식 근거: [Supabase 이메일 OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless),
 [SMTP 제한과 연결](https://supabase.com/docs/guides/auth/auth-smtp),
 [Google 앱 비밀번호](https://support.google.com/mail/answer/185833?hl=ko).
+
+## Gmail 링크 후보의 추가 검증 (이번 실행)
+
+- 전체 회귀 `710 passed, 68 skipped` (19.88s), 별도 disposable PostgreSQL `68 passed` (20.92s).
+- 기존 data/ 해시 전후 일치. JS 문법, Python compileall, git diff --check 통과.
+- 추가 10개: Gmail 정확 도메인/발송 allowlist, 링크 PKCE 성공, 다른 브라우저/nonce/CSRF/state/만료/인증버전/소속/모드전환 거절, 첫 UUID 연결과 동시 단일 성공.
+- 이 공급자 경계 검사는 HTTP 모사이며, 공개 실제 발송과 구분한다.
+- 무료 기본 메일 템플릿 제한 공식 근거: [2026-06-03 변경 공지](https://supabase.com/changelog/46599-changes-to-email-template-customisation-on-free-tier).

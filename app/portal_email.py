@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import time
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -28,6 +29,16 @@ def enabled():
     return os.getenv('PORTAL_EMAIL_LOGIN') == '1'
 
 
+def link_delivery():
+    return portal_config.cloud() and os.getenv('PORTAL_EMAIL_DELIVERY') == 'link'
+
+
+def public_message():
+    if link_delivery():
+        return '발송 가능한 등록 이메일이라면 로그인 링크를 보냈습니다. 로그인한 이 브라우저에서 메일의 링크를 열어 주세요.'
+    return PUBLIC_MESSAGE
+
+
 def normalize(value):
     if not isinstance(value, str):
         raise HTTPException(400, '이메일 주소를 확인해 주세요.')
@@ -36,6 +47,9 @@ def normalize(value):
             or not re.fullmatch(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}", value)
             or len(value.split('@')[0]) > 64 or '..' in value):
         raise HTTPException(400, '이메일 주소를 확인해 주세요.')
+    domains = {item.strip().lower() for item in os.getenv('PORTAL_EMAIL_DOMAINS', '').split(',') if item.strip()}
+    if domains and value.rsplit('@', 1)[1] not in domains:
+        raise HTTPException(400, '현재 기관 담당자는 Gmail 주소로만 신청하고 로그인할 수 있습니다.')
     return value
 
 
@@ -54,7 +68,8 @@ def start(request, response, payload):
     auth.limit('email-login-peer:' + digest(request.client.host), 30)
     token, nonce, csrf = (secrets.token_urlsafe(32) for _ in range(3))
     row = {'token_hash': digest(token), 'nonce_hash': digest(nonce), 'email': email}
-    code = f'{secrets.randbelow(100000000):08d}'
+    code, state = f'{secrets.randbelow(100000000):08d}', secrets.token_urlsafe(32)
+    code_mac = 'link-v1:' + digest(state) if link_delivery() else (local_mac(row, code) if not portal_config.cloud() else None)
     with auth.connect() as conn:
         conn.execute('DELETE FROM maeum.email_login_attempts WHERE expires_at<%s', (now - 86400,))
         user = conn.execute('SELECT * FROM maeum.portal_users WHERE email=%s', (email,)).fetchone()
@@ -65,15 +80,24 @@ def start(request, response, payload):
         conn.execute('INSERT INTO maeum.email_login_attempts(token_hash,nonce_hash,csrf,email,user_id,auth_version,code_mac,created_at,expires_at) '
                      'VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                      (row['token_hash'], row['nonce_hash'], csrf, email, user['id'] if eligible else None,
-                      user['auth_version'] if eligible else None, local_mac(row, code) if eligible and not portal_config.cloud() else None,
+                      user['auth_version'] if eligible else None, code_mac,
                       now, now + policy.code_seconds))
     ready = False
-    if eligible:
+    recipients = {item.strip().lower() for item in os.getenv('PORTAL_EMAIL_SEND_ALLOWLIST', '').split(',') if item.strip()}
+    if eligible and (not recipients or email in recipients):
         try:
             if portal_config.cloud():
-                from app.portal_supabase import request_api
+                from app.portal_supabase import request_api, verifier
                 auth.limit('email-provider-project', int(os.getenv('PORTAL_PROVIDER_EMAILS_PER_HOUR', '2')))
-                request_api('/otp', {'email': email, 'create_user': not bool(user.get('supabase_user_id'))})
+                body = {'email': email, 'create_user': not bool(user.get('supabase_user_id'))}
+                path = '/otp'
+                if link_delivery():
+                    import base64
+                    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier(row, 'email-link-v1:' + row['token_hash']).encode()).digest()).decode().rstrip('=')
+                    body.update(code_challenge=challenge, code_challenge_method='s256')
+                    redirect = os.environ['PORTAL_ORIGIN'] + '/portal/email-return?' + urlencode({'state': state})
+                    path += '?' + urlencode({'redirect_to': redirect})
+                request_api(path, body)
             else:
                 auth.capture_mail({'purpose': 'login', 'to': email, 'code': code, 'created_at': now})
             ready = True
@@ -84,7 +108,7 @@ def start(request, response, payload):
         conn.execute('UPDATE maeum.email_login_attempts SET provider_ready=%s WHERE token_hash=%s', (ready, row['token_hash']))
     auth.cookie(response, ATTEMPT, token, policy.code_seconds)
     auth.cookie(response, BROWSER, nonce, policy.code_seconds)
-    return {'state': 'email_code', 'csrf': csrf, 'message': PUBLIC_MESSAGE, 'retry_after': policy.resend_seconds}
+    return {'state': 'email_link' if link_delivery() else 'email_code', 'csrf': csrf, 'message': public_message(), 'retry_after': policy.resend_seconds}
 
 
 def attempt(conn, request):
@@ -100,12 +124,20 @@ def pending(request):
         row = attempt(conn, request)
         if row['consumed'] or row['expires_at'] <= time.time():
             raise HTTPException(401, '이메일을 입력해 인증번호를 다시 받아 주세요.')
-        return {'state': 'email_code', 'csrf': row['csrf'], 'email': row['email'], 'message': PUBLIC_MESSAGE}
+        if bool((row['code_mac'] or '').startswith('link-v1:')) != link_delivery():
+            raise HTTPException(401, '이메일 인증을 다시 시작해 주세요.')
+        return {'state': 'email_link' if link_delivery() else 'email_code', 'csrf': row['csrf'], 'email': row['email'], 'message': public_message()}
 
 
-def verify(request, response, payload):
+def verify(request, response, payload, *, link=False):
+    if link != link_delivery():
+        raise HTTPException(404)
     code = payload.get('code')
-    if not isinstance(code, str) or not re.fullmatch(r'[0-9]{6,10}', code):
+    if link:
+        state = payload.get('state')
+        if not isinstance(code, str) or not 10 <= len(code) <= 512 or not isinstance(state, str) or not 32 <= len(state) <= 128:
+            raise HTTPException(400, '이메일 확인 링크를 다시 열어 주세요.')
+    elif not isinstance(code, str) or not re.fullmatch(r'[0-9]{6,10}', code):
         raise HTTPException(400, '이메일에 표시된 숫자 인증번호를 입력해 주세요.')
     auth.csrf(request)
     auth.limit('email-verify-peer:' + digest(request.client.host), 60)
@@ -113,18 +145,24 @@ def verify(request, response, payload):
     with auth.connect() as conn:
         row = attempt(conn, request)
         auth.csrf(request, row)
-        if not row['consumed'] and row['expires_at'] > now and row['attempts'] < policy.code_attempts:
+        same_mode = bool((row['code_mac'] or '').startswith('link-v1:')) == link
+        if same_mode and not row['consumed'] and row['expires_at'] > now and row['attempts'] < policy.code_attempts:
             # Increment and commit even when the provider rejects an OTP.
             conn.execute('UPDATE maeum.email_login_attempts SET attempts=attempts+1 WHERE token_hash=%s', (row['token_hash'],))
             user = conn.execute('SELECT * FROM maeum.portal_users WHERE id=%s FOR UPDATE', (row['user_id'],)).fetchone()
             valid = bool(row['provider_ready'] and user and user['active'] and user['email'] == row['email']
                          and user['auth_version'] == row['auth_version'] and conn.execute(
                              'SELECT maeum.email_login_eligible(%s) AS ok', (user['id'],)).fetchone()['ok'])
+            if link:
+                valid = valid and hmac.compare_digest(row['code_mac'], 'link-v1:' + digest(state))
             if valid and portal_config.cloud():
-                from app.portal_supabase import request_api, discard_provider_session
+                from app.portal_supabase import request_api, discard_provider_session, verifier
                 result = {}
                 try:
-                    result = request_api('/verify', {'email': row['email'], 'token': code, 'type': 'email'})
+                    if link:
+                        result = request_api('/token?grant_type=pkce', {'auth_code': code, 'code_verifier': verifier(row, 'email-link-v1:' + row['token_hash'])})
+                    else:
+                        result = request_api('/verify', {'email': row['email'], 'token': code, 'type': 'email'})
                     identity = result.get('user', {})
                     provider_id = str(UUID(identity.get('id', '')))
                     valid = (identity.get('email', '').lower() == row['email'] and bool(identity.get('email_confirmed_at'))
@@ -149,7 +187,7 @@ def verify(request, response, payload):
                 conn.execute('UPDATE maeum.email_login_attempts SET consumed=(attempts >= %s) WHERE token_hash=%s',
                              (policy.code_attempts, row['token_hash']))
     if not success:
-        raise HTTPException(400, '인증번호가 올바르지 않거나 만료되었습니다. 등록된 이메일인지 확인해 주세요.')
+        raise HTTPException(400, '이메일 인증이 올바르지 않거나 만료되었습니다. 등록된 이메일로 다시 시작해 주세요.')
     auth.cookie(response, auth.SESSION, token, policy.session_seconds)
     auth.cookie(response, auth.NONCE, nonce, policy.session_seconds)
     for name in [ATTEMPT, BROWSER, auth.DEVICE]:
@@ -166,7 +204,11 @@ def apply(request, payload):
         now = time.time()
         conn.execute('DELETE FROM maeum.registration_requests WHERE status<>%s AND requested_at<%s', ('approved', now - 30 * 86400))
         conn.execute('INSERT INTO maeum.registration_requests(email,requested_at) VALUES(%s,%s) ON CONFLICT(email) DO NOTHING', (email, now))
-    return {'received': True, 'message': '신청을 접수했습니다. 관리자가 이메일과 소속 기관을 확인해 등록하면 코드로 로그인할 수 있습니다.'}
+    return {'received': True, 'message': '신청을 접수했습니다. 관리자가 소속 기관과 권한을 확인하며, 현재 실제 인증은 지정된 Gmail 시험계정만 지원합니다.' if recipients_limited() else '신청을 접수했습니다. 관리자가 이메일과 소속 기관을 확인해 등록하면 이메일 인증으로 로그인할 수 있습니다.'}
+
+
+def recipients_limited():
+    return bool(os.getenv('PORTAL_EMAIL_SEND_ALLOWLIST', '').strip())
 
 
 def registrar(conn, request):
@@ -202,7 +244,7 @@ def register(request, payload):
         if not conn.execute('SELECT 1 FROM maeum.organizations WHERE id=%s AND active', (org,)).fetchone():
             raise HTTPException(404, '기관을 찾을 수 없습니다.')
         uid = conn.execute('SELECT maeum.register_email(%s,%s,%s,%s) AS id', (row['token_hash'], email, org, permissions)).fetchone()['id']
-    return {'registered': True, 'id': uid, 'message': '이메일을 등록했습니다. 해당 사용자가 이메일 코드로 로그인할 수 있습니다.'}
+    return {'registered': True, 'id': uid, 'message': '이메일을 등록했습니다. 현재 지정된 Gmail 시험계정 외의 인증 메일은 발송하지 않습니다.' if recipients_limited() else '이메일을 등록했습니다. 해당 사용자가 이메일 인증으로 로그인할 수 있습니다.'}
 
 
 def reject(request, payload):

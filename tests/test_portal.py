@@ -113,6 +113,100 @@ def c_has_user(env, email):
         return conn.execute('SELECT 1 FROM maeum.portal_users WHERE email=%s', (email,)).fetchone() is not None
 
 
+def test_email_gmail_domain_and_sender_allowlist(email_env, monkeypatch):
+    monkeypatch.setenv('PORTAL_EMAIL_DOMAINS', 'gmail.com')
+    monkeypatch.setenv('PORTAL_EMAIL_SEND_ALLOWLIST', 'owner@gmail.com')
+    c = client()
+    for address in ['person@example.test', 'person@gmail.com.evil.test', 'person@googlemail.com']:
+        assert post(c, '/auth/apply', {'email': address}).status_code == 400
+        assert post(c, '/auth/email-start', {'email': address}).status_code == 400
+    assert post(c, '/auth/apply', {'email': ' Applicant@GMAIL.COM '}).status_code == 200
+    assert c_has_user(email_env, 'applicant@gmail.com') is False
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET email='other@gmail.com' WHERE id='A0'")
+    email_start(c, 'other@gmail.com')
+    assert not list(Path(os.environ['PORTAL_MAIL_DIR']).glob('*.json'))
+    assert post(c, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
+
+
+@pytest.mark.parametrize('failure', [None, 'state', 'nonce', 'csrf', 'expiry', 'identity', 'membership', 'mode'])
+def test_passwordless_link_pkce_boundaries(provider_env, monkeypatch, failure):
+    c, sent, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    result = email_start(c)
+    assert result['state'] == 'email_link'
+    assert c.get('/api/portal/auth/email-pending').json()['state'] == 'email_link'
+    assert '이메일 로그인 링크 받기' in c.get('/portal').text
+    assert c.get('/portal/email-return').status_code == 200
+    assert post(c, '/auth/email-login-verify', {'code':'12345678'}).status_code == 404
+    payload = {'code':'synthetic-valid-auth-code', 'state':sent['state']}
+    other = TestClient(app, base_url=c.base_url, headers={'Origin':str(c.base_url).rstrip('/')})
+    assert post(other, '/auth/email-exchange', payload).status_code == 401
+    expected = 400
+    if failure == 'state':
+        payload['state'] = 'x' * 43
+    elif failure == 'nonce':
+        c.cookies.set('maeum_email_browser', 'wrong', domain='portal.example.test', path='/')
+        expected = 401
+    elif failure == 'csrf':
+        c.headers['X-CSRF-Token'] = 'wrong'
+        expected = 403
+    elif failure in ['expiry', 'identity', 'membership']:
+        with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+            statement = {'expiry':'UPDATE maeum.email_login_attempts SET expires_at=0',
+                         'identity':"UPDATE maeum.portal_users SET auth_version=auth_version+1 WHERE id='A0'",
+                         'membership':"UPDATE maeum.memberships SET active=false WHERE user_id='A0'"}[failure]
+            conn.execute(statement)
+    elif failure == 'mode':
+        monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'code')
+        assert c.get('/api/portal/auth/email-pending').status_code == 401
+        assert post(c, '/auth/email-login-verify', {'code':'12345678'}).status_code == 400
+        expected = 404
+    response = post(c, '/auth/email-exchange', payload)
+    assert response.status_code == (200 if failure is None else expected), response.text
+    if failure is None:
+        c.headers['X-CSRF-Token'] = response.json()['csrf']
+        assert c.get('/api/portal/intakes?org_id=A').status_code == 200
+        assert c.get('/api/portal/intakes?org_id=B').status_code == 403
+        assert post(c, '/auth/email-exchange', payload).status_code == 401
+
+
+def test_passwordless_link_first_mapping_and_single_use(provider_env, monkeypatch):
+    import base64
+    from urllib.parse import parse_qs
+    c, _, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET supabase_user_id=NULL WHERE id='A0'")
+    identity, sent, calls = str(uuid4()), {}, []
+    def api(path, body, **kwargs):
+        calls.append(path)
+        if path.startswith('/otp?'):
+            redirect = parse_qs(path.split('?',1)[1])['redirect_to'][0]
+            assert urlparse(redirect).path == '/portal/email-return'
+            assert body['create_user'] is True
+            sent.update(state=parse_qs(urlparse(redirect).query)['state'][0],challenge=body['code_challenge'])
+            return {}
+        if path == '/token?grant_type=pkce':
+            assert base64.urlsafe_b64encode(hashlib.sha256(body['code_verifier'].encode()).digest()).decode().rstrip('=') == sent['challenge']
+            return {'user':{'id':identity,'email':'a0@example.test','email_confirmed_at':'2026-11-04'},'access_token':'synthetic'}
+        assert path.startswith('/logout')
+        return {}
+    monkeypatch.setattr(provider, 'request_api', api)
+    email_start(c)
+    copies = [TestClient(app,base_url=c.base_url,headers={'Origin':str(c.base_url).rstrip('/'),'X-CSRF-Token':c.headers['X-CSRF-Token']}) for _ in range(2)]
+    for copy in copies:
+        copy.cookies.update(c.cookies)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda copy:post(copy,'/auth/email-exchange',{'code':'synthetic-valid-auth-code','state':sent['state']}).status_code,copies))
+    assert sorted(statuses) == [200,400]
+    assert calls == [calls[0], '/token?grant_type=pkce', '/logout?scope=local']
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0]) == identity
+
+
 def test_email_code_wrong_nonce_csrf_attempts_and_expiry(email_env):
     c = client()
     email_start(c)

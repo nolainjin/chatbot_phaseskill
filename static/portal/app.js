@@ -54,8 +54,12 @@ function showEmailCode(result) {
   csrf = result.csrf;
   $("login").hidden = true; $("signup").hidden = true; $("verify").hidden = true; $("workspace").hidden = true;
   $("email-verify").hidden = false; $("email-code").value = "";
+  const link = result.state === "email_link";
+  $("email-code-form").hidden = link;
+  $("email-verify").querySelector("h2").textContent = link ? "Gmail에서 로그인 링크 확인" : "이메일 인증번호 입력";
+  $("email-resend").textContent = link ? "이메일 링크 다시 받기" : "인증번호 다시 받기";
   $("email-code-status").textContent = result.message;
-  $("email-code").focus();
+  (link ? $("email-back") : $("email-code")).focus();
 }
 async function startEmail() {
   const result = await api("/auth/email-start", "POST", {email: pendingEmail});
