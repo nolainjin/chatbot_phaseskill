@@ -55,10 +55,10 @@ def cookie(response, name, value, max_age):
                         secure=cloud(), path="/", max_age=max_age)
 
 
-def session(conn, request, *, verified=True):
+def session(conn, request, *, verified=True, response=None):
     if conn.execute('SELECT current_user AS role').fetchone()['role'] == "maeum_portal":
         with connect() as auth_conn:
-            row = session(auth_conn, request, verified=verified)
+            row = session(auth_conn, request, verified=verified, response=response)
         conn.execute("SELECT set_config('maeum.user',%s,true)", (row["user_id"],))
         return row
     token = request.cookies.get(SESSION, "")
@@ -76,6 +76,20 @@ def session(conn, request, *, verified=True):
             raise HTTPException(401, "기기 확인이 필요합니다.")
     if verified and row["state"] != "verified":
         raise HTTPException(403, "이메일 기기 확인이 필요합니다.")
+    if response is not None and os.getenv('PORTAL_EMAIL_LOGIN') == '1' and row['state'] == 'verified':
+        deadline = row['created_at'] + Policy.load().email_session_seconds
+        # Upgrade an existing live 8-hour login once. Never revive an expired or
+        # revoked session, and never move the deadline beyond its original login.
+        if row['expires_at'] < deadline - 1:
+            conn.execute('UPDATE maeum.portal_sessions SET expires_at=%s WHERE token_hash=%s',
+                         (deadline, row['token_hash']))
+            if row['device_id']:
+                conn.execute('UPDATE maeum.trusted_devices SET expires_at=greatest(expires_at,%s) WHERE id=%s AND user_id=%s',
+                             (deadline, row['device_id'], row['user_id']))
+            row['expires_at'] = deadline
+            remaining = max(1, int(deadline - now))
+            cookie(response, SESSION, token, remaining)
+            cookie(response, NONCE, request.cookies[NONCE], remaining)
     conn.execute("UPDATE maeum.portal_sessions SET seen_at=%s WHERE token_hash=%s", (now, row["token_hash"]))
     conn.execute("SELECT set_config('maeum.user',%s,true)", (row["user_id"],))
     return row

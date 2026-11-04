@@ -163,6 +163,40 @@ def test_email_session_absolute_14_day_expiry_requires_email_again(email_env):
         assert error.value.status_code == 403
 
 
+def test_email_existing_live_short_session_upgrades_from_original_login(email_env):
+    c = client()
+    email_enter(c)
+    original_login = time.time() - 4 * 3600
+    with owner() as conn:
+        conn.execute('UPDATE maeum.portal_sessions SET created_at=%s,seen_at=%s,expires_at=%s',
+                     (original_login, original_login, original_login + 8 * 3600))
+        conn.execute('UPDATE maeum.trusted_devices SET expires_at=%s', (original_login + 8 * 3600,))
+    response = c.get('/api/portal/me')
+    assert response.status_code == 200
+    deadline = original_login + 14 * 86400
+    assert response.json()['expires_at'] == deadline
+    for name in [auth.SESSION, auth.NONCE]:
+        header = next(v for v in response.headers.get_list('set-cookie') if v.startswith(name + '='))
+        max_age = int(header.split('Max-Age=')[1].split(';')[0])
+        assert 14 * 86400 - 4 * 3600 - 30 <= max_age <= 14 * 86400 - 4 * 3600
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert not c.get('/api/portal/me').headers.get_list('set-cookie')
+    with owner() as conn:
+        assert conn.execute('SELECT expires_at FROM maeum.trusted_devices').fetchone()[0] == deadline
+    assert len(list(Path(os.environ['PORTAL_MAIL_DIR']).glob('*.json'))) == 1
+
+
+def test_email_expired_short_session_is_not_revived(email_env):
+    c = client()
+    email_enter(c)
+    with owner() as conn:
+        conn.execute('UPDATE maeum.portal_sessions SET created_at=%s,seen_at=%s,expires_at=%s',
+                     (time.time() - 9 * 3600, time.time() - 9 * 3600, time.time() - 3600))
+    response = c.get('/api/portal/me')
+    assert response.status_code == 401
+    assert not response.headers.get_list('set-cookie')
+
+
 @pytest.mark.parametrize('change', ['logout', 'device', 'user', 'version', 'membership', 'registrar'])
 def test_email_persistent_session_still_respects_revocation(email_env, change):
     c = client()

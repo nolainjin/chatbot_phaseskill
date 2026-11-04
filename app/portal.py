@@ -161,9 +161,9 @@ def registration_reject(request: Request, payload: dict = Body(...)):
 
 
 @router.get("/api/portal/me")
-def me(request: Request):
+def me(request: Request, response: Response):
     with store.connect() as conn:
-        s = auth.session(conn, request, verified=False)
+        s = auth.session(conn, request, verified=False, response=response)
         orgs = []
         if s["state"] == "verified":
             orgs = conn.execute("SELECT o.id,o.name,m.permissions FROM maeum.memberships m JOIN maeum.organizations o ON o.id=m.org_id WHERE m.user_id=%s AND m.active AND o.active ORDER BY o.id", (s["user_id"],)).fetchall()
