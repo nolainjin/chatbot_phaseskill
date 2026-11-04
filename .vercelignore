@@ -10,5 +10,13 @@ receipts
 .omc
 .omx
 .voice-model-cache
+.voice-venv
+.voice-tmp
+.pytest_cache
+.claude
+screenshots
+scripts
+voice_runtime
+.DS_Store
 __pycache__
 *.pyc
