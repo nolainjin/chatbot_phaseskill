@@ -246,7 +246,8 @@ def test_email_gmail_domain_and_sender_allowlist(email_env, monkeypatch):
     assert post(c, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
 
 
-@pytest.mark.parametrize('failure', [None, 'state', 'nonce', 'csrf', 'expiry', 'identity', 'membership', 'mode'])
+@pytest.mark.parametrize('failure', [None, 'state', 'nonce', 'csrf', 'expiry', 'identity', 'membership', 'mode',
+                                   'user', 'email', 'provider_ready', 'attempts', 'row_mode'])
 def test_passwordless_link_pkce_boundaries(provider_env, monkeypatch, failure):
     c, sent, provider = provider_env
     monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
@@ -258,22 +259,28 @@ def test_passwordless_link_pkce_boundaries(provider_env, monkeypatch, failure):
     assert c.get('/portal/email-return').status_code == 200
     assert post(c, '/auth/email-login-verify', {'code':'12345678'}).status_code == 404
     payload = {'code':'synthetic-valid-auth-code', 'state':sent['state']}
-    other = TestClient(app, base_url=c.base_url, headers={'Origin':str(c.base_url).rstrip('/')})
-    assert post(other, '/auth/email-exchange', payload).status_code == 401
+    original_session = store.digest(c.cookies.get(auth.SESSION))
     expected = 400
     if failure == 'state':
         payload['state'] = 'x' * 43
     elif failure == 'nonce':
+        c.cookies.set('maeum_email', 'wrong', domain='portal.example.test', path='/')
         c.cookies.set('maeum_email_browser', 'wrong', domain='portal.example.test', path='/')
-        expected = 401
-    elif failure == 'csrf':
         c.headers['X-CSRF-Token'] = 'wrong'
+        expected = 200
+    elif failure == 'csrf':
+        c.headers['Origin'] = 'https://foreign.example.test'
         expected = 403
-    elif failure in ['expiry', 'identity', 'membership']:
+    elif failure in ['expiry', 'identity', 'membership', 'user', 'email', 'provider_ready', 'attempts', 'row_mode']:
         with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
             statement = {'expiry':'UPDATE maeum.email_login_attempts SET expires_at=0',
                          'identity':"UPDATE maeum.portal_users SET auth_version=auth_version+1 WHERE id='A0'",
-                         'membership':"UPDATE maeum.memberships SET active=false WHERE user_id='A0'"}[failure]
+                         'membership':"UPDATE maeum.memberships SET active=false WHERE user_id='A0'",
+                         'user':"UPDATE maeum.portal_users SET active=false WHERE id='A0'",
+                         'email':"UPDATE maeum.portal_users SET email='changed@example.test' WHERE id='A0'",
+                         'provider_ready':'UPDATE maeum.email_login_attempts SET provider_ready=false',
+                         'attempts':'UPDATE maeum.email_login_attempts SET attempts=5',
+                         'row_mode':"UPDATE maeum.email_login_attempts SET code_mac='code-v1:wrong'"}[failure]
             conn.execute(statement)
     elif failure == 'mode':
         monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'code')
@@ -282,11 +289,49 @@ def test_passwordless_link_pkce_boundaries(provider_env, monkeypatch, failure):
         expected = 404
     response = post(c, '/auth/email-exchange', payload)
     assert response.status_code == (200 if failure is None else expected), response.text
-    if failure is None:
+    if response.status_code == 200:
         c.headers['X-CSRF-Token'] = response.json()['csrf']
         assert c.get('/api/portal/intakes?org_id=A').status_code == 200
         assert c.get('/api/portal/intakes?org_id=B').status_code == 403
-        assert post(c, '/auth/email-exchange', payload).status_code == 401
+        assert post(c, '/auth/email-exchange', payload).status_code == 400
+        with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+            assert conn.execute('SELECT revoked FROM maeum.portal_sessions WHERE token_hash=%s',
+                                (original_session,)).fetchone() == (True,)
+
+
+@pytest.mark.parametrize('stale_cookies', [False, True])
+def test_passwordless_link_other_browser(provider_env, monkeypatch, stale_cookies):
+    from app import portal_email
+    from app.portal_config import Policy
+    c, sent, _ = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    c.cookies.clear()
+    c.headers.pop('X-CSRF-Token')
+    result = email_start(c)
+    assert result['message'] == ('발송 가능한 등록 이메일이라면 로그인 링크를 보냈습니다. '
+                                 '10분 안에 메일의 링크를 누르면 휴대폰 메일 앱에서도 바로 로그인됩니다.')
+    other = TestClient(app, base_url=c.base_url, headers={'Origin':str(c.base_url).rstrip('/')})
+    assert not other.cookies and 'X-CSRF-Token' not in other.headers
+    if stale_cookies:
+        for name in [portal_email.ATTEMPT, portal_email.BROWSER, auth.DEVICE]:
+            other.cookies.set(name, 'stale', domain='portal.example.test', path='/')
+    payload = {'code':'synthetic-valid-auth-code', 'state':sent['state']}
+    response = post(other, '/auth/email-exchange', payload)
+    assert response.status_code == 200, response.text
+    for name in [auth.SESSION, auth.NONCE]:
+        header = next(v for v in response.headers.get_list('set-cookie') if v.startswith(name + '='))
+        assert f'Max-Age={Policy.load().email_session_seconds}' in header
+        assert 'HttpOnly' in header and 'Secure' in header and 'SameSite=strict' in header
+        assert other.cookies.get(name)
+    assert all(not other.cookies.get(name) for name in [portal_email.ATTEMPT, portal_email.BROWSER, auth.DEVICE])
+    assert other.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert other.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert post(other, '/auth/email-exchange', payload).status_code == 400
+    assert c.get('/api/portal/me').status_code == 401
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 401
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert conn.execute('SELECT attempts,consumed FROM maeum.email_login_attempts').fetchone() == (1, True)
 
 
 def test_passwordless_link_first_mapping_and_single_use(provider_env, monkeypatch):
@@ -313,15 +358,27 @@ def test_passwordless_link_first_mapping_and_single_use(provider_env, monkeypatc
         return {}
     monkeypatch.setattr(provider, 'request_api', api)
     email_start(c)
-    copies = [TestClient(app,base_url=c.base_url,headers={'Origin':str(c.base_url).rstrip('/'),'X-CSRF-Token':c.headers['X-CSRF-Token']}) for _ in range(2)]
-    for copy in copies:
-        copy.cookies.update(c.cookies)
+    copies = [TestClient(app,base_url=c.base_url,headers={'Origin':str(c.base_url).rstrip('/')}) for _ in range(2)]
     with ThreadPoolExecutor(max_workers=2) as pool:
         statuses = list(pool.map(lambda copy:post(copy,'/auth/email-exchange',{'code':'synthetic-valid-auth-code','state':sent['state']}).status_code,copies))
     assert sorted(statuses) == [200,400]
     assert calls == [calls[0], '/token?grant_type=pkce', '/logout?scope=local']
     with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
         assert str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0]) == identity
+
+
+def test_passwordless_link_failed_codes_commit_attempt_limit(provider_env, monkeypatch):
+    c, sent, _ = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    email_start(c)
+    other = TestClient(app, base_url=c.base_url, headers={'Origin':str(c.base_url).rstrip('/')})
+    for _ in range(5):
+        assert post(other, '/auth/email-exchange', {'code':'synthetic-wrong-auth-code', 'state':sent['state']}).status_code == 400
+    assert post(other, '/auth/email-exchange', {'code':'synthetic-valid-auth-code', 'state':sent['state']}).status_code == 400
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert conn.execute('SELECT attempts,consumed FROM maeum.email_login_attempts').fetchone() == (5, True)
+    assert other.get('/api/portal/me').status_code == 401
 
 
 def test_email_code_wrong_nonce_csrf_attempts_and_expiry(email_env):
@@ -448,14 +505,71 @@ def test_email_provider_failure_keeps_quota_and_unknown_is_not_created(provider_
     assert c_has_user({'MAEUM_DATABASE_URL': os.environ['MAEUM_DATABASE_URL']}, 'unknown@example.test') is False
 
 
-@pytest.mark.parametrize('mismatch', ['email', 'id', 'unconfirmed'])
-def test_email_provider_rejects_identity_mismatch(provider_env, monkeypatch, mismatch):
+@pytest.mark.parametrize('failure', [429, 503, 401, 'oserror'])
+def test_email_link_provider_failure_is_reported_and_keeps_quota(provider_env, monkeypatch, capsys, failure):
     c, _, provider = provider_env
     monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    monkeypatch.setenv('PORTAL_EMAIL_SEND_ALLOWLIST', 'a0@example.test,unknown@example.test')
+    calls = []
+    def failing(path, body, **kwargs):
+        calls.append(path)
+        if failure == 'oserror':
+            raise OSError('synthetic provider error containing private data')
+        raise auth.HTTPException(failure, 'synthetic provider error containing private data')
+    monkeypatch.setattr(provider, 'request_api', failing)
+    response = post(c, '/auth/email-start', {'email':'a0@example.test'})
+    expected = 429 if failure == 429 else 503
+    assert response.status_code == expected
+    assert response.json()['detail'] == ('인증 메일 발송 한도에 걸렸습니다. 잠시 후 다시 시도해 주세요.' if expected == 429
+                                         else '인증 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert conn.execute('SELECT provider_ready FROM maeum.email_login_attempts WHERE email=%s',
+                            ('a0@example.test',)).fetchone() == (False,)
+        for key in ['email-login-hour:' + store.digest('a0@example.test'),
+                    'email-login-cooldown:' + store.digest('a0@example.test'), 'email-provider-project']:
+            assert len(conn.execute('SELECT stamps FROM maeum.portal_limits WHERE id=%s', (key,)).fetchone()[0]) == 1
+    assert post(c, '/auth/email-start', {'email':'a0@example.test'}).status_code == 429
+    unknown = email_start(c, 'unknown@example.test')
+    excluded = email_start(c, 'a1@example.test')
+    assert unknown['message'] == excluded['message']
+    assert unknown['state'] == excluded['state'] == 'email_link'
+    assert len(calls) == 1
+    assert c_has_user({'MAEUM_DATABASE_URL':os.environ['MAEUM_DATABASE_URL']}, 'unknown@example.test') is False
+    assert capsys.readouterr().out == json.dumps({'event':'portal_email_provider_failure',
+                                                'status':503 if failure == 'oserror' else failure}) + '\n'
+
+
+def test_email_link_address_hourly_limit_uses_policy(provider_env, monkeypatch):
+    c, _, _ = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', 'link')
+    monkeypatch.setenv('PORTAL_SENDS_PER_HOUR', '5')
+    monkeypatch.setenv('PORTAL_PROVIDER_EMAILS_PER_HOUR', '10')
+    original_limit = auth.limit
+    def without_cooldown(key, *args, **kwargs):
+        if not key.startswith('email-login-cooldown:'):
+            return original_limit(key, *args, **kwargs)
+    monkeypatch.setattr(auth, 'limit', without_cooldown)
+    for _ in range(5):
+        response = post(c, '/auth/email-start', {'email':'a0@example.test'})
+        assert response.status_code == 200, response.text
+    assert post(c, '/auth/email-start', {'email':'a0@example.test'}).status_code == 429
+
+
+@pytest.mark.parametrize('delivery', ['code', 'link'])
+@pytest.mark.parametrize('mismatch', ['email', 'id', 'unconfirmed'])
+def test_email_provider_rejects_identity_mismatch(provider_env, monkeypatch, mismatch, delivery):
+    c, sent, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    monkeypatch.setenv('PORTAL_EMAIL_DELIVERY', delivery)
     uid = str(uuid4())
     with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
         expected = str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0])
+    original_api = provider.request_api
     def otp_api(path, body, **kwargs):
+        if path.startswith('/otp?'):
+            return original_api(path, body, **kwargs)
         if path == '/otp' or path.startswith('/logout'):
             return {}
         return {'access_token':'synthetic', 'user': {
@@ -464,7 +578,12 @@ def test_email_provider_rejects_identity_mismatch(provider_env, monkeypatch, mis
             'email_confirmed_at': None if mismatch == 'unconfirmed' else '2026-11-04'}}
     monkeypatch.setattr(provider, 'request_api', otp_api)
     email_start(c)
-    assert post(c, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
+    if delivery == 'link':
+        assert post(c, '/auth/email-exchange', {'code':'synthetic-valid-auth-code', 'state':sent['state']}).status_code == 400
+    else:
+        assert post(c, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert conn.execute('SELECT attempts,consumed FROM maeum.email_login_attempts').fetchone() == (1, False)
     assert c.get('/api/portal/me').json()['state'] == 'pending_device'
 
 

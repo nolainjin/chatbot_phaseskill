@@ -1,6 +1,7 @@
 """Email-only login. Public applications never create an authorized identity.
 
-The server binds each OTP attempt to an HttpOnly browser cookie and CSRF token.
+The server binds numeric OTP attempts to an HttpOnly browser cookie and CSRF token.
+Email links authorize the browser holding their single-use state and PKCE code.
 Only a pre-registered, active identity can trigger a provider email or gain access.
 Unknown addresses receive the same pending response and cannot inspect the directory.
 """
@@ -35,7 +36,7 @@ def link_delivery():
 
 def public_message():
     if link_delivery():
-        return '발송 가능한 등록 이메일이라면 로그인 링크를 보냈습니다. 로그인한 이 브라우저에서 메일의 링크를 열어 주세요.'
+        return '발송 가능한 등록 이메일이라면 로그인 링크를 보냈습니다. 10분 안에 메일의 링크를 누르면 휴대폰 메일 앱에서도 바로 로그인됩니다.'
     return PUBLIC_MESSAGE
 
 
@@ -64,7 +65,7 @@ def start(request, response, payload):
     policy, now = Policy.load(), time.time()
     # Admissions persist even if provider delivery or a later database write fails.
     auth.limit('email-login-cooldown:' + digest(email), 1, policy.resend_seconds)
-    auth.limit('email-login-hour:' + digest(email), min(2, policy.sends_per_hour))
+    auth.limit('email-login-hour:' + digest(email), policy.sends_per_hour)
     auth.limit('email-login-peer:' + digest(request.client.host), 30)
     token, nonce, csrf = (secrets.token_urlsafe(32) for _ in range(3))
     row = {'token_hash': digest(token), 'nonce_hash': digest(nonce), 'email': email}
@@ -83,6 +84,7 @@ def start(request, response, payload):
                       user['auth_version'] if eligible else None, code_mac,
                       now, now + policy.code_seconds))
     ready = False
+    provider_failure = None
     recipients = {item.strip().lower() for item in os.getenv('PORTAL_EMAIL_SEND_ALLOWLIST', '').split(',') if item.strip()}
     if eligible and (not recipients or email in recipients):
         try:
@@ -101,11 +103,17 @@ def start(request, response, payload):
             else:
                 auth.capture_mail({'purpose': 'login', 'to': email, 'code': code, 'created_at': now})
             ready = True
-        except (HTTPException, OSError):
-            # A provider failure must neither reveal registration nor refund quota.
-            pass
+        except (HTTPException, OSError) as exc:
+            # Keep numeric/capture responses unchanged; link delivery reports failure.
+            if link_delivery():
+                provider_failure = exc.status_code if isinstance(exc, HTTPException) else 503
+                print(json.dumps({'event': 'portal_email_provider_failure', 'status': provider_failure}), flush=True)
     with auth.connect() as conn:
         conn.execute('UPDATE maeum.email_login_attempts SET provider_ready=%s WHERE token_hash=%s', (ready, row['token_hash']))
+    if provider_failure is not None:
+        if provider_failure == 429:
+            raise HTTPException(429, '인증 메일 발송 한도에 걸렸습니다. 잠시 후 다시 시도해 주세요.')
+        raise HTTPException(503, '인증 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.')
     auth.cookie(response, ATTEMPT, token, policy.code_seconds)
     auth.cookie(response, BROWSER, nonce, policy.code_seconds)
     return {'state': 'email_link' if link_delivery() else 'email_code', 'csrf': csrf, 'message': public_message(), 'retry_after': policy.resend_seconds}
@@ -143,8 +151,15 @@ def verify(request, response, payload, *, link=False):
     auth.limit('email-verify-peer:' + digest(request.client.host), 60)
     policy, now, success = Policy.load(), time.time(), False
     with auth.connect() as conn:
-        row = attempt(conn, request)
-        auth.csrf(request, row)
+        if link:
+            row = conn.execute('SELECT * FROM maeum.email_login_attempts WHERE code_mac=%s FOR UPDATE',
+                               ('link-v1:' + digest(state),)).fetchone()
+            if not row:
+                raise HTTPException(400, '이메일 인증이 올바르지 않거나 만료되었습니다. 등록된 이메일로 다시 시작해 주세요.')
+        else:
+            row = attempt(conn, request)
+            auth.csrf(request, row)
+        now = time.time()  # after the row lock: expiry is judged at verification time
         same_mode = bool((row['code_mac'] or '').startswith('link-v1:')) == link
         if same_mode and not row['consumed'] and row['expires_at'] > now and row['attempts'] < policy.code_attempts:
             # Increment and commit even when the provider rejects an OTP.
@@ -177,7 +192,8 @@ def verify(request, response, payload, *, link=False):
                 valid = bool(row['code_mac'] and hmac.compare_digest(row['code_mac'], local_mac(row, code)))
             if valid:
                 conn.execute('UPDATE maeum.email_login_attempts SET consumed=true WHERE token_hash=%s', (row['token_hash'],))
-                conn.execute('UPDATE maeum.portal_sessions SET revoked=true WHERE token_hash=%s', (digest(request.cookies.get(auth.SESSION, '')),))
+                if request.cookies.get(auth.SESSION):
+                    conn.execute('UPDATE maeum.portal_sessions SET revoked=true WHERE token_hash=%s', (digest(request.cookies[auth.SESSION]),))
                 device_id, device_token, nonce = str(uuid4()), secrets.token_urlsafe(32), secrets.token_urlsafe(32)
                 conn.execute('INSERT INTO maeum.trusted_devices VALUES(%s,%s,%s,%s,false,%s)',
                              (device_id, user['id'], digest(device_token), now + policy.email_session_seconds, now))
