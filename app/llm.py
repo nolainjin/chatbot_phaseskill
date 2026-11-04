@@ -132,6 +132,10 @@ class ModelOutputTooLarge(RuntimeError):
     pass
 
 
+class ModelBackendError(RuntimeError):
+    """Normalized provider/CLI failure exposed to the conversation boundary."""
+
+
 def _bounded_output(raw: str) -> str:
     cleaned = raw.strip()
     if len(cleaned) > MAX_MODEL_OUTPUT_CHARS:
@@ -405,9 +409,12 @@ def ask(
     user: str,
     doc_titles: list[str],
     settings: Settings,
+    allow_fake_fallback: bool = True,
 ) -> str:
     if settings.model == AUTO_MODEL:
         for model in _auto_model_chain():
+            if model == "fake" and not allow_fake_fallback:
+                continue
             try:
                 return _ask_single_backend(model, system, history, user, doc_titles, settings)
             except (
@@ -417,5 +424,53 @@ def ask(
                 anthropic.APIError,
             ):
                 continue
-        return _fake_reply(doc_titles)
-    return _ask_single_backend(settings.model, system, history, user, doc_titles, settings)
+        if allow_fake_fallback:
+            return _fake_reply(doc_titles)
+        raise ModelBackendError("model backend unavailable: auto chain exhausted")
+    try:
+        return _ask_single_backend(settings.model, system, history, user, doc_titles, settings)
+    except (RuntimeError, OSError, subprocess.SubprocessError, anthropic.APIError) as exc:
+        if isinstance(exc, ModelOutputTooLarge):
+            raise
+        raise ModelBackendError(
+            f"model backend unavailable: {type(exc).__name__}: {exc}") from exc
+
+
+def ask_strict(system: str, history: list[dict[str, str]], user: str,
+               doc_titles: list[str], settings: Settings) -> str:
+    """Semantic analysis path that never reports the demo ``fake`` fallback as success."""
+    if settings.model == "fake":
+        raise RuntimeError("fake model cannot perform semantic analysis")
+    if settings.model == AUTO_MODEL:
+        failures = []
+        for model in _auto_model_chain():
+            if model == "fake":
+                continue
+            try:
+                return _ask_single_backend(model, system, history, user, doc_titles, settings)
+            except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, anthropic.APIError) as exc:
+                failures.append(type(exc).__name__)
+        raise RuntimeError("semantic model unavailable: " + ",".join(failures))
+    try:
+        return _ask_single_backend(settings.model, system, history, user, doc_titles, settings)
+    except (RuntimeError, OSError, subprocess.SubprocessError, anthropic.APIError) as exc:
+        if isinstance(exc, ModelOutputTooLarge):
+            raise
+        raise ModelBackendError(
+            f"model backend unavailable: {type(exc).__name__}: {exc}") from exc
+
+
+def ask_without_fake(system: str, history: list[dict[str, str]], user: str,
+                     doc_titles: list[str], settings: Settings) -> str:
+    """Ordinary intake reply that may fail over real backends, never to demo fake."""
+    if settings.model != AUTO_MODEL:
+        return ask(system, history, user, doc_titles, settings)
+    failures = []
+    for model in _auto_model_chain():
+        if model == "fake":
+            continue
+        try:
+            return _ask_single_backend(model, system, history, user, doc_titles, settings)
+        except (RuntimeError, OSError, subprocess.SubprocessError, anthropic.APIError) as exc:
+            failures.append(type(exc).__name__)
+    raise ModelBackendError("model backend unavailable: " + ",".join(failures))

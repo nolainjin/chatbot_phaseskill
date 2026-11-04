@@ -2,21 +2,83 @@
   color-scheme: light;
   --page-bg: #f7f3ed;
   --card-bg: #fffdfa;
-  --header-bg: #7b9189;
+  --header-bg: #255b4c;
   --header-text: #ffffff;
   --header-text-muted: rgba(255, 255, 255, 0.86);
   --text: #2f3532;
-  --muted: #6f7d77;
+  --muted: #50655b;
   --bubble-assistant: #edf3ef;
-  --accent: #5f7f76;
-  --accent-hover: #4f6f66;
-  --accent-soft: rgba(95, 127, 118, 0.14);
+  --accent: #356a58;
+  --accent-hover: #285545;
+  --accent-soft: rgba(53, 106, 88, 0.14);
   --bubble-user-text: #ffffff;
   --input-bg: #fffdfa;
   --input-border: #ded8cf;
   --track: #e5ded5;
-  --error: #ad654f;
+  --error: #984b38;
+  --warning: #8a651b;
+  --focus: #d87910;
   --shadow: 0 14px 34px rgba(85, 74, 61, 0.12);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.delivery-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--input-border);
+  border-radius: 0.9rem;
+  background: #f7faf7;
+}
+
+.delivery-progress .eyebrow,
+.delivery-progress p { margin: 0; }
+
+.delivery-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.12rem !important;
+  font-weight: 800;
+}
+
+.delivery-status::before {
+  content: "";
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.delivery-status[data-state="processing"]::before { background: var(--warning); }
+.delivery-status[data-state="attention"]::before { background: var(--error); }
+.delivery-status[data-state="delivered"]::before { background: #246b4f; }
+
+.delivery-help {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: right;
+  max-width: 28rem;
+}
+
+.retry-button {
+  width: 100%;
+  margin-top: 0.55rem;
+  border: 1px solid var(--error);
+  border-radius: 0.7rem;
+  padding: 0.65rem 0.9rem;
+  color: #7f3526;
+  background: #fff7f3;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,20 +86,20 @@
     color-scheme: light;
     --page-bg: #f1ede6;
     --card-bg: #fffaf3;
-    --header-bg: #6f8981;
+    --header-bg: #255b4c;
     --header-text: #ffffff;
     --header-text-muted: rgba(255, 255, 255, 0.86);
     --text: #303733;
-    --muted: #718079;
+    --muted: #50655b;
     --bubble-assistant: #e9f1ec;
-    --accent: #5a7a71;
-    --accent-hover: #4c6a62;
-    --accent-soft: rgba(90, 122, 113, 0.16);
+    --accent: #356a58;
+    --accent-hover: #285545;
+    --accent-soft: rgba(53, 106, 88, 0.16);
     --bubble-user-text: #ffffff;
     --input-bg: #fffaf3;
     --input-border: #ded6ca;
     --track: #e4ddd4;
-    --error: #ad654f;
+    --error: #984b38;
     --shadow: 0 14px 34px rgba(85, 74, 61, 0.14);
   }
 }
@@ -264,9 +326,10 @@ details[open] > .privacy-summary::after {
 .privacy-body {
   margin: 0;
   padding: 0 0.9rem 0.85rem 3.1rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-  line-height: 1.5;
+  font-size: 0.95rem;
+  color: #465851;
+  line-height: 1.65;
+  white-space: pre-wrap;
 }
 
 .messages {
@@ -287,6 +350,8 @@ details[open] > .privacy-summary::after {
   white-space: pre-wrap;
   line-height: 1.55;
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-user {
@@ -411,8 +476,9 @@ details[open] > .privacy-summary::after {
 .status {
   min-height: 1.2em;
   color: var(--error);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .coaching-status {
@@ -522,6 +588,7 @@ details[open] > .privacy-summary::after {
   font-size: 0.82rem;
   font-weight: 750;
   cursor: pointer;
+  min-height: 44px;
   transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
@@ -800,6 +867,14 @@ details[open] > .privacy-summary::after {
     min-height: 100vh;
     padding: 1.1rem 1rem 1rem;
   }
+
+  .delivery-progress {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .delivery-help { text-align: left; }
 
   .chat-header {
     margin: -1.1rem -1rem 0.9rem;

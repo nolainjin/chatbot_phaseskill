@@ -25,10 +25,42 @@ def retained_summary(value):
     """Strip raw quotations from both metadata and serialized summary turns."""
     if isinstance(value, dict):
         return {key: retained_summary(item) for key, item in value.items()
-                if key not in {"center_requests", "sources", "quotes", "source_turns"}}
+                if key not in {"center_requests", "sources", "quotes", "source_turns",
+                               "slot_evidence", "slot_revisions", "source_text",
+                               "request_results"}}
     if isinstance(value, list):
         return [retained_summary(item) for item in value]
     return value
+
+
+def projected_summary(value):
+    """Build the active report projection without copying raw/cache fields."""
+    if not isinstance(value, dict):
+        return value
+    projected = {key: item for key, item in value.items()
+                 if key not in {"request_results", "source_text", "quotes"}}
+    evidence = value.get("slot_evidence")
+    if isinstance(evidence, dict):
+        projected["slot_evidence"] = {
+            key: {field: item[field] for field in (
+                "status", "value", "source", "source_turn", "updated_at", "category", "label"
+            ) if field in item}
+            for key, item in evidence.items() if isinstance(item, dict)
+        }
+    revisions = value.get("slot_revisions")
+    if isinstance(revisions, list):
+        safe_revisions = []
+        for item in revisions:
+            if not isinstance(item, dict):
+                continue
+            safe = {field: item[field] for field in ("field", "source_turn") if field in item}
+            source = item.get("source")
+            if (isinstance(source, dict) and isinstance(source.get("day"), str)
+                    and isinstance(source.get("seq"), int) and source.get("role") == "user"):
+                safe["source"] = {"day": source["day"], "seq": source["seq"], "role": "user"}
+            safe_revisions.append(safe)
+        projected["slot_revisions"] = safe_revisions
+    return projected
 
 
 def require_local_url(url):
@@ -149,21 +181,40 @@ def project(session_id):
             if isinstance(payload.get("intake_snapshot"), dict):
                 summary = payload["intake_snapshot"]
             expired = expired or bool(payload.get("raw_purged_at"))
+        if expired:
+            # Old projections may predate the current retention scrub.  Never
+            # re-publish their raw provenance after the transcript boundary.
+            summary = retained_summary(summary)
         revision = digest(json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str))
         sources = {}
         if not expired:
             for slot, value in summary.get("slots", {}).items():
+                evidence = summary.get("slot_evidence", {}).get(slot, {})
+                source = evidence.get("source") if isinstance(evidence, dict) else None
+                if (isinstance(source, dict) and isinstance(source.get("day"), str)
+                        and isinstance(source.get("seq"), int) and source.get("role") == "user"):
+                    sources[slot] = [source]
+                    continue
                 if isinstance(value, str) and len(value.strip()) >= 4:
                     matches = [{"day": key.split("/")[0], "seq": t["seq"]}
                                for key, p in rows for t in p.get("turns", [])
                                if t.get("role") == "user" and value in t.get("text", "")]
                     if matches:
                         sources[slot] = matches
+            for key, evidence in summary.get("slot_evidence", {}).items():
+                source = evidence.get("source") if isinstance(evidence, dict) else None
+                if (key.startswith("center_request:") and isinstance(source, dict)
+                        and isinstance(source.get("day"), str)
+                        and isinstance(source.get("seq"), int) and source.get("role") == "user"):
+                    sources[key] = [source]
         status = "complete" if summary.get("handoff", {}).get("sent") else "in_progress"
+        # Report snapshots are retained projections, never a second raw store.
+        # Provenance pointers are materialized separately in `sources` below.
+        project_summary = projected_summary(summary)
         conn.execute("INSERT INTO maeum.report_snapshots(org_id,intake_id,version,source_revision,summary,status,raw_expired) VALUES(%s,%s,1,%s,%s,%s,%s) "
                      "ON CONFLICT(intake_id) DO UPDATE SET version=maeum.report_snapshots.version+1,source_revision=excluded.source_revision,summary=excluded.summary,status=excluded.status,raw_expired=excluded.raw_expired,updated_at=now() "
                      "WHERE maeum.report_snapshots.source_revision<>excluded.source_revision",
-                     (binding[1], binding[0], revision, Jsonb(summary), status, expired))
+                     (binding[1], binding[0], revision, Jsonb(project_summary), status, expired))
         conn.execute("UPDATE maeum.report_snapshots SET sources=%s WHERE intake_id=%s", (Jsonb(sources), binding[0]))
 
 
@@ -189,5 +240,10 @@ def detail(conn, org_id, intake_id):
                        "WHERE i.org_id=%s AND i.id=%s", (org_id, intake_id)).fetchone()
     if not row:
         raise HTTPException(404, "접수 기록을 찾을 수 없습니다.")
+    if row.get("raw_expired") and isinstance(row.get("summary"), dict):
+        # Read-time defense for legacy report_snapshots persisted before the
+        # retention scrub was introduced. A later project() call repairs it.
+        row["summary"] = retained_summary(row["summary"])
+        row["sources"] = {}
     row["reviews"] = conn.execute("SELECT actor_id,status,created_at FROM maeum.portal_reviews WHERE org_id=%s AND intake_id=%s ORDER BY created_at,id", (org_id, intake_id)).fetchall()
     return row

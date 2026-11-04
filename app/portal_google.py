@@ -17,6 +17,8 @@ from app.portal_config import Policy
 from app.portal_store import digest
 
 STATE = 'maeum_google_state'
+RETURN_TO = 'maeum_google_return'
+RETURN_PATHS = {'/portal', '/portal/admin'}
 PROVIDER_ERROR = 'Google 로그인을 확인하지 못했습니다. 다시 시도해 주세요.'
 DENIED = '등록된 담당자 계정이 아닙니다. 가입 신청 후 관리자 승인을 받아 주세요.'
 
@@ -31,12 +33,14 @@ def verifier(state):
     return base64.urlsafe_b64encode(value).decode().rstrip('=')
 
 
-def start(request, response):
+def start(request, response, payload=None):
     auth.csrf(request)
     auth.limit('google-start-peer:' + digest(request.client.host), 30)
     state = secrets.token_urlsafe(32)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier(state).encode()).digest()).decode().rstrip('=')
     auth.cookie(response, STATE, state, Policy.load().code_seconds)
+    target = (payload or {}).get('return_to', '/portal')
+    auth.cookie(response, RETURN_TO, target if isinstance(target, str) and target in RETURN_PATHS else '/portal', Policy.load().code_seconds)
     return {'url': os.environ['SUPABASE_URL'] + '/auth/v1/authorize?' + urlencode({
         'provider': 'google', 'redirect_to': os.environ['PORTAL_ORIGIN'] + '/portal/google-return',
         'code_challenge': challenge, 'code_challenge_method': 's256', 'scopes': 'openid email profile'})}
@@ -93,7 +97,8 @@ def exchange(request, response, payload):
         for name in [portal_email.ATTEMPT, portal_email.BROWSER, auth.DEVICE]:
             response.delete_cookie(name, path='/')
         outcome = 'ok'
-        return {'state': 'verified', 'csrf': csrf}
+        target = request.cookies.get(RETURN_TO, '/portal')
+        return {'state': 'verified', 'csrf': csrf, 'return_to': target if isinstance(target, str) and target in RETURN_PATHS else '/portal'}
     except HTTPException as exc:
         # FastAPI discards the injected Response when an exception is raised.
         # Return the error response explicitly so the one-use cookie is cleared.
@@ -101,4 +106,5 @@ def exchange(request, response, payload):
         return response
     finally:
         response.delete_cookie(STATE, path='/')
+        response.delete_cookie(RETURN_TO, path='/')
         print(json.dumps({'event': 'portal_google_login', 'outcome': outcome}), flush=True)

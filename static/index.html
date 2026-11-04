@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>학습 코칭 챗봇</title>
-  <link rel="stylesheet" href="style.css?v=17" />
+  <link rel="stylesheet" href="style.css?v=18" />
 </head>
 <body>
   <div class="layout">
@@ -39,6 +39,13 @@
     <div class="progress" aria-hidden="true">
       <div class="progress-fill" id="turn-progress"></div>
     </div>
+    <section class="delivery-progress" id="delivery-progress" aria-labelledby="delivery-progress-title" role="status" aria-live="polite" aria-atomic="true">
+      <div>
+        <p class="eyebrow" id="delivery-progress-title">접수 진행 상태</p>
+        <p class="delivery-status" id="delivery-status" data-state="saved">작성 준비</p>
+      </div>
+      <p class="delivery-help" id="delivery-help">동의 후 편하게 입력해 주세요. 아직 저장된 내용은 없습니다.</p>
+    </section>
     <details class="privacy-card">
       <summary class="privacy-summary">
         <span class="privacy-icon" aria-hidden="true">
@@ -129,6 +136,7 @@
             </svg>
           </button>
         </form>
+        <button type="button" id="retry-button" class="retry-button" hidden>같은 내용 다시 전송</button>
         <div class="composer-meta">
           <span>Enter 전송 · Shift+Enter 줄바꿈</span>
           <span id="character-count">0/2000</span>
@@ -151,6 +159,6 @@
     <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=d1-21"></script>
+  <script src="app.js?v=d1-22"></script>
 </body>
 </html>

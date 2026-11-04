@@ -161,3 +161,20 @@
 - [검증 JSON](evidence/portal-persistent-session-20261104.json),
   [로컬 로그인 유지 화면](evidence/portal-persistent-session-local-mobile.png),
   [공개 로그인 화면](evidence/portal-persistent-session-live-login.png). 두 화면 직접 확인, 390px 가로 넘침 없음.
+
+## 기관 관리 (등록 관리자)
+- 등록 관리 영역의 `기관 관리`에서 기관 추가·이름 변경·활성/비활성 전환. 승인 드롭다운에는 활성 기관만 나온다.
+- `scripts/portal_org_upgrade.py local|cloud`가 `202611050001_org_admin.sql`(함수·권한만 추가)을 백업·체크섬과 함께 한 트랜잭션으로 적용한다. cloud 실행은 별도 승인 뒤에 한다.
+- 담당자 관리에서 본인 소속 회수와 본인 `member:manage` 제거는 서버가 409로 막는다.
+
+
+## 관리자·기관 화면 분리 및 TESTBED (2026-11-05)
+
+- `/portal`: 기관별 접수·보고서·링크·담당자 업무. 전역 관리 API를 불러오지 않는다.
+- `/portal/admin`: 시스템 관리자(registrar)의 기관 관리·이메일 등록/가입 승인·TESTBED·내 기기 대시보드. 일반 계정은 관리 데이터 접근이 거절된다.
+- 활성 시스템 관리자는 기관 소속이 없어도 본인 인증 후 관리 화면에 로그인할 수 있다. 기관 보고서와 TESTBED 발급은 기존 tenant 권한을 별도로 요구한다.
+- TESTBED는 권한 있는 소속 기관의 화면을 열거나 `TEST-` 관리번호의 새 합성 접수 링크를 발급한다. 실제 기록을 복제하지 않으며, 만들어진 접수는 선택 기관의 목록과 집계에 포함된다.
+- 현재 기기를 해제하면 해당 세션과 쿠키를 지우고 재로그인을 안내한다. 다른 기기를 해제해도 현재 기기는 유지된다.
+- Google 로그인 복귀는 `/portal`과 `/portal/admin`만 허용한다.
+- `scripts/portal_org_upgrade.py cloud`는 두 검토된 함수 마이그레이션을 schema-only 백업·개별 checksum/journal·단일 트랜잭션으로 적용한다. 기관·계정·기존 상담 자료를 만들거나 이관하지 않는다.
+- 로컬 검증: 전체 746 passed / DB 의존 142 skipped / 기존 deprecation warning 1. 별도 격리 DB 검증 결과와 공개 검증 증거는 Worknote 프로젝트 진행 기록에서 추적한다.

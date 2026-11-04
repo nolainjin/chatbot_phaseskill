@@ -8,6 +8,9 @@
   var PARTICIPANT_TICKET_KEY = "lmwiki_participant_ticket";
   var PARTICIPANT_KEY = "lmwiki_participant_id";
   var INTAKE_LINK_KEY = "lmwiki_pending_intake_link";
+  var DRAFT_KEY = "lmwiki_message_draft";
+  var PENDING_REQUEST_KEY = "lmwiki_pending_chat_request";
+  var UI_STATE_KEY = "lmwiki_chat_ui_state";
   var institutionHash = new URL(window.location.href).hash;
   var institutionToken = institutionHash.indexOf("#intake=") === 0 ? institutionHash.slice(8) : null;
   if (institutionToken !== null) {
@@ -15,6 +18,9 @@
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
     sessionStorage.removeItem(CONSENT_KEY);
+    sessionStorage.removeItem(DRAFT_KEY);
+    sessionStorage.removeItem(PENDING_REQUEST_KEY);
+    sessionStorage.removeItem(UI_STATE_KEY);
   }
   // Opening a second institution link in this same tab is a same-document
   // navigation. Re-enter initialization instead of retaining the previous case.
@@ -132,6 +138,10 @@
   var contextualRepliesEl = document.getElementById("contextual-replies");
   var resetSessionEl = document.getElementById("reset-session");
   var characterCountEl = document.getElementById("character-count");
+  var deliveryStatusEl = document.getElementById("delivery-status");
+  var deliveryHelpEl = document.getElementById("delivery-help");
+  var deliveryProgressEl = document.getElementById("delivery-progress");
+  var retryButtonEl = document.getElementById("retry-button");
   var coachingStatusEl = document.getElementById("coaching-status");
   var coachingStageEl = document.getElementById("coaching-stage");
   var coachingNextActionEl = document.getElementById("coaching-next-action");
@@ -153,6 +163,129 @@
   var acceptEl = document.getElementById("consent-accept");
   var declineEl = document.getElementById("consent-decline");
   var handoffCardEl = null;
+  var pendingRequest = null;
+
+  function setDeliveryState(state, help) {
+    if (state === "completed") state = "saved";
+    var states = {
+      ready: ["작성 준비", "동의 후 편하게 입력해 주세요. 아직 저장된 내용은 없습니다."],
+      saved: ["저장됨", "입력 내용이 접수 기록에 저장되었습니다. 아직 센터 전달 전입니다."],
+      analyzing: ["분석 중", "입력 내용을 안전하게 저장하고 정리하고 있습니다."],
+      confirmation_required: ["확인 필요", "센터에 보내기 전, 반영된 내용을 확인하거나 수정해 주세요."],
+      retryable: ["확인 필요", "전송 결과를 확인하지 못했습니다. 같은 내용으로 다시 시도할 수 있습니다."],
+      delivered: ["센터 전달 완료", "센터 보고서가 등록되었습니다. 상담사 검토 완료를 뜻하지는 않습니다."]
+    };
+    var entry = states[state] || states.ready;
+    if (deliveryStatusEl) {
+      deliveryStatusEl.textContent = entry[0];
+      deliveryStatusEl.setAttribute("data-state", state === "analyzing" ? "processing" : state === "delivered" ? "delivered" : state === "confirmation_required" || state === "retryable" ? "attention" : "saved");
+    }
+    if (deliveryHelpEl) deliveryHelpEl.textContent = help || entry[1];
+  }
+
+  function saveDraft(value) {
+    var text = String(value || "");
+    if (text) sessionStorage.setItem(DRAFT_KEY, text);
+    else sessionStorage.removeItem(DRAFT_KEY);
+  }
+
+  function rememberPending(request) {
+    pendingRequest = request || null;
+    if (request) sessionStorage.setItem(PENDING_REQUEST_KEY, JSON.stringify(request));
+    else sessionStorage.removeItem(PENDING_REQUEST_KEY);
+    if (retryButtonEl) retryButtonEl.hidden = !request;
+  }
+
+  function clearSensitiveTabState() {
+    pendingRequest = null;
+    sessionStorage.removeItem(PENDING_REQUEST_KEY);
+    sessionStorage.removeItem(DRAFT_KEY);
+    sessionStorage.removeItem(UI_STATE_KEY);
+    if (retryButtonEl) retryButtonEl.hidden = true;
+    inputEl.value = "";
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(CONSENT_KEY);
+    consentGranted = false;
+    messagesEl.textContent = "";
+    slotListEl.textContent = "";
+    panelEl.hidden = true;
+    hideContextualReplies();
+    if (coachingStatusEl) coachingStatusEl.hidden = true;
+    handoffCardEl = null;
+    deleteSessionEl.hidden = true;
+    deleteCodeCardEl.hidden = true;
+    deleteCodeValueEl.textContent = "";
+  }
+
+  function applyPendingState() {
+    if (!pendingRequest || pendingRequest.session_id !== getSessionId()) return false;
+    userHasSpoken = true;
+    hideChips();
+    inputEl.value = pendingRequest.message;
+    inputEl.readOnly = false;
+    if (!consentRequired || consentGranted) inputEl.disabled = false;
+    if (retryButtonEl) retryButtonEl.hidden = false;
+    setDeliveryState("retryable");
+    return true;
+  }
+
+  function restorePending() {
+    try {
+      var request = JSON.parse(sessionStorage.getItem(PENDING_REQUEST_KEY));
+      if (request && request.request_id && request.message && request.session_id === getSessionId()) {
+        pendingRequest = request;
+        applyPendingState();
+        return;
+      }
+      sessionStorage.removeItem(PENDING_REQUEST_KEY);
+    } catch (error) { sessionStorage.removeItem(PENDING_REQUEST_KEY); }
+    inputEl.value = sessionStorage.getItem(DRAFT_KEY) || "";
+    setDeliveryState(inputEl.value ? "saved" : "ready", inputEl.value ? "작성 중인 내용은 이 탭에 임시 보관되어 있습니다." : "");
+  }
+
+  function rememberUiState(data) {
+    try {
+      var uiData = {
+        reply: data.reply, turn: data.turn, intake: data.intake,
+        quick_replies: data.quick_replies, closing: data.closing,
+        handoff: data.handoff, processing_status: data.processing_status,
+        conversation_ended: data.conversation_ended, limit_reached: data.limit_reached
+      };
+      sessionStorage.setItem(UI_STATE_KEY, JSON.stringify({session_id: getSessionId(), data: uiData}));
+    } catch (error) { /* Chat can continue when tab storage is unavailable or full. */ }
+  }
+
+  function responseDeliveryState(data) {
+    if (handoffDelivered(data.handoff)) return "delivered";
+    if (data.processing_status === "retryable") return "retryable";
+    if (data.closing) return "confirmation_required";
+    return data.processing_status || "saved";
+  }
+
+  function handoffDelivered(handoff) {
+    return Boolean(handoff && (handoff.sent === true || handoff.delivery_status === "sent_to_center"));
+  }
+
+  function restoreUiState() {
+    var saved;
+    try { saved = JSON.parse(sessionStorage.getItem(UI_STATE_KEY)); }
+    catch (error) { sessionStorage.removeItem(UI_STATE_KEY); return false; }
+    if (!saved || saved.session_id !== getSessionId() || !saved.data || !saved.data.reply) return false;
+    var data = saved.data;
+    userHasSpoken = true;
+    hideChips();
+    addMessage("assistant", data.reply.replace(/ \| (채움|다음 질문): .*$/, ""));
+    updateTurnCounter(data.turn || 0);
+    if (data.closing) turnCounterEl.textContent = "마지막 확인";
+    if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";
+    renderIntake(data.intake);
+    if (Array.isArray(data.quick_replies) && data.quick_replies.length) renderServerQuickReplies(data.quick_replies);
+    renderCoachingStatus(data);
+    renderHandoff(data.handoff);
+    setDeliveryState(responseDeliveryState(data));
+    if ((data.conversation_ended || data.limit_reached) && !pendingRequest) disableInput();
+    return true;
+  }
 
   function renderHandoff(handoff) {
     if (handoffCardEl) handoffCardEl.remove();
@@ -276,6 +409,9 @@
       sessionStorage.removeItem(CONSENT_KEY);
       localStorage.removeItem(PARTICIPANT_KEY);
       localStorage.removeItem(PARTICIPANT_TICKET_KEY);
+      sessionStorage.removeItem(DRAFT_KEY);
+      sessionStorage.removeItem(PENDING_REQUEST_KEY);
+      sessionStorage.removeItem(UI_STATE_KEY);
       storedId = null;
       url.searchParams.delete("management_id");
       url.searchParams.delete("link_ticket");
@@ -555,6 +691,7 @@
       characterCountEl.classList.toggle("near-limit", length > MAX_MESSAGE_LEN * 0.85);
     }
     sendButtonEl.disabled = requestPending || inputEl.disabled || !inputEl.value.trim();
+    if (retryButtonEl) retryButtonEl.disabled = requestPending;
     autoResizeInput();
   }
 
@@ -628,6 +765,10 @@
     userHasSpoken = false;
     inputEl.disabled = !configReady || consentRequired;
     inputEl.value = "";
+    saveDraft("");
+    rememberPending(null);
+    sessionStorage.removeItem(UI_STATE_KEY);
+    setDeliveryState("ready");
     messagesEl.textContent = "";
     handoffCardEl = null;
     slotListEl.textContent = "";
@@ -655,13 +796,24 @@
     message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
     if (!message) return;
 
+    var reusableRequest = pendingRequest && pendingRequest.session_id === getSessionId() && pendingRequest.message === message ? pendingRequest : null;
+    var request = options.request || reusableRequest || {
+      request_id: crypto.randomUUID(),
+      message: message,
+      session_id: getSessionId()
+    };
+    var isRetry = options.retry || request === reusableRequest;
     requestPending = true;
+    rememberPending(request);
     userHasSpoken = true;
     hideChips();
     hideContextualReplies();
-    setStatus("방금 입력을 읽고 있어요…");
-    addMessage("user", message);
+    setStatus("입력 내용을 저장하고 분석하고 있어요…");
+    setDeliveryState("analyzing");
+    if (!isRetry) addMessage("user", message);
     if (!options.preserveInput) inputEl.value = "";
+    saveDraft("");
+    inputEl.readOnly = true;
     if (resetSessionEl) resetSessionEl.disabled = true;
     updateInputState();
     showTyping();
@@ -670,30 +822,52 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        session_id: getSessionId(),
+        session_id: request.session_id,
         session_token: getSessionToken() || null,
         participant_id: getParticipantId(),
         participant_ticket: localStorage.getItem(PARTICIPANT_TICKET_KEY) || null,
         message: message,
+        request_id: request.request_id,
       }),
     })
       .then(function (response) {
         if (response.ok) return response.json();
 
         hideTyping();
-        if (response.status === 409 || response.status === 401) disableInput();
-        response.json().then(function (error) {
-          setStatus(error.detail || "오류가 발생했습니다. 새 대화로 시작해 주세요.");
+        return response.json().catch(function () { return {}; }).then(function (error) {
+          var detail = error.detail || "처리 결과를 확인하지 못했습니다. 같은 내용으로 다시 시도해 주세요.";
+          if (response.status === 401) {
+            clearSensitiveTabState();
+            disableInput();
+            setDeliveryState("ready", "로그인 또는 접수 권한을 다시 확인해 주세요. 이 탭의 임시 내용은 지웠습니다.");
+          } else {
+            rememberPending(request);
+            inputEl.value = message;
+            saveDraft(message);
+            var conflict = error.code === "request_id_conflict" || /요청.*(다른|충돌)|request.?id/i.test(detail);
+            setDeliveryState(conflict ? "confirmation_required" : "retryable", conflict ? "같은 요청 식별자에 다른 내용이 감지되었습니다. 입력을 확인해 주세요." : "전송 결과를 확인하지 못했습니다. 같은 내용으로 다시 시도할 수 있습니다.");
+          }
+          setStatus(detail);
+          requestPending = false;
+          inputEl.readOnly = false;
+          if (resetSessionEl) resetSessionEl.disabled = false;
+          updateInputState();
+          return null;
         });
-        requestPending = false;
-        if (resetSessionEl) resetSessionEl.disabled = false;
-        updateInputState();
-        return null;
       })
       .then(function (data) {
         if (!data) return;
 
         hideTyping();
+        var retryableResponse = data.processing_status === "retryable" || data.retryable === true;
+        if (retryableResponse) {
+          rememberPending(request);
+          inputEl.value = message;
+          saveDraft(message);
+        } else {
+          rememberPending(null);
+        }
+        rememberUiState(data);
         rememberCredentials(data);
         deleteSessionEl.hidden = !getSessionToken();
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
@@ -701,9 +875,10 @@
         setStatus("답변을 작성하고 있어요…");
         typeAssistantMessage(replyText).then(function () {
           setStatus("");
+          setDeliveryState(responseDeliveryState(data));
           updateTurnCounter(data.turn);
           if (data.closing) turnCounterEl.textContent = "마지막 확인";
-          if (data.handoff && data.handoff.mode === "center") turnCounterEl.textContent = "전달 완료";
+          if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";
           renderIntake(data.intake);
           if (Array.isArray(data.quick_replies) && data.quick_replies.length) {
             renderServerQuickReplies(data.quick_replies);
@@ -713,7 +888,15 @@
           renderCoachingStatus(data);
           renderHandoff(data.handoff);
           requestPending = false;
+          inputEl.readOnly = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
+
+          if (retryableResponse) {
+            setStatus("처리 결과를 확정하지 못했습니다. 같은 내용으로 다시 시도해 주세요.");
+            updateInputState();
+            inputEl.focus();
+            return;
+          }
 
           if (data.conversation_ended) {
             setStatus("안내가 완료되어 대화가 종료되었습니다. 다시 시작하려면 ‘새 대화’를 눌러 주세요.");
@@ -734,8 +917,13 @@
       })
       .catch(function () {
         hideTyping();
-        setStatus("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+        rememberPending(request);
+        inputEl.value = message;
+        saveDraft(message);
+        setDeliveryState("retryable");
+        setStatus("전송 결과를 확인하지 못했습니다. 입력은 보관되어 있으며 같은 내용으로 다시 시도할 수 있어요.");
         requestPending = false;
+        inputEl.readOnly = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
       });
@@ -749,6 +937,11 @@
   });
 
   inputEl.addEventListener("input", updateInputState);
+  inputEl.addEventListener("input", function () {
+    saveDraft(inputEl.value);
+    if (!requestPending && pendingRequest && inputEl.value !== pendingRequest.message) rememberPending(null);
+    if (!requestPending) setDeliveryState(inputEl.value ? "saved" : "ready", inputEl.value ? "작성 중인 내용은 이 기기에 임시 보관됩니다." : "");
+  });
   inputEl.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -758,6 +951,14 @@
 
   if (resetSessionEl) {
     resetSessionEl.addEventListener("click", resetSession);
+  }
+
+  if (retryButtonEl) {
+    retryButtonEl.addEventListener("click", function () {
+      if (!pendingRequest || requestPending) return;
+      inputEl.value = pendingRequest.message;
+      sendMessage(pendingRequest.message, {request: pendingRequest, retry: true});
+    });
   }
 
   if (chipsEl) {
@@ -836,6 +1037,7 @@
     if (stepperEl) stepperEl.hidden = true;
     if (chipsEl) chipsEl.hidden = true;
     intakeSchemaActive = false;
+    if (deliveryProgressEl) deliveryProgressEl.hidden = true;
   }
 
   function applyIntakeMode() {
@@ -849,6 +1051,7 @@
       "대화 내용은 서버에 저장됩니다. 자·타해 위험, 학대 의심, 법적 요청처럼 안전 예외가 있는 경우에는 보호자·전문기관과 공유될 수 있습니다."
     );
     setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
+    if (deliveryProgressEl) deliveryProgressEl.hidden = false;
   }
 
   function rememberCredentials(data) {
@@ -872,7 +1075,11 @@
       body: JSON.stringify(payload)
     }).then(function (response) {
       return response.json().then(function (data) {
-        if (!response.ok) throw new Error(data.detail || "처리하지 못했습니다.");
+        if (!response.ok) {
+          var error = new Error(data.detail || "처리하지 못했습니다.");
+          error.status = response.status;
+          throw error;
+        }
         return data;
       });
     });
@@ -896,6 +1103,7 @@
         return;
       }
       rememberCredentials(data);
+      sessionStorage.removeItem(UI_STATE_KEY);
       sessionStorage.removeItem(INTAKE_LINK_KEY);
       sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
       consentGranted = true;
@@ -907,6 +1115,7 @@
       maybeShowChips();
       inputEl.focus();
     }).catch(function (error) {
+      if (error.status === 401) clearSensitiveTabState();
       setStatus(error.message);
     }).finally(function () {
       requestPending = false;
@@ -946,6 +1155,7 @@
       document.getElementById("delete-status").textContent = data.reply;
       document.getElementById("delete-code-input").value = "";
     }).catch(function (error) {
+      if (error.status === 401) clearSensitiveTabState();
       document.getElementById("delete-status").textContent = error.message;
     }).finally(function () {
       requestPending = false;
@@ -976,7 +1186,11 @@
   // 교체 가능성 때문에 프로브가 끝난 뒤(성공·실패 공통) 표시한다.
   fetch("/api/config")
     .then(function (response) {
-      if (!response.ok) throw new Error("config fetch failed: " + response.status);
+      if (!response.ok) {
+        var error = new Error("config fetch failed: " + response.status);
+        error.status = response.status;
+        throw error;
+      }
       return response.json();
     })
     .then(function (data) {
@@ -1014,6 +1228,7 @@
       }
     })
     .catch(function (err) {
+      if (err.status === 401) clearSensitiveTabState();
       configReady = false;
       disableInput();
       hideChips();
@@ -1021,9 +1236,14 @@
       console.warn("intake config probe failed; stepper stays hidden", err);
     })
     .finally(function () {
-      if (configReady && (!consentRequired || consentGranted)) addMessage("assistant", greetingText);
+      if (configReady && (!consentRequired || consentGranted)) {
+        var restored = restoreUiState();
+        if (!restored) addMessage("assistant", greetingText);
+        applyPendingState();
+      }
       updateInputState();
     });
 
+  restorePending();
   updateInputState();
 })();

@@ -1,6 +1,7 @@
 """FastAPI application with a default-dark public boundary."""
 
 import hashlib
+import copy
 import hmac
 import ipaddress
 import logging
@@ -223,6 +224,7 @@ def _post_chat(request: Request, payload: dict):
     participant_id = payload.get("participant_id")
     participant_ticket = payload.get("participant_ticket")
     session_token = payload.get("session_token")
+    request_id = payload.get("request_id")
 
     # session_id는 파일명이 되므로 API 경계에서 화이트리스트를 강제한다 —
     # 통과 못 하면 400. 아래 storage 층 검증까지 내려가 500으로 새는 걸 막는다.
@@ -246,6 +248,11 @@ def _post_chat(request: Request, payload: dict):
         not isinstance(session_token, str) or len(session_token) > 128
     ):
         raise HTTPException(status_code=400, detail="session_token 형식이 올바르지 않습니다.")
+    if request_id is not None and (
+        not isinstance(request_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{7,127}", request_id)
+    ):
+        raise HTTPException(status_code=400, detail="request_id 형식이 올바르지 않습니다.")
 
     with storage.data_lock():
         settings = Settings.from_env()
@@ -265,6 +272,12 @@ def _post_chat(request: Request, payload: dict):
         if session_was_known:
             if not chat.owns_session(session_id, session_token):
                 raise HTTPException(status_code=401, detail="세션 인증이 필요합니다.")
+            cached = session.request_results.get(request_id) if request_id else None
+            if cached is not None:
+                if cached.get("message_digest") != hashlib.sha256(message.encode("utf-8")).hexdigest():
+                    raise HTTPException(status_code=409, detail="request_id는 다른 메시지에 재사용할 수 없습니다.")
+                if "result" in cached:
+                    return cached["result"]
         elif storage.conversation_exists(session_id):
             raise HTTPException(status_code=401, detail="만료된 세션입니다. 새 세션으로 시작해 주세요.")
 
@@ -276,7 +289,30 @@ def _post_chat(request: Request, payload: dict):
 
         if not session_was_known and bound_participant_id is None:
             bound_participant_id = _new_participant_id()
-        result = chat.handle_message(session_id, message, participant_id=bound_participant_id)
+        session_before = copy.deepcopy(chat._sessions.get(session_id))
+        try:
+            result = chat.handle_message(session_id, message, participant_id=bound_participant_id,
+                                         request_id=request_id)
+        except Exception:
+            if session_before is None:
+                chat._sessions.pop(session_id, None)
+            else:
+                chat._sessions[session_id] = session_before
+            raise
+        if request_id:
+            result["request_id"] = request_id
+            if result.get("processing_status") != "retryable":
+                chat._sessions[session_id].request_results[request_id] = {
+                    "message_digest": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+                    "message_preview": storage.redact_pii(message), "result": dict(result)
+                }
+            else:
+                previous = chat._sessions[session_id].request_results.get(request_id) or {}
+                chat._sessions[session_id].request_results[request_id] = {
+                    **previous,
+                    "message_digest": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+                    "message_preview": storage.redact_pii(message), "status": "retryable"
+                }
         if not session_was_known:
             issued_participant = bound_participant_id or session_id
             result["session_token"] = chat.session_token(session_id)

@@ -64,6 +64,24 @@ def test_91_days_removes_raw_but_keeps_summary_metadata_and_code():
         assert conn.execute("SELECT count(*) FROM turns WHERE role NOT IN (?,?)", retention.SUMMARY_ROLES).fetchone()[0] == 0
 
 
+def test_raw_expiry_scrubs_provenance_and_cached_originals_from_all_local_layers():
+    path, day, _ = _seed("provenance-expired", 91)
+    sentinel = "SYNTHETIC-RAW-SENTINEL-991"
+    payload = json.loads(path.read_text())
+    summary = {"slots": {"coping": "산책"},
+               "slot_evidence": {"coping": {"status": "answered", "source_text": sentinel}},
+               "slot_revisions": [{"field": "coping", "before": sentinel, "after": "산책"}]}
+    payload["intake_snapshot"] = summary
+    payload["turns"][-1]["text"] = json.dumps(summary, ensure_ascii=False)
+    storage._write_private_json(path, payload)
+    load_day(day)
+    retention.purge_expired(today=TODAY)
+    assert sentinel not in path.read_text()
+    with sqlite3.connect(data_paths.db_path()) as conn:
+        assert all(sentinel not in row[0] for row in conn.execute(
+            "SELECT text FROM turns WHERE session_id=?", ("provenance-expired",)))
+
+
 def test_366_days_deletes_everything_and_minimal_tombstone():
     path, _, code = _seed("summary-expired", 366)
     assert retention.purge_expired(today=TODAY)["sessions"] == 1

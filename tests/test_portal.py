@@ -407,6 +407,9 @@ def test_email_code_wrong_nonce_csrf_attempts_and_expiry(email_env):
 
 @pytest.mark.parametrize('change', ['member', 'identity', 'user'])
 def test_email_rechecks_membership_and_identity_at_verify(email_env, change):
+    # Ordinary staff still require an active institution; system admins are separate.
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET is_registrar=false WHERE id='A0'")
     c = client()
     email_start(c)
     code = latest_mail(purpose='login')['code']
@@ -454,6 +457,88 @@ def test_email_directory_reject_and_disabled_account_protection(email_env):
     with store.connect() as conn:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute('SELECT * FROM maeum.registration_requests')
+
+
+def test_registrar_manages_organizations(email_env):
+    c = client()
+    email_enter(c)
+    listed = c.get('/api/portal/organizations').json()['organizations']
+    assert {o['id'] for o in listed} == {'A', 'B'} and all(o['active'] for o in listed)
+    assert {o['id']: o['members'] for o in listed} == {'A': 3, 'B': 2}
+    created = post(c, '/organizations', {'name': '  새 상담센터  '})
+    assert created.status_code in {200, 201}, created.text
+    org_id = created.json()['id']
+    assert len(org_id) == 16 and org_id.startswith('org-') and org_id[4:] == org_id[4:].lower() and int(org_id[4:], 16) >= 0
+    listed = c.get('/api/portal/organizations').json()['organizations']
+    assert [o for o in listed if o['id'] == org_id] == [{'id': org_id, 'name': '새 상담센터', 'active': True, 'members': 0}]
+    assert org_id in {o['id'] for o in c.get('/api/portal/registrations').json()['organizations']}
+    # A new institution accepts a pre-registration.
+    assert post(c, '/registrations', {'email': 'fresh@example.test', 'org_id': org_id, 'role': 'summary'}).status_code == 200
+    assert next(o for o in c.get('/api/portal/organizations').json()['organizations'] if o['id'] == org_id)['members'] == 1
+    assert post(c, f'/organizations/{org_id}', {'name': '이름 바꾼 센터', 'active': True}, 'PATCH').status_code == 200
+    assert next(o for o in c.get('/api/portal/organizations').json()['organizations'] if o['id'] == org_id)['name'] == '이름 바꾼 센터'
+    assert post(c, f'/organizations/{org_id}', {'name': '이름 바꾼 센터', 'active': False}, 'PATCH').status_code == 200
+    assert org_id not in {o['id'] for o in c.get('/api/portal/registrations').json()['organizations']}
+    assert next(o for o in c.get('/api/portal/organizations').json()['organizations'] if o['id'] == org_id)['active'] is False
+    assert post(c, '/registrations', {'email': 'later@example.test', 'org_id': org_id, 'role': 'summary'}).status_code == 404
+    assert post(c, f'/organizations/{org_id}', {'name': '이름 바꾼 센터', 'active': True}, 'PATCH').status_code == 200
+    assert org_id in {o['id'] for o in c.get('/api/portal/registrations').json()['organizations']}
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        assert conn.execute("SELECT count(*) FROM maeum.audit_events WHERE org_id=%s AND action IN ('org_create','org_update')", (org_id,)).fetchone()[0] == 4
+
+
+def test_organization_validation_and_authorization(email_env):
+    c = client()
+    email_enter(c)
+    for name in ['', '   ', 'x' * 81, 5, None, 'bad\x07name']:
+        assert post(c, '/organizations', {'name': name}).status_code == 400
+    assert post(c, '/organizations', {'name': 'x' * 80}).status_code == 200
+    assert post(c, '/organizations', {'name': '합성 a 상담기관'}).status_code == 409
+    assert post(c, '/organizations', {'name': ' 합성 B 상담기관 '}).status_code == 409
+    assert post(c, '/organizations/A', {'name': '합성 B 상담기관', 'active': True}, 'PATCH').status_code == 409
+    assert post(c, '/organizations/A', {'name': '합성 A 상담기관', 'active': True}, 'PATCH').status_code == 200
+    assert post(c, '/organizations/A', {'name': '', 'active': True}, 'PATCH').status_code == 400
+    assert post(c, '/organizations/A', {'name': 'y' * 81, 'active': True}, 'PATCH').status_code == 400
+    for active in ['true', 1, None]:
+        assert post(c, '/organizations/A', {'name': '합성 A 상담기관', 'active': active}, 'PATCH').status_code == 400
+    assert post(c, '/organizations/A', {'name': '합성 A 상담기관'}, 'PATCH').status_code == 400
+    assert post(c, '/organizations/missing', {'name': '없는 기관', 'active': True}, 'PATCH').status_code == 404
+    for header, value in (('Origin', 'http://evil.test'), ('X-CSRF-Token', 'wrong')):
+        saved = c.headers[header]
+        c.headers[header] = value
+        assert post(c, '/organizations', {'name': '거절될 기관'}).status_code == 403
+        assert post(c, '/organizations/A', {'name': '거절될 기관', 'active': True}, 'PATCH').status_code == 403
+        c.headers[header] = saved
+    staff = client()
+    email_enter(staff, 'a1@example.test')
+    assert staff.get('/api/portal/organizations').status_code == 403
+    assert post(staff, '/organizations', {'name': '직원이 만든 기관'}).status_code == 403
+    assert post(staff, '/organizations/A', {'name': '직원이 바꾼 이름', 'active': False}, 'PATCH').status_code == 403
+    assert client().get('/api/portal/organizations').status_code == 401
+    names = [o['name'] for o in c.get('/api/portal/organizations').json()['organizations']]
+    assert '직원이 만든 기관' not in names and '직원이 바꾼 이름' not in names and '거절될 기관' not in names
+    with store.connect() as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("SELECT maeum.create_organization('x','y')")
+
+
+def test_organization_endpoints_need_email_mode(env):
+    c = verified()
+    assert c.get('/api/portal/organizations').status_code == 404
+    assert post(c, '/organizations', {'name': '기관'}).status_code == 404
+
+
+def test_owner_cannot_revoke_own_membership_or_manage_permission(env):
+    a = verified()
+    full = ['report:read', 'raw:read', 'review:write', 'link:issue', 'member:manage', 'audit:read']
+    assert post(a, '/members/A0', {'org_id': 'A', 'permissions': full, 'active': False}, 'PATCH').status_code == 409
+    assert post(a, '/members/A0', {'org_id': 'A', 'permissions': ['report:read'], 'active': True}, 'PATCH').status_code == 409
+    assert post(a, '/members/A0', {'org_id': 'A', 'permissions': ['report:read'], 'active': False}, 'PATCH').status_code == 409
+    with owner() as conn:
+        assert conn.execute("SELECT active,permissions FROM maeum.memberships WHERE org_id='A' AND user_id='A0'").fetchone() == (True, full)
+    # Other members, and the owner's other non-management permissions, are unchanged.
+    assert post(a, '/members/A1', {'org_id': 'A', 'permissions': ['report:read'], 'active': False}, 'PATCH').status_code == 200
+    assert post(a, '/members/A0', {'org_id': 'A', 'permissions': full[:1] + ['member:manage'], 'active': True}, 'PATCH').status_code == 200
 
 
 def test_email_provider_passwordless_boundary(provider_env, monkeypatch):
@@ -630,7 +715,7 @@ def database():
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     with psycopg.connect(owner_url) as conn:
-        for filename in ("202611040001_cloud_store.sql", "202611040002_portal.sql", "202611040003_portal_sources_identity.sql", "202611040004_portal_runtime_boundary.sql", "202611040005_portal_cloud_identity.sql", "202611040006_email_login.sql"):
+        for filename in ("202611040001_cloud_store.sql", "202611040002_portal.sql", "202611040003_portal_sources_identity.sql", "202611040004_portal_runtime_boundary.sql", "202611040005_portal_cloud_identity.sql", "202611040006_email_login.sql", "202611050001_org_admin.sql", "202611050002_registrar_login.sql"):
             conn.execute((Path("supabase/migrations") / filename).read_text())
     yield config | {"MAEUM_DATABASE_URL": owner_url, "PORTAL_DATABASE_URL": runtime_url, "PORTAL_AUTH_DATABASE_URL": auth_url}
     with psycopg.connect(admin_url, autocommit=True) as conn:
@@ -694,6 +779,8 @@ def provider_env(env, monkeypatch):
     monkeypatch.setattr(psycopg, 'connect', local_connect)
     uid = str(uuid4())
     with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        if conn.execute("SELECT to_regclass('auth.users') IS NOT NULL").fetchone()[0]:
+            conn.execute('INSERT INTO auth.users(id,email) VALUES(%s,%s)', (uid, 'a0@example.test'))
         conn.execute('UPDATE maeum.portal_users SET supabase_user_id=%s WHERE id=%s', (uid, 'A0'))
     sent = {}
     def api(path, body, **kwargs):
@@ -1266,6 +1353,37 @@ def test_T04_summary_only_no_raw(env):
     assert post(a2,"/links",{"org_id":"A","management_id":"D-101"}).status_code==403
 
 
+def test_T04_summary_only_strips_raw_provenance_and_revision_text(env):
+    a=verified();_,sid,r,_,_=intake_case(a)
+    sentinels={"SOURCE-TEXT-ONLY","OLD-CORRECTION-ONLY","NEW-CORRECTION-ONLY",
+               "CACHED-USER-MESSAGE-ONLY","CACHED-MODEL-REPLY-ONLY"}
+    with owner() as conn:
+        key,payload=conn.execute(
+            "SELECT record_key,payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",
+            (sid,),
+        ).fetchone()
+        user_turn=next(turn for turn in payload["turns"] if turn["role"]=="user")
+        source={"day":key.split('/',1)[0],"seq":user_turn["seq"],"role":"user"}
+        payload["intake_snapshot"] = payload["intake_snapshot"] | {
+            "slot_evidence":{"cause":{"status":"answered","value":"업무 부담","source":source,
+                                        "source_text":"SOURCE-TEXT-ONLY"}},
+            "slot_revisions":[{"field":"cause","before":"OLD-CORRECTION-ONLY",
+                               "after":"NEW-CORRECTION-ONLY","source_turn":user_turn["seq"]}],
+            "request_results":{"synthetic":{"message":"CACHED-USER-MESSAGE-ONLY",
+                                              "reply":"CACHED-MODEL-REPLY-ONLY"}},
+        }
+        conn.execute("UPDATE maeum.records SET payload=%s WHERE kind='conversation' AND record_key=%s",
+                     (Jsonb(payload),key))
+    store.project(sid)
+    summary=report(verified("a2@example.test"),r["intake_id"]).json()["summary"]
+    serialized=json.dumps(summary,ensure_ascii=False)
+    assert not any(marker in serialized for marker in sentinels)
+    assert summary["slot_evidence"]["cause"] == {
+        "status":"answered","value":"업무 부담","source":source,
+    }
+    assert summary["slot_revisions"] == [{"field":"cause","source_turn":user_turn["seq"]}]
+
+
 def test_T05_T06_device_cookie_is_not_login_and_ip_no_challenge(env):
     c=verified()
     assert post(c,"/auth/logout").status_code==200
@@ -1425,7 +1543,18 @@ def test_T14_audit_review_and_fail_closed(env):
 @pytest.mark.parametrize("age,raw,exists",[(90,True,True),(91,False,True),(365,False,True),(366,False,False)])
 def test_T15_retention_boundary(env,age,raw,exists):
     a=verified();_,sid,r,_,_=intake_case(a)
-    cloud_store.purge_expired(today=date.today()+timedelta(days=age))
+    # Retention is measured from the earliest persisted session day.  Anchor the
+    # boundary to that durable value instead of the test runner's local calendar:
+    # a session created just after midnight KST can still have a UTC date from the
+    # previous day in created_at/consented_at.
+    with owner() as conn:
+        rows=conn.execute("SELECT record_key,payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchall()
+    origin=min(
+        [date.fromisoformat(key.split('/',1)[0]) for key,_ in rows]
+        + [date.fromisoformat(payload[field][:10]) for _,payload in rows
+           for field in ('created_at','consented_at') if payload.get(field)]
+    )
+    cloud_store.purge_expired(today=origin+timedelta(days=age))
     result=report(a,r["intake_id"])
     assert (result.status_code==200)==exists
     if exists:
@@ -1561,10 +1690,41 @@ def test_T13_source_links_and_completion(env):
         for ref in refs:
             turns=next(d["turns"] for d in docs if d["day"]==ref["day"])
             turn=next(t for t in turns if t["seq"]==ref["seq"])
-            assert turn["role"]=="user" and detail["summary"]["slots"][slot] in turn["text"]
+            assert turn["role"]=="user"
+            evidence=detail["summary"].get("slot_evidence",{}).get(slot,{})
+            if evidence.get("source"):
+                assert ref==evidence["source"]
+            else:
+                # Legacy projections without explicit evidence use verbatim
+                # value matching as their bounded fallback.
+                assert detail["summary"]["slots"][slot] in turn["text"]
     with owner() as conn:
         latest=conn.execute("SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s ORDER BY record_key DESC",(sid,)).fetchone()[0]
     assert detail["summary"]==latest["intake_snapshot"]
+
+
+def test_T13_center_request_source_points_to_actual_user_turn(env):
+    a=verified();c,sid,r,_,_=intake_case(a)
+    for message in ("정서적인 어려움이에요.","세 달 전부터 잠을 잘 못 자요.",
+                    "업무가 바뀌어 부담이 늘었어요.","쉬거나 산책하고 있어요.",
+                    "친구가 도와주고 있어요.","마음이 편해지고 싶어요."):
+        response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":message})
+        assert response.status_code==200, response.text
+        if response.json().get("closing",{}).get("stage")=="select":
+            break
+    response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"센터에 묻고 싶은 것"})
+    assert response.json()["closing"]["stage"]=="answer"
+    response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"SYNTHETIC-CENTER-QUESTION 주차가 가능한가요?"})
+    assert response.json()["closing"]["stage"]=="confirm"
+    response=c.post("/api/chat",json={"session_id":sid,"session_token":r["session_token"],"message":"이대로 보내기"})
+    assert response.status_code==200 and response.json()["conversation_ended"] is True
+    detail=report(a,r["intake_id"]).json()
+    refs=detail["sources"]["center_request:0"]
+    assert len(refs)==1 and refs[0]["role"]=="user"
+    documents=report(a,r["intake_id"],suffix="/transcript").json()["documents"]
+    turns=next(document["turns"] for document in documents if document["day"]==refs[0]["day"])
+    turn=next(item for item in turns if item["seq"]==refs[0]["seq"])
+    assert turn["role"]=="user" and turn["text"]=="SYNTHETIC-CENTER-QUESTION 주차가 가능한가요?"
 
 
 def test_T15_concurrent_delete_and_read_and_chat(env):
@@ -1611,7 +1771,12 @@ def test_T15_raw_expiry_cleans_serialized_summary_quotes(env):
     marker="SYNTHETIC-RAW-QUOTE-ONLY"
     with owner() as conn:
         key,payload=conn.execute("SELECT record_key,payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s",(sid,)).fetchone()
-        summary=payload["intake_snapshot"] | {"center_requests":[{"label":"요청","text":marker}],"sources":[marker]}
+        summary=payload["intake_snapshot"] | {
+            "center_requests":[{"label":"요청","text":marker}],"sources":[marker],
+            "slot_evidence":{"cause":{"status":"answered","source_text":marker}},
+            "slot_revisions":[{"field":"cause","before":marker,"after":"산책"}],
+            "request_results":{"synthetic":{"message":marker,"reply":marker}},
+        }
         payload["intake_snapshot"]=summary
         payload["turns"].append({"seq":99,"role":"intake_summary","text":json.dumps(summary)})
         conn.execute("UPDATE maeum.records SET payload=%s WHERE kind='conversation' AND record_key=%s",(Jsonb(payload),key))
@@ -1621,4 +1786,94 @@ def test_T15_raw_expiry_cleans_serialized_summary_quotes(env):
         assert marker not in json.dumps(remaining)
         assert conn.execute("SELECT count(*) FROM maeum.records WHERE kind='session' AND record_key=%s",(sid,)).fetchone()[0]==0
     detail=report(a,r["intake_id"]).json()
+    assert detail["raw_expired"] is True
     assert detail["sources"]=={} and marker not in json.dumps(detail)
+    assert "slot_evidence" not in detail["summary"]
+    assert "slot_revisions" not in detail["summary"]
+
+
+def test_self_device_revoke_clears_browser_and_google_can_reenter(google_env):
+    c, sent, _, _, _ = google_env
+    google_start(c, sent)
+    first = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert first.status_code == 200
+    c.headers['X-CSRF-Token'] = first.json()['csrf']
+    devices = c.get('/api/portal/devices').json()
+    current = [d for d in devices if d['current']]
+    assert len(current) == 1
+    old_token = c.cookies.get(auth.SESSION)
+    result = post(c, '/devices/' + current[0]['id'], method='DELETE')
+    assert result.status_code == 200
+    assert result.json()['current_revoked'] is True
+    assert not c.cookies.get(auth.SESSION) and not c.cookies.get(auth.NONCE)
+    assert c.get('/api/portal/me').status_code == 401
+    google_start(c, sent)
+    response = post(c, '/auth/google-exchange', {'code': 'synthetic-valid-auth-code'})
+    assert response.status_code == 200
+    c.headers['X-CSRF-Token'] = response.json()['csrf']
+    assert c.cookies.get(auth.SESSION) != old_token
+    assert c.get('/api/portal/me').json()['state'] == 'verified'
+    devices = c.get('/api/portal/devices').json()
+    assert next(d for d in devices if d['id'] == current[0]['id'])['revoked'] is True
+    assert len([d for d in devices if d['current'] and not d['revoked']]) == 1
+
+
+@pytest.mark.parametrize('target,expected', [('/portal/admin','/portal/admin'),('/portal','/portal'),('https://evil.test','/portal'),('//evil.test','/portal'),({},'/portal')])
+def test_google_fixed_return_paths(google_env, target, expected):
+    c, sent, _, _, _ = google_env
+    response = post(c, '/auth/google-start', {'return_to':target})
+    assert response.status_code == 200
+    sent['challenge'] = parse_qs(urlparse(response.json()['url']).query)['code_challenge'][0]
+    response = post(c, '/auth/google-exchange', {'code':'synthetic-valid-auth-code'})
+    assert response.status_code == 200
+    assert response.json()['return_to'] == expected
+    assert not c.cookies.get('maeum_google_return')
+
+
+def test_testbed_requires_registrar_and_tenant_permission(email_env):
+    admin=client();email_enter(admin)
+    result=post(admin,'/testbed',{'org_id':'A','management_id':'real-case'})
+    assert result.status_code == 200, result.text
+    data=result.json()
+    assert data['synthetic'] is True and data['management_id'].startswith('TEST-')
+    assert data['management_id'] != 'real-case'
+    assert len(data['management_id']) <= 32 and '#intake=' in data['url']
+    assert post(admin,'/testbed',{'org_id':'B'}).status_code == 403
+    with owner() as conn:
+        rows=conn.execute('SELECT management_id FROM maeum.intake_links WHERE org_id=%s',('A',)).fetchall()
+    assert [row[0] for row in rows] == [data['management_id']]
+    staff=client();email_enter(staff,'a1@example.test')
+    assert post(staff,'/testbed',{'org_id':'A'}).status_code == 403
+    assert post(client(),'/testbed',{'org_id':'A'}).status_code == 401
+
+
+def test_separate_portal_mode_routes(email_env):
+    c=client()
+    for path in ['/portal/admin','/portal/admin/']:
+        r=c.get(path)
+        assert r.status_code == 200 and 'data-portal-mode="admin"' in r.text
+        assert '마음 접수 · 관리자 대시보드' in r.text
+        assert r.headers['cache-control'] == 'no-store'
+    r=c.get('/portal')
+    assert 'data-portal-mode="institution"' in r.text
+    assert '마음 접수 · 기관 포털' in r.text
+
+
+def test_registrar_without_membership_can_login_but_cannot_access_tenants(google_env):
+    c,sent,_,_,_=google_env
+    with owner() as conn:
+        conn.execute("UPDATE maeum.portal_users SET is_registrar=true WHERE id='A0'")
+        conn.execute("UPDATE maeum.memberships SET active=false WHERE user_id='A0'")
+    google_start(c,sent)
+    response=post(c,'/auth/google-exchange',{'code':'synthetic-valid-auth-code'})
+    assert response.status_code == 200,response.text
+    c.headers['X-CSRF-Token']=response.json()['csrf']
+    me=c.get('/api/portal/me').json()
+    assert me['registrar'] is True and me['organizations'] == []
+    assert c.get('/api/portal/organizations').status_code == 200
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 403
+    assert post(c,'/testbed',{'org_id':'A'}).status_code == 403
+    with owner() as conn:
+        conn.execute("UPDATE maeum.portal_users SET is_registrar=false WHERE id='A0'")
+    google_start(c,sent)
+    assert post(c,'/auth/google-exchange',{'code':'synthetic-valid-auth-code'}).status_code == 403

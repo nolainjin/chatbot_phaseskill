@@ -144,8 +144,35 @@ def session_scope(session_id):
                 # Redact user/model content, not random IDs, tokens or timestamps:
                 # an opaque ID can accidentally contain phone-like digit runs.
                 state = asdict(session)
-                for field in ('history', 'slots', 'handoff', 'center_requests'):
+                for field in ('history', 'slots', 'handoff', 'center_requests', 'closing_draft',
+                              'slot_evidence'):
                     state[field] = storage._redact_obj(state[field])
+                pending = state.get('closing_analysis_pending')
+                if isinstance(pending, dict):
+                    opaque_request_id = pending.get('request_id')
+                    state['closing_analysis_pending'] = storage._redact_obj(pending)
+                    state['closing_analysis_pending']['request_id'] = opaque_request_id
+                revisions = []
+                for revision in state.get('slot_revisions', []):
+                    if not isinstance(revision, dict):
+                        continue
+                    opaque_request_id = revision.get('source_request_id')
+                    cleaned = storage._redact_obj(revision)
+                    cleaned['source_request_id'] = opaque_request_id
+                    revisions.append(cleaned)
+                state['slot_revisions'] = revisions
+                # Idempotency keys and digests are opaque protocol material;
+                # generic PII regexes must not rewrite them. Only redact the
+                # user/model-bearing fields nested inside each result.
+                for request in state.get('request_results', {}).values():
+                    if isinstance(request, dict):
+                        if 'message_preview' in request:
+                            request['message_preview'] = storage._redact_obj(request['message_preview'])
+                        if 'result' in request:
+                            opaque_request_id = request['result'].get('request_id') if isinstance(request['result'], dict) else None
+                            request['result'] = storage._redact_obj(request['result'])
+                            if opaque_request_id is not None:
+                                request['result']['request_id'] = opaque_request_id
                 put("session", session_id, state)
                 if os.getenv("PORTAL_ENABLED") == "1":
                     from app.portal_store import project
@@ -164,19 +191,28 @@ def conversation_exists(session_id):
         ).fetchone() is not None
 
 
-def update_conversation(session_id, participant_id, *, turn=None, metadata=None):
+def update_conversation(session_id, participant_id, *, turn=None, turns=None, metadata=None):
     from app import storage
 
     key = date.today().isoformat() + "/" + session_id
     raw = get("conversation", key, {})
     payload = storage.normalize_conversation_payload(raw, session_id, participant_id)
-    if turn is not None:
-        turns = payload["turns"]
-        turns.append({"seq": max((t["seq"] for t in turns), default=-1) + 1,
-                      "role": turn[0], "text": storage.redact_pii(turn[1])})
-    if metadata:
-        payload.update(storage._redact_obj(metadata))
+    incoming = list(turns or ([] if turn is None else [turn]))
+    refs = []
+    next_seq = max((t["seq"] for t in payload["turns"]), default=-1) + 1
+    for role, text in incoming:
+        saved_turn = {"seq": next_seq, "role": role, "text": storage.redact_pii(text)}
+        payload["turns"].append(saved_turn)
+        refs.append({"day": key.split("/", 1)[0], "seq": next_seq, "role": role})
+        next_seq += 1
+    updates = metadata(refs) if callable(metadata) else metadata
+    if updates:
+        payload.update(storage._redact_obj(updates))
     put("conversation", key, payload)
+    if turns is not None:
+        return refs
+    if turn is not None:
+        return refs[0]
 
 
 def _retired(session_id, via):

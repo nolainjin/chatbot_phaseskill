@@ -193,6 +193,55 @@ def test_chat_client_linkifies_verified_support_resources():
     assert "appendSupportLinks(bubble, text)" in response.text
 
 
+def test_intake_ui_preserves_drafts_and_retries_the_same_request():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="delivery-status"' in html
+    assert 'id="retry-button"' in html
+    assert 'request_id: request.request_id' in script
+    assert 'sessionStorage.setItem(PENDING_REQUEST_KEY' in script
+    assert 'sessionStorage.setItem(UI_STATE_KEY' in script
+    assert 'function restoreUiState()' in script
+    assert 'localStorage.setItem(PENDING_REQUEST_KEY' not in script
+    assert 'coach_stage: data.coach_stage' not in script
+    assert 'session_token: data.session_token' not in script
+    assert 'participant_ticket: data.participant_ticket' not in script
+    assert 'role="status" aria-live="polite" aria-atomic="true"' in html
+    assert 'pendingRequest.message === message ? pendingRequest : null' in script
+    assert 'data.processing_status === "retryable" || data.retryable === true' in script
+    assert 'rememberPending(request);' in script
+    assert 'function clearSensitiveTabState()' in script
+    assert 'response.status === 401' in script
+    assert 'applyPendingState();' in script
+    assert 'messagesEl.textContent = "";' in script
+    assert 'deleteCodeCardEl.hidden = true;' in script
+    assert 'deleteCodeValueEl.textContent = "";' in script
+    assert 'data.handoff.mode === "center")) return "delivered"' not in script
+    assert script.count('if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";') == 2
+    assert 'sendMessage(pendingRequest.message, {request: pendingRequest, retry: true})' in script
+    assert '센터 보고서가 등록되었습니다. 상담사 검토 완료를 뜻하지는 않습니다.' in script
+
+
+def test_portal_separates_intake_review_and_evidence_states():
+    html = (STATIC_DIR / "portal" / "index.html").read_text(encoding="utf-8")
+    script = (STATIC_DIR / "portal" / "app.js").read_text(encoding="utf-8")
+
+    assert html.index('id="layout"') < html.index('id="link-panel"') < html.index('id="registration-panel"')
+    assert "접수 링크 발급 및 관리" in html
+    assert 'const intakeStatus' in script
+    assert 'const reviewStatus' in script
+    assert 'declined:"답변하지 않음"' in script
+    assert 'not_applicable:"해당 없음"' in script
+    assert 'confirmed:"내담자 진술",answered:"내담자 진술",unclear:"추가 확인 필요"' in script
+    assert 'state==="unconfirmed"&&value!=="미확인"?"answered":state' not in script
+    assert 'Object.prototype.hasOwnProperty.call(evidence,key)||Boolean(slots[key])' in script
+    assert 'const coreKeys=visibleKeys.filter' in script
+    assert 'detailSection.append(el("h3","세부 항목"))' in script
+    assert 'r.sources["center_request:"+index]' in script
+    assert '"원문 출처 #"+source.seq' in script
+
+
 def test_csv_cell_neutralizes_formula_markers():
     source = (Path(__file__).parents[1] / "static" / "csv.js").read_text(encoding="utf-8")
     script = (

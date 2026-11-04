@@ -10,17 +10,23 @@ from fastapi.responses import FileResponse, HTMLResponse
 from app import cloud_store, intake, portal_auth as auth, portal_store as store
 from app.config import Settings
 from app.portal_config import Policy
-from app import portal_config, portal_email, portal_google
+from app import portal_config, portal_email, portal_google, portal_orgs
 
 router = APIRouter()
 
 
+@router.get("/portal/admin")
+@router.get("/portal/admin/")
 @router.get("/portal")
 @router.get("/portal/")
 @router.get("/portal/index.html")
 @router.get("/portal/login")
-def portal_page():
+def portal_page(request: Request):
     html = (Path(__file__).resolve().parents[1] / "static/portal/index.html").read_text()
+    mode = 'admin' if request.url.path.rstrip('/') == '/portal/admin' else 'institution'
+    html = html.replace('data-portal-mode="institution"', 'data-portal-mode="' + mode + '"')
+    if mode == 'admin':
+        html = html.replace('마음 접수 · 기관 포털', '마음 접수 · 관리자 대시보드')
     if portal_config.cloud():
         html = html.replace('<details><summary>초대 수락</summary>',
                             '<details hidden><summary>초대 수락</summary>')
@@ -105,9 +111,9 @@ def google_mode():
 
 
 @router.post('/api/portal/auth/google-start')
-def google_start(request: Request, response: Response):
+def google_start(request: Request, response: Response, payload: dict = Body(default={})):
     google_mode()
-    return portal_google.start(request, response)
+    return portal_google.start(request, response, payload)
 
 
 @router.get('/portal/google-return')
@@ -192,6 +198,24 @@ def registration_reject(request: Request, payload: dict = Body(...)):
     return portal_email.reject(request, payload)
 
 
+@router.get('/api/portal/organizations')
+def organization_directory(request: Request):
+    email_mode()
+    return portal_orgs.directory(request)
+
+
+@router.post('/api/portal/organizations')
+def organization_create(request: Request, payload: dict = Body(...)):
+    email_mode()
+    return portal_orgs.create(request, payload)
+
+
+@router.patch('/api/portal/organizations/{org_id}')
+def organization_update(org_id: str, request: Request, payload: dict = Body(...)):
+    email_mode()
+    return portal_orgs.update(request, org_id, payload)
+
+
 @router.get("/api/portal/me")
 def me(request: Request, response: Response):
     with store.connect() as conn:
@@ -238,11 +262,11 @@ def tenant(conn, request, org_id, permission):
 def devices(request: Request):
     with auth.connect() as conn:
         s = auth.session(conn, request)
-        return conn.execute("SELECT id,created_at,expires_at,revoked FROM maeum.trusted_devices WHERE user_id=%s ORDER BY created_at DESC", (s["user_id"],)).fetchall()
+        return conn.execute("SELECT id,created_at,expires_at,revoked,(id=%s) AS current FROM maeum.trusted_devices WHERE user_id=%s ORDER BY created_at DESC", (s["device_id"], s["user_id"])).fetchall()
 
 
 @router.delete("/api/portal/devices/{device_id}")
-def revoke_device(device_id: str, request: Request):
+def revoke_device(device_id: str, request: Request, response: Response):
     with auth.connect() as conn:
         s = auth.session(conn, request)
         auth.csrf(request, s)
@@ -250,7 +274,11 @@ def revoke_device(device_id: str, request: Request):
         if not row:
             raise HTTPException(404, "기기를 찾을 수 없습니다.")
         conn.execute("UPDATE maeum.portal_sessions SET revoked=true WHERE device_id=%s AND user_id=%s", (device_id, s["user_id"]))
-    return {"revoked": True}
+    current_revoked = str(s['device_id']) == device_id
+    if current_revoked:
+        for name in [auth.SESSION, auth.NONCE, auth.DEVICE, portal_email.ATTEMPT, portal_email.BROWSER]:
+            response.delete_cookie(name, path='/')
+    return {"revoked": True, "current_revoked": current_revoked}
 
 
 @router.post("/api/portal/links")
@@ -268,6 +296,19 @@ def issue_link(request: Request, payload: dict = Body(...)):
         store.audit(conn, org_id, s["user_id"], "link_issue", link_id)
     # Fragment is never sent to the HTTP server/access log or referrer.
     return {"id": link_id, "url": os.environ["PORTAL_ORIGIN"] + "/#intake=" + token}
+
+
+@router.post('/api/portal/testbed')
+def testbed(request: Request, payload: dict = Body(...)):
+    # The registrar role never grants access to an institution by itself.
+    with auth.connect() as conn:
+        portal_email.registrar(conn, request)
+    org_id = payload.get('org_id')
+    if not isinstance(org_id, str) or not org_id or len(org_id) > 128:
+        raise HTTPException(400, '테스트할 소속 기관을 선택해 주세요.')
+    management = 'TEST-' + secrets.token_hex(6).upper()
+    result = issue_link(request, {'org_id': org_id, 'management_id': management})
+    return {**result, 'management_id': management, 'synthetic': True}
 
 
 @router.get("/api/portal/links")
@@ -374,6 +415,8 @@ def update_member(user_id: str, request: Request, payload: dict = Body(...)):
         raise HTTPException(400, "권한과 활성 상태를 확인해 주세요.")
     with store.connect() as conn:
         s = tenant(conn, request, org_id, "member:manage")
+        if user_id == s["user_id"] and (not payload["active"] or "member:manage" not in permissions):
+            raise HTTPException(409, "본인 소속과 관리 권한은 여기서 바꿀 수 없습니다.")
         own = conn.execute("SELECT permissions FROM maeum.memberships WHERE org_id=%s AND user_id=%s", (org_id, s["user_id"])).fetchone()
         if not set(permissions) <= set(own["permissions"]):
             raise HTTPException(403, "자신이 가진 권한만 부여할 수 있습니다.")

@@ -41,6 +41,10 @@ def offline(monkeypatch, tmp_path):
         return "합성 응답"
 
     monkeypatch.setattr(llm, "ask", ask)
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        "```json\n" + json.dumps({"items": [{"category": "other", "evidence": kw["user"]}],
+                                    "corrections": [], "needs_clarification": False},
+                                   ensure_ascii=False) + "\n```")
 
 
 def _settings(model="fake"):
@@ -59,11 +63,11 @@ def _model(monkeypatch, slots):
 
 
 @pytest.mark.parametrize("model,slots", [("fake", None), ("codex-cli", {"track": "관계"}), ("codex-cli", {})])
-def test_eleven_turn_reproduction_has_no_loop_and_delivers_after_second_answer(monkeypatch, model, slots):
+def test_closing_reproduction_has_no_loop_and_requires_explicit_delivery(monkeypatch, model, slots):
     if slots is not None:
         _model(monkeypatch, slots)
     settings = _settings(model)
-    responses = [chat.handle_message("d2", message, settings) for message in MESSAGES]
+    responses = [chat.handle_message("d2", message, settings) for message in MESSAGES[:9]]
     session = chat._sessions["d2"]
     assert dict((item["id"], item["value"]) for item in responses[1]["intake"]["filled"])["track"] == "관계"
     assert session.slots["relationship_target"] == "남편"
@@ -71,20 +75,11 @@ def test_eleven_turn_reproduction_has_no_loop_and_delivers_after_second_answer(m
     assert session.slots["cause"] == MESSAGES[3]
     assert all("관계라고 이해해도" not in response["reply"] for response in responses[1:])
     assert responses[7]["closing"]["stage"] == "answer"
-    assert responses[9]["turn"] == chat.MAX_TURNS
-    assert responses[9]["closing"]["stage"] == "answer"
-    assert responses[9]["limit_reached"] is False
-    assert responses[9]["conversation_ended"] is False
-    assert "handoff" not in responses[9]
-    assert responses[10]["handoff"] == {"mode": "center", "sent": True}
-    assert responses[10]["limit_reached"] is True
-    assert responses[10]["conversation_ended"] is True
-    assert "센터에 전달했어요" in responses[10]["reply"]
-    assert session.turns == 11
-    expected = [
-        {"label": MESSAGES[7], "text": MESSAGES[8]},
-        {"label": MESSAGES[9], "text": MESSAGES[10]},
-    ]
+    assert responses[8]["closing"]["stage"] == "confirm"
+    assert "handoff" not in responses[8]
+    sent = chat.handle_message("d2", "이대로 보내기", settings)
+    assert sent["handoff"] == {"mode": "center", "sent": True}
+    expected = [{"label": MESSAGES[7], "text": MESSAGES[8]}]
     saved = _saved()
     assert saved["intake_snapshot"]["center_requests"] == expected
     summaries = [json.loads(turn["text"]) for turn in saved["turns"] if turn["role"] == "intake_summary"]
@@ -92,20 +87,18 @@ def test_eleven_turn_reproduction_has_no_loop_and_delivers_after_second_answer(m
     assert summaries[0]["center_requests"] == expected
     assert chat.handle_message("d2", "이대로 보내기", settings)["handoff"]["sent"]
     assert _saved() == saved
-    assert session.turns == 11
+    assert session.turns == 10
 
 
 @pytest.mark.parametrize("model,slots", [("fake", None), ("codex-cli", {"track": "관계"}), ("codex-cli", {})])
-def test_tenth_selection_and_eleventh_answer_use_default_closing_budget(monkeypatch, model, slots):
+def test_answer_at_turn_limit_waits_for_explicit_send(monkeypatch, model, slots):
     if slots is not None:
         _model(monkeypatch, slots)
-    results = [chat.handle_message("d2", message, _settings(model)) for message in MESSAGES]
-    assert results[9]["closing"]["stage"] == "answer"
-    assert results[10]["handoff"] == {"mode": "center", "sent": True}
-    assert _saved()["intake_snapshot"]["center_requests"] == [
-        {"label": MESSAGES[7], "text": MESSAGES[8]},
-        {"label": MESSAGES[9], "text": MESSAGES[10]},
-    ]
+    results = [chat.handle_message("d2", message, _settings(model)) for message in MESSAGES[:9]]
+    assert results[-1]["closing"]["stage"] == "confirm"
+    assert "handoff" not in results[-1]
+    sent = chat.handle_message("d2", "이대로 보내기", _settings(model))
+    assert sent["handoff"] == {"mode": "center", "sent": True}
 
 
 @pytest.mark.parametrize("model", ["fake", "codex-cli"])
@@ -123,12 +116,12 @@ def test_label_on_entry_to_closing_is_not_lost_and_next_answer_is_saved(monkeypa
     assert selected["limit_reached"] is False and selected["conversation_ended"] is False
     assert "handoff" not in selected
     answered = chat.handle_message("d2", MESSAGES[10], _settings(model))
-    assert answered["turn"] == 11 and answered["closing"]["remaining"] == 1
+    assert answered["turn"] == 11 and answered["closing"]["stage"] == "confirm"
     assert answered["limit_reached"] is False and answered["conversation_ended"] is False
     assert "handoff" not in answered
     expected = [{"label": MESSAGES[9], "text": MESSAGES[10]}]
     saved = _saved()
-    assert saved["intake_snapshot"]["center_requests"] == expected
+    assert saved["intake_snapshot"]["center_requests"] == []
     assert not any(turn["role"] == "intake_summary" for turn in saved["turns"])
     sent = chat.handle_message("d2", "이대로 보내기", _settings(model))
     assert sent["turn"] == 12
@@ -220,10 +213,12 @@ def test_two_unanswered_questions_then_inferred_track(monkeypatch, model, first,
         assert "관계라고 이해해도" not in result["reply"]
         if not result.get("conversation_ended"):
             assert result["limit_reached"] is False
+    if not result.get("conversation_ended"):
+        result = chat.handle_message("d2", "이대로 보내기", settings)
     summary = json.loads(next(t["text"] for t in _saved()["turns"] if t["role"] == "intake_summary"))
     assert summary["track_inferred"] is True
     assert result["handoff"]["sent"]
-    assert session.turns <= chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS
+    assert session.turns == chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS + 1
 
 
 @pytest.mark.parametrize("pack", ["knowledge", "knowledge-maeum"])
@@ -244,23 +239,27 @@ def _closing():
 
 
 @pytest.mark.parametrize("selection,label", [("상담사에게 바라는 점", MESSAGES[9]),
-    ("상담사한테 바라는 거", MESSAGES[9]), ("요일 시간", MESSAGES[7])])
+    ("상담사한테 바라는 거", MESSAGES[9]), ("요일 시간", MESSAGES[9])])
 def test_closing_label_aliases_and_free_answer(selection, label):
     _closing()
     assert chat.handle_message("d2", selection, _settings())["closing"]["stage"] == "answer"
     result = chat.handle_message("d2", MESSAGES[10], _settings())
-    assert result["closing"]["remaining"] == 1
+    assert result["closing"]["stage"] == "confirm"
+    assert _saved()["intake_snapshot"]["center_requests"] == []
+    chat.handle_message("d2", "이대로 보내기", _settings())
     assert _saved()["intake_snapshot"]["center_requests"] == [{"label": label, "text": MESSAGES[10]}]
 
 
 def test_free_text_without_selecting_a_label_is_recorded():
     _closing()
     result = chat.handle_message("d2", MESSAGES[10], _settings())
-    assert result["closing"]["remaining"] == 1
+    assert result["closing"]["stage"] == "confirm"
+    assert _saved()["intake_snapshot"]["center_requests"] == []
+    chat.handle_message("d2", "이대로 보내기", _settings())
     assert _saved()["intake_snapshot"]["center_requests"][0]["text"] == MESSAGES[10]
 
 
-@pytest.mark.parametrize("send", ["없음, 이대로 보내기", "없어요", "그냥 보낼게요", "이대로 보낼게요"])
+@pytest.mark.parametrize("send", ["없음, 이대로 보내기", "그냥 보낼게요", "이대로 보낼게요"])
 def test_send_paraphrases_end_immediately(send):
     _closing()
     result = chat.handle_message("d2", send, _settings())
@@ -276,12 +275,9 @@ def test_limit_saves_pending_answer_before_delivery(extra_turns):
     result = chat.handle_message("d2", MESSAGES[10], _settings())
     assert result["turn"] == chat.MAX_TURNS + extra_turns
     expected = [{"label": MESSAGES[9], "text": MESSAGES[10]}]
-    assert _saved()["intake_snapshot"]["center_requests"] == expected
-    if not extra_turns:
-        assert result["limit_reached"] is False and result["conversation_ended"] is False
-        assert result["closing"]["remaining"] == 1
-        assert "handoff" not in result
-        result = chat.handle_message("d2", "이대로 보내기", _settings())
+    assert _saved()["intake_snapshot"]["center_requests"] == []
+    assert result["closing"]["stage"] == "confirm" and "handoff" not in result
+    result = chat.handle_message("d2", "이대로 보내기", _settings())
     assert result["handoff"]["sent"] and result["limit_reached"]
     summary = json.loads(next(t["text"] for t in _saved()["turns"] if t["role"] == "intake_summary"))
     assert summary["center_requests"] == expected
@@ -292,7 +288,7 @@ def test_limit_with_unfilled_slots_starts_closing_before_delivery():
     session.turns = chat.MAX_TURNS - 1
     result = chat.handle_message("d2", MESSAGES[0], _settings())
     assert result["turn"] == chat.MAX_TURNS
-    assert result["closing"] == {"stage": "select", "remaining": 2}
+    assert result["closing"] == {"stage": "select", "remaining": None, "delivery_status": "not_sent"}
     assert result["limit_reached"] is False and result["conversation_ended"] is False
     assert "handoff" not in result
     assert _saved()["intake_snapshot"]["unfilled"]
@@ -301,32 +297,26 @@ def test_limit_with_unfilled_slots_starts_closing_before_delivery():
     assert _saved()["intake_snapshot"]["unfilled"]
 
 
-def test_closing_keeps_input_available_for_all_four_extra_turns(monkeypatch):
+def test_closing_keeps_input_available_until_explicit_send(monkeypatch):
     session = chat._get_session("d2")
     session.turns = chat.MAX_TURNS - 1
     result = chat.handle_message("d2", MESSAGES[0], _settings())
     assert result["turn"] == chat.MAX_TURNS
     assert result["limit_reached"] is False and result["conversation_ended"] is False
     monkeypatch.setattr(llm, "ask", lambda **kw: pytest.fail("closing must not call the model"))
-    for turn, message in enumerate(MESSAGES[7:], start=chat.MAX_TURNS + 1):
+    for message in MESSAGES[7:]:
         result = chat.handle_message("d2", message, _settings())
-        assert result["turn"] == turn
-        if turn < chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS:
-            assert result["limit_reached"] is False and result["conversation_ended"] is False
-            assert "handoff" not in result
-            assert "closing" in result
-            assert result["quick_replies"][-1]["action"] == "send"
+        assert result["limit_reached"] is False and result["conversation_ended"] is False
+        assert "handoff" not in result and "closing" in result
+    result = chat.handle_message("d2", "이대로 보내기", _settings())
     assert result["handoff"] == {"mode": "center", "sent": True}
     assert result["conversation_ended"] is True and result["limit_reached"] is True
-    assert session.turns == chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS
-    assert _saved()["intake_snapshot"]["center_requests"] == [
-        {"label": MESSAGES[7], "text": MESSAGES[8]},
-        {"label": MESSAGES[9], "text": MESSAGES[10]},
-    ]
+    assert session.turns > chat.MAX_TURNS
+    assert _saved()["intake_snapshot"]["center_requests"]
 
 
 @pytest.mark.parametrize("message", ["다른 이야기를 할래요", " "])
-def test_closing_without_choices_always_delivers_by_extra_turn_limit(monkeypatch, message):
+def test_closing_without_choices_never_delivers_without_explicit_action(monkeypatch, message):
     session = chat._get_session("d2")
     session.turns = chat.MAX_TURNS - 1
     chat.handle_message("d2", MESSAGES[0], _settings())
@@ -338,18 +328,9 @@ def test_closing_without_choices_always_delivers_by_extra_turn_limit(monkeypatch
         if not result["conversation_ended"]:
             assert result["limit_reached"] is False
             assert "handoff" not in result
-    assert result["handoff"] == {"mode": "center", "sent": True}
-    assert result["conversation_ended"] is True and result["limit_reached"] is True
-    assert session.turns <= chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS
-    expected = [{"label": "센터에 전할 내용", "text": message}] * 2 if message.strip() else []
-    if not expected:
-        assert session.turns == chat.MAX_TURNS + chat.CLOSING_EXTRA_TURNS
-    saved = _saved()
-    assert saved["intake_snapshot"]["center_requests"] == expected
-    summaries = [json.loads(turn["text"]) for turn in saved["turns"] if turn["role"] == "intake_summary"]
-    assert len(summaries) == 1 and summaries[0]["center_requests"] == expected
-    assert chat.handle_message("d2", message, _settings())["handoff"]["sent"]
-    assert _saved() == saved
+    assert "handoff" not in result and not result["conversation_ended"]
+    sent = chat.handle_message("d2", "이대로 보내기", _settings())
+    assert sent["handoff"]["sent"]
 
 
 @pytest.mark.parametrize("phase", ["inferred", "closing", "sent", "limit"])

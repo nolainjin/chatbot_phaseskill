@@ -13,7 +13,7 @@ from datetime import date
 from app import paths as data_paths
 from app import chat
 from app.config import Settings
-from app.intake import extract_real, load_schema
+from app.intake import _can_override, extract_real, load_schema
 
 _TEST_SCHEMA_MD = """# 접수 슬롯 스키마
 
@@ -454,3 +454,9 @@ def test_extract_real_applies_reject_signals_with_source_message():
 
     assert "crisis_plan_means" not in fills
     assert fills["crisis_attempt_history"] == "예전에 약을 먹으려고 한 적"
+
+
+def test_correction_marker_cannot_override_red_flag_without_matching_evidence():
+    schema = load_schema("knowledge")
+    slot = next(item for item in schema.slots if item.id == "crisis_plan_means")
+    assert not _can_override(slot, "약을 모아둠", "전혀 다른 모델 생성값", "정정할게요")

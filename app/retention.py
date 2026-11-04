@@ -34,6 +34,17 @@ def _remove_sql(conn, session_id, raw_only=False):
         return 0
     if raw_only:
         count = conn.execute("DELETE FROM turns WHERE session_id=? AND role NOT IN (?, ?)", (session_id, *SUMMARY_ROLES)).rowcount
+        from app.portal_store import retained_summary
+        for rowid, text in conn.execute(
+            "SELECT rowid,text FROM turns WHERE session_id=? AND role IN (?, ?)",
+            (session_id, *SUMMARY_ROLES),
+        ).fetchall():
+            try:
+                value = json.loads(text)
+            except (ValueError, TypeError):
+                continue
+            conn.execute("UPDATE turns SET text=? WHERE rowid=?",
+                         (json.dumps(retained_summary(value), ensure_ascii=False), rowid))
     else:
         participants = conn.execute("SELECT DISTINCT participant_id FROM conversations WHERE session_id=?", (session_id,)).fetchall()
         count = conn.execute("DELETE FROM turns WHERE session_id=?", (session_id,)).rowcount
@@ -155,7 +166,21 @@ def purge_expired(*, today=None, dry_run=False, base_dir=None, db_path=None, raw
                     if conn is not None:
                         conn.close()
                 for path, payload in record["files"]:
-                    payload["turns"] = [t for t in payload["turns"] if t.get("role") in SUMMARY_ROLES]
+                    from app.portal_store import retained_summary
+                    payload["intake_snapshot"] = retained_summary(payload.get("intake_snapshot", {}))
+                    retained_turns = []
+                    for turn in payload["turns"]:
+                        if turn.get("role") not in SUMMARY_ROLES:
+                            continue
+                        try:
+                            value = json.loads(turn.get("text", ""))
+                        except (ValueError, TypeError):
+                            retained_turns.append(turn)
+                            continue
+                        if isinstance(value, dict):
+                            retained_turns.append({**turn, "text": json.dumps(
+                                retained_summary(value), ensure_ascii=False)})
+                    payload["turns"] = retained_turns
                     payload["raw_purged_at"] = today.isoformat()
                     storage._write_private_json(path, payload)
                 from app import chat

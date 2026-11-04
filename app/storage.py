@@ -188,7 +188,7 @@ def append_turn(
     text: str,
     participant_id: str | None = None,
     base_dir: str | Path | None = None,
-) -> None:
+) -> dict:
     """오늘 날짜 디렉토리의 세션 JSON에 (role, text) 턴을 추가한다."""
     if not valid_session_id(session_id):
         raise ValueError(f"잘못된 session_id: {session_id!r}")
@@ -197,8 +197,7 @@ def append_turn(
 
     with data_lock(base_dir):
         if cloud_store.enabled() and base_dir is None:
-            cloud_store.update_conversation(session_id, participant_id, turn=(role, text))
-            return
+            return cloud_store.update_conversation(session_id, participant_id, turn=(role, text))
         day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
         _ensure_private_dir(day_dir)
         path = day_dir / f"{session_id}.json"
@@ -210,6 +209,46 @@ def append_turn(
         turns.append({"seq": seq, "role": role, "text": redact_pii(text)})
 
         _write_private_json(path, payload)
+        return {"day": day_dir.name, "seq": seq, "role": role}
+
+
+def commit_conversation(
+    session_id: str,
+    turns: list[tuple[str, str]],
+    participant_id: str | None = None,
+    metadata=None,
+    base_dir: str | Path | None = None,
+) -> list[dict]:
+    """Atomically append a request's turns and metadata in one record write.
+
+    ``metadata`` may be a dict or a callback receiving the generated turn
+    references. The callback lets callers embed provenance without an earlier
+    partial write solely to discover a sequence number.
+    """
+    if not valid_session_id(session_id):
+        raise ValueError(f"잘못된 session_id: {session_id!r}")
+    if participant_id is not None and not valid_participant_id(participant_id):
+        raise ValueError(f"잘못된 participant_id: {participant_id!r}")
+    with data_lock(base_dir):
+        if cloud_store.enabled() and base_dir is None:
+            return cloud_store.update_conversation(
+                session_id, participant_id, turns=turns, metadata=metadata)
+        day_dir = paths.conversations_dir(base_dir) / date.today().isoformat()
+        _ensure_private_dir(day_dir)
+        path = day_dir / f"{session_id}.json"
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        payload = normalize_conversation_payload(raw, session_id, participant_id)
+        seq = max((turn["seq"] for turn in payload["turns"]), default=-1) + 1
+        refs = []
+        for role, text in turns:
+            payload["turns"].append({"seq": seq, "role": role, "text": redact_pii(text)})
+            refs.append({"day": day_dir.name, "seq": seq, "role": role})
+            seq += 1
+        updates = metadata(refs) if callable(metadata) else metadata
+        if updates:
+            payload.update(_redact_obj(updates))
+        _write_private_json(path, payload)
+        return refs
 
 
 def update_metadata(

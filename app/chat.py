@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import addiction, consent, intake, knowledge, llm, prompting, referral, safety, storage
+from app import addiction, closing, consent, intake, knowledge, llm, prompting, referral, safety, storage
 from app.config import Settings
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,13 @@ class ChatSession:
     closing_started: bool = False
     closing_pending: str | None = None
     center_requests: list[dict[str, str]] = field(default_factory=list)
+    closing_draft: dict | None = None
+    closing_revision: bool = False
+    request_results: dict[str, dict] = field(default_factory=dict)
+    current_request_id: str | None = None
+    slot_evidence: dict[str, dict] = field(default_factory=dict)
+    slot_revisions: list[dict] = field(default_factory=list)
+    closing_analysis_pending: dict | None = None
     track_questions: int = 0
     pending_track: str | None = None
     track_inferred: bool = False
@@ -326,6 +333,23 @@ def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
         summary["track_inferred"] = True
     if schema.handoff_mode == "center":
         summary["center_requests"] = list(session.center_requests)
+        # Report readers receive state and stable turn references, not raw
+        # provenance text. Raw text remains inside the protected session and is
+        # subject to the transcript retention boundary.
+        summary["slot_evidence"] = {
+            key: {field: value for field, value in evidence.items()
+                  if field in {"status", "value", "source", "source_turn", "updated_at", "category", "label"}}
+            for key, evidence in session.slot_evidence.items()
+        }
+        for slot in schema.active_slots(session.slots):
+            summary["slot_evidence"].setdefault(
+                slot.id, {"status": "unconfirmed", "value": session.slots.get(slot.id)}
+            )
+        summary["slot_revisions"] = [
+            {field: value for field, value in revision.items()
+             if field in {"field", "source", "source_turn"}}
+            for revision in session.slot_revisions
+        ]
         if session.handoff is not None:
             summary["handoff"] = session.handoff
     elif session.handoff is not None:
@@ -374,44 +398,130 @@ def _center_closing_safe(session: ChatSession, schema: intake.Schema) -> bool:
 
 def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple[str, list[dict]]:
     closing = schema.closing
+    if session.closing_draft is not None:
+        draft = session.closing_draft
+        if draft.get("no_additional"):
+            return ("추가로 반영할 내용은 없는 것으로 확인할게요. "
+                    f"‘{closing['send_label']}’를 눌러야 센터에 전달됩니다."), [
+                {"label": "내용 추가", "message": "내용 추가", "action": "add"},
+                {"label": closing["send_label"], "message": closing["send_label"], "action": "send"},
+            ]
+        lines = [f"· {item['label']}: {item['text']}" for item in draft.get("items", [draft])]
+        reply = ("다음 내용으로 반영할게요.\n" + "\n".join(lines) + "\n"
+                 f"수정하거나 더 추가할 수 있어요. ‘{closing['send_label']}’ 전에는 "
+                 "센터로 전달되지 않아요.")
+        return reply, [
+            {"label": "수정할게요", "message": "수정할게요", "action": "revise"},
+            {"label": "내용 추가", "message": "내용 추가", "action": "add"},
+            {"label": closing["send_label"], "message": closing["send_label"], "action": "send"},
+        ]
     if session.closing_pending is not None:
         reply = f"「{session.closing_pending}」에 대해 센터에 전할 내용을 짧게 적어 주세요."
         choices = []
     else:
         reply = closing["question"]
-        used = {item["label"] for item in session.center_requests}
-        choices = [{"label": label, "message": label} for label in closing["options"] if label not in used]
+        choices = [{"label": label, "message": label} for label in closing["options"]]
     choices.append({"label": closing["send_label"], "message": closing["send_label"], "action": "send"})
     return reply, choices
 
 
 def _center_sent_reply() -> str:
-    return ("센터에 전달했어요. 센터에서 확인한 뒤 연락드릴 거예요.\n"
+    return ("확인한 내용을 센터에 전달했어요. 검토 방법과 연락 일정은 센터가 정합니다.\n"
             "긴급 도움이 필요하면 자살예방상담전화 109 · 생명의전화 1588-9191 · 119에 연락해 주세요.\n"
             "동의 후 받은 삭제 코드로 ‘이전 기록 지우기’에서 기록을 지울 수 있어요.")
 
 
 def _record_center_turn(session: ChatSession, schema: intake.Schema, participant_id: str,
                         message: str, reply: str, quick_replies: list[dict]) -> dict:
-    storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
-    storage.append_turn(session.session_id, "assistant", reply, participant_id=participant_id)
-    session.history.extend([{"role": "user", "content": message}, {"role": "assistant", "content": reply}])
-    session.turns += 1
+    retry = session.request_results.get(session.current_request_id or "") or {}
+    reused_user = retry.get("status") == "retryable" and retry.get("user_saved") is True
+    if not reused_user:
+        session.history.append({"role": "user", "content": message})
+        session.turns += 1
+    session.history.append({"role": "assistant", "content": reply})
     session.last_question_slot_id = None
-    _persist_intake_snapshot(session, schema, participant_id)
     ended = session.handoff is not None
+    pending_turns = ([] if reused_user else [("user", message)]) + [("assistant", reply)]
     if ended:
-        storage.append_turn(session.session_id, "intake_summary",
-                            json.dumps(_session_summary(session, schema), ensure_ascii=False),
-                            participant_id=participant_id)
+        pending_turns.append(("intake_summary", json.dumps(
+            _session_summary(session, schema), ensure_ascii=False)))
+
+    def metadata(refs):
+        source = retry.get("source") if reused_user else refs[0]
+        if session.closing_draft:
+            for item in session.closing_draft.get("items", [session.closing_draft]):
+                item.setdefault("source", source)
+        for revision in session.slot_revisions:
+            same_request = (session.current_request_id is not None
+                            and revision.get("source_request_id") == session.current_request_id)
+            if same_request or (revision.get("source") is None
+                                and revision.get("source_turn") == session.turns):
+                revision["source"] = source
+        return {"intake_snapshot": _session_summary(session, schema)}
+
+    storage.commit_conversation(
+        session.session_id, pending_turns, participant_id=participant_id, metadata=metadata)
     result = {"reply": reply, "turn": session.turns, "limit_reached": ended and session.turns >= MAX_TURNS,
               "conversation_ended": ended, "quick_replies": quick_replies,
               "intake": _intake_state(schema, session.slots, schema.unfilled_by_priority(session.slots, ()))}
     if ended:
         result["handoff"] = session.handoff
+        result["processing_status"] = "delivered"
     else:
-        result["closing"] = {"stage": "answer" if session.closing_pending else "select",
-                             "remaining": 2 - len(session.center_requests)}
+        stage = "confirm" if session.closing_draft else ("answer" if session.closing_pending else "select")
+        result["closing"] = {"stage": stage, "remaining": None,
+                             "delivery_status": "not_sent"}
+        if session.closing_draft:
+            result["closing"]["draft"] = dict(session.closing_draft)
+        result["processing_status"] = "confirmation_required" if stage == "confirm" else "saved"
+    return result
+
+
+def _save_retryable_center_input(session: ChatSession, participant_id: str, message: str) -> dict:
+    """Persist a failed-analysis input exactly once so the same request can retry."""
+    request_id = session.current_request_id or ""
+    existing = session.request_results.get(request_id) or {}
+    if existing.get("status") == "retryable" and existing.get("user_saved") is True:
+        return existing.get("source") or {}
+    source = storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
+    session.history.append({"role": "user", "content": message})
+    session.turns += 1
+    if request_id:
+        session.request_results[request_id] = {
+            **existing, "status": "retryable", "user_saved": True, "source": source,
+            "user_turn": session.turns,
+        }
+    return source
+
+
+def _logical_source_turn(session: ChatSession) -> int:
+    """Logical user turn for new evidence, reusing the first saved retry turn."""
+    retry = session.request_results.get(session.current_request_id or "") or {}
+    if retry.get("status") == "retryable" and retry.get("user_saved") is True:
+        user_turn = retry.get("user_turn")
+        if isinstance(user_turn, int) and user_turn > 0:
+            return user_turn
+        # Backward-compatible fallback for in-flight state written before
+        # user_turn was recorded. The saved retry input already consumed a turn.
+        return session.turns
+    return session.turns + 1
+
+
+def _retryable_model_result(session: ChatSession, schema: intake.Schema | None,
+                            participant_id: str, message: str) -> dict:
+    """Preserve model-failed input once and expose failure instead of a fake success."""
+    _save_retryable_center_input(session, participant_id, message)
+    result = {
+        "reply": "입력은 저장했지만 응답 분석을 완료하지 못했어요. 같은 요청으로 다시 시도해 주세요.",
+        "turn": session.turns,
+        "limit_reached": False,
+        "conversation_ended": False,
+        "processing_status": "retryable",
+        "retryable": True,
+    }
+    if schema is not None:
+        result["intake"] = _intake_state(
+            schema, session.slots, schema.unfilled_by_priority(session.slots, ()))
     return result
 
 
@@ -420,7 +530,8 @@ def _closing_choice(message: str, schema: intake.Schema) -> tuple[str | None, bo
     compact = re.sub(r"[\s·,.!?。]", "", message)
     closing = schema.closing
     if (compact in {re.sub(r"[\s·,.!?。]", "", closing["send_label"]),
-                    "이대로보내기", "없음", "없어요", "없습니다", "그냥보낼게요",
+                    "이대로보내기", "그냥보낼게요",
+                    "없음이대로보내기",
                     "이대로보낼게요", "바로보낼게요", "그냥보내주세요", "보내주세요"}):
         return None, True
     for label in closing["options"]:
@@ -437,10 +548,27 @@ def _closing_choice(message: str, schema: intake.Schema) -> tuple[str | None, bo
     return None, False
 
 
+def _closing_items(analysis: dict, pending_label: str | None, source_turn: int) -> list[dict]:
+    items = []
+    for index, item in enumerate(analysis["items"]):
+        category = item["category"]
+        category_label = closing.CATEGORY_LABELS[category]
+        label = (pending_label if index == 0 and pending_label
+                 and (category == "other" or pending_label == category_label) else category_label)
+        items.append({"category": category, "label": label, "text": item["evidence"],
+                      "source_text": item["evidence"], "source_turn": source_turn,
+                      "status": "unconfirmed",
+                      "operation": "replace" if category in analysis.get("corrections", []) else "supplement"})
+    return items
+
+
 def _deliver_center_turn(session: ChatSession, schema: intake.Schema, settings: Settings,
                          participant_id: str, message: str) -> dict:
     session.closing_started = True
     session.closing_pending = None
+    if session.closing_draft is not None:
+        _commit_center_draft(session)
+        session.closing_draft = None
     session.handoff = _build_handoff(session, schema, settings)
     try:
         return _record_center_turn(session, schema, participant_id, message, _center_sent_reply(), [])
@@ -449,8 +577,147 @@ def _deliver_center_turn(session: ChatSession, schema: intake.Schema, settings: 
         raise
 
 
+def _commit_center_draft(session: ChatSession) -> None:
+    """Confirm draft items once and synchronize matching intake slots."""
+    draft = session.closing_draft or {}
+    for item in draft.get("items", [draft]):
+        if not item.get("label") or not item.get("text"):
+            continue
+        if not any(existing.get("label") == item["label"] and existing.get("text") == item["text"]
+                   for existing in session.center_requests):
+            session.center_requests.append({"label": item["label"], "text": item["text"]})
+            session.slot_evidence[f"center_request:{len(session.center_requests)-1}"] = {
+                **item, "status": "answered"
+            }
+        slot_id = {"coping": "coping", "expectation": "expectation"}.get(item.get("category"))
+        if slot_id:
+            previous = session.slots.get(slot_id)
+            if previous and item.get("operation") != "replace" and item["text"] not in previous:
+                value = previous + " / " + item["text"]
+            else:
+                value = item["text"]
+            session.slots[slot_id] = value
+            if previous and previous != value:
+                session.slot_revisions.append({"field": slot_id, "before": previous,
+                                               "after": value, "source": item.get("source")})
+            session.slot_evidence[slot_id] = {"status": "answered", "value": value,
+                                              "source": item.get("source"),
+                                              "source_text": item.get("source_text")}
+
+
 def _continue_center_closing(session: ChatSession, schema: intake.Schema, settings: Settings,
                              participant_id: str, message: str) -> dict:
+    compact = re.sub(r"[\s·,.!?。]", "", message)
+    _, explicit_send = _closing_choice(message, schema)
+    if (session.closing_analysis_pending is not None
+            and compact in {"수정취소", "추가취소", "기존대로"}):
+        session.closing_analysis_pending = None
+        session.closing_revision = False
+        reply, choices = _center_closing_prompt(session, schema)
+        return _record_center_turn(session, schema, participant_id, message, reply, choices)
+    if session.closing_analysis_pending is not None and explicit_send:
+        return _record_center_turn(
+            session, schema, participant_id, message,
+            "분석하지 못한 수정·추가 내용이 있어 아직 전달할 수 없어요. "
+            "같은 내용을 다시 시도하거나 ‘수정 취소’를 선택해 주세요.",
+            [{"label": "수정 취소", "message": "수정 취소", "action": "cancel_revision"}],
+        )
+    if session.closing_draft is None and compact in {"없어요", "없음", "없습니다"}:
+        session.closing_pending = None
+        session.closing_draft = {
+            "label": "추가 전달 내용", "text": "", "items": [],
+            "status": "unconfirmed", "no_additional": True,
+        }
+        reply, choices = _center_closing_prompt(session, schema)
+        return _record_center_turn(session, schema, participant_id, message, reply, choices)
+    if session.closing_draft is not None:
+        if compact in {"수정취소", "추가취소", "기존대로"}:
+            session.closing_analysis_pending = None
+            session.closing_revision = False
+            reply, choices = _center_closing_prompt(session, schema)
+            return _record_center_turn(session, schema, participant_id, message, reply, choices)
+        if compact in {"수정할게요", "수정", "고칠게요"}:
+            session.closing_revision = True
+            return _record_center_turn(
+                session, schema, participant_id, message,
+                "수정할 내용만 구체적으로 적어 주세요. 나머지 내용은 그대로 두겠습니다.",
+                [{"label": schema.closing["send_label"], "message": schema.closing["send_label"],
+                  "action": "send"}],
+            )
+        elif compact in {"내용추가", "추가할게요", "더추가"}:
+            session.closing_revision = False
+            return _record_center_turn(
+                session, schema, participant_id, message,
+                "추가할 내용을 적어 주세요. 기존에 확인한 내용은 그대로 두겠습니다.",
+                [{"label": schema.closing["send_label"], "message": schema.closing["send_label"],
+                  "action": "send"}],
+            )
+        else:
+            _, explicit_send = _closing_choice(message, schema)
+            if explicit_send:
+                if session.closing_analysis_pending is not None:
+                    return _record_center_turn(
+                        session, schema, participant_id, message,
+                        "분석하지 못한 수정·추가 내용이 있어 아직 전달할 수 없어요. "
+                        "같은 내용을 다시 시도하거나 ‘수정 취소’를 선택해 주세요.",
+                        [{"label": "수정 취소", "message": "수정 취소", "action": "cancel_revision"}],
+                    )
+                return _deliver_center_turn(session, schema, settings, participant_id, message)
+            old = dict(session.closing_draft)
+            try:
+                analysis = closing.analyze(
+                    message, settings, current_draft_items=old.get("items", [old]),
+                    current_slots=session.slots, recent_history=session.history,
+                )
+            except (RuntimeError, ValueError, llm.ModelOutputTooLarge):
+                analysis = None
+            if analysis is None:
+                source = _save_retryable_center_input(session, participant_id, message)
+                session.closing_analysis_pending = {"message": message, "source": source,
+                                                    "request_id": session.current_request_id}
+                return {"reply": "수정 내용은 저장했지만 의미 분석을 완료하지 못했어요. 다시 시도해 주세요.",
+                        "turn": session.turns, "limit_reached": False, "conversation_ended": False,
+                        "processing_status": "retryable", "retryable": True,
+                        "closing": {"stage": "confirm", "remaining": None, "delivery_status": "not_sent",
+                                    "draft": old},
+                        "intake": _intake_state(schema, session.slots,
+                                                schema.unfilled_by_priority(session.slots, ()))}
+            if analysis["needs_clarification"]:
+                session.closing_analysis_pending = {"message": message,
+                                                    "request_id": session.current_request_id}
+                return _record_center_turn(session, schema, participant_id, message,
+                    "어느 내용을 어떻게 바꾸거나 추가할지 한 문장으로 더 구체적으로 말씀해 주세요.", [])
+            session.closing_analysis_pending = None
+            incoming = _closing_items(analysis, None, _logical_source_turn(session))
+            existing = list(old.get("items", [old]))
+            correction = bool(analysis.get("corrections")) or session.closing_revision or any(
+                marker in safety.normalize_for_signal(message)
+                for marker in ("정정", "바꿀", "바꿔", "아니라", "잘못")
+            )
+            if correction:
+                changed = {item["category"] for item in incoming} | set(analysis.get("corrections", []))
+                preserved = [item for item in existing if item.get("category") not in changed]
+                merged = preserved + incoming
+            else:
+                merged = existing + incoming
+            deduped = []
+            seen = set()
+            for item in merged:
+                key = (item.get("category"), " ".join(item.get("text", "").split()))
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(item)
+            merged = deduped
+            session.slot_revisions.append({"field": "center_request", "before": old["text"],
+                                           "after": message.strip(), "source_text": message.strip(),
+                                           "source_turn": _logical_source_turn(session),
+                                           "source_request_id": session.current_request_id})
+            session.closing_revision = False
+            session.closing_draft = {"label": "추가 전달 내용", "text": message.strip(),
+                                     "source_text": message.strip(), "items": merged,
+                                     "status": "unconfirmed"}
+            reply, choices = _center_closing_prompt(session, schema)
+            return _record_center_turn(session, schema, participant_id, message, reply, choices)
     selected, send = _closing_choice(message, schema)
     used = {item["label"] for item in session.center_requests}
     if not send:
@@ -458,10 +725,34 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
             if selected not in used:
                 session.closing_pending = selected
         elif message.strip():
-            session.center_requests.append({"label": session.closing_pending or "센터에 전할 내용",
-                                            "text": message.strip()})
+            try:
+                analysis = closing.analyze(message, settings)
+            except (RuntimeError, ValueError, llm.ModelOutputTooLarge):
+                source = _save_retryable_center_input(session, participant_id, message)
+                session.closing_analysis_pending = {"message": message, "source": source,
+                                                    "request_id": session.current_request_id}
+                return {"reply": "내용은 저장했지만 의미 분석을 완료하지 못했어요. 같은 요청으로 다시 시도해 주세요.",
+                        "turn": session.turns, "limit_reached": False, "conversation_ended": False,
+                        "processing_status": "retryable", "retryable": True,
+                        "closing": {"stage": "answer", "remaining": None,
+                                    "delivery_status": "not_sent"},
+                        "intake": _intake_state(schema, session.slots,
+                                                schema.unfilled_by_priority(session.slots, ()))}
+            if analysis["needs_clarification"]:
+                session.closing_analysis_pending = {"message": message,
+                                                    "request_id": session.current_request_id}
+                session.closing_pending = "센터에 전할 내용"
+                reply = "어떤 내용을 센터에 전하면 좋을지 한 문장으로 더 구체적으로 말씀해 주세요."
+                return _record_center_turn(session, schema, participant_id, message, reply,
+                                           [{"label": schema.closing["send_label"],
+                                             "message": schema.closing["send_label"], "action": "send"}])
+            session.closing_analysis_pending = None
+            items = _closing_items(analysis, session.closing_pending, _logical_source_turn(session))
+            session.closing_draft = {"label": "추가 전달 내용", "text": message.strip(),
+                                     "source_text": message.strip(), "items": items,
+                                     "status": "unconfirmed"}
             session.closing_pending = None
-    if send or len(session.center_requests) >= 2 or session.turns + 1 >= MAX_TURNS + CLOSING_EXTRA_TURNS:
+    if send:
         return _deliver_center_turn(session, schema, settings, participant_id, message)
     reply, choices = _center_closing_prompt(session, schema)
     return _record_center_turn(session, schema, participant_id, message, reply, choices)
@@ -477,6 +768,46 @@ def _persist_intake_snapshot(
         {"intake_snapshot": _session_summary(session, schema)},
         participant_id=participant_id,
     )
+
+
+def _record_slot_evidence(session: ChatSession, fills: dict[str, str], source_text: str) -> None:
+    """Keep auditable source and revisions without inventing confirmation."""
+    mergeable_free_text = {
+        "chief_complaint", "symptom_context", "relationship_duration",
+        "cause", "coping", "expectation",
+    }
+    for slot_id, value in fills.items():
+        previous = session.slot_evidence.get(slot_id)
+        normalized = safety.normalize_for_signal(value)
+        correction = any(marker in safety.normalize_for_signal(source_text)
+                         for marker in ("정정할게", "정정합니다", "바꿀게", "바꿔주세요",
+                                        "아니라", "잘못말했"))
+        current = session.slots.get(slot_id)
+        if slot_id in mergeable_free_text and current and current != value and not correction:
+            if value in current:
+                # A retry can extract the same supplement again after the first
+                # attempt already merged it. Keep the combined value instead of
+                # replacing it with only the repeated fragment.
+                value = current
+                fills[slot_id] = current
+            elif value in source_text:
+                value = current + " / " + value
+                fills[slot_id] = value
+        if normalized in {"말하지않음", "대답하지않음", "거절"}:
+            status = "declined"
+        elif normalized in {"해당없음", "해당사항없음"}:
+            status = "not_applicable"
+        else:
+            status = "answered"
+        evidence = {"status": status, "value": value, "source_text": source_text,
+                    "source_turn": _logical_source_turn(session),
+                    "updated_at": datetime.now(timezone.utc).isoformat()}
+        if previous and previous.get("value") != value:
+            session.slot_revisions.append({"field": slot_id, "before": previous.get("value"),
+                                           "after": value, "source_text": source_text,
+                                           "source_turn": _logical_source_turn(session),
+                                           "source_request_id": session.current_request_id})
+        session.slot_evidence[slot_id] = evidence
 
 
 def _handle_interpersonal_safety_route(
@@ -857,9 +1188,11 @@ def handle_message(
     message: str,
     settings: Settings | None = None,
     participant_id: str | None = None,
+    request_id: str | None = None,
 ) -> dict:
     settings = settings or Settings.from_env()
     session = _get_session(session_id)
+    session.current_request_id = request_id
     if participant_id and session.participant_id is None:
         session.participant_id = participant_id
     effective_participant_id = session.participant_id or session_id
@@ -911,6 +1244,7 @@ def handle_message(
             crisis_fills = intake.extract_fake(message, schema, session.slots, session.last_question_slot_id)
             if crisis_fills.get("track") == "위기" or session.slots.get("track") == "위기":
                 new_fills = {"track": "위기"}
+                _record_slot_evidence(session, new_fills, message)
                 session.slots.update(new_fills)
                 red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
                 unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
@@ -1053,6 +1387,7 @@ def handle_message(
                     message, schema, filled_after_signals, session.last_question_slot_id
                 )
             )
+        _record_slot_evidence(session, new_fills, message)
         session.slots.update(new_fills)
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
         unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
@@ -1065,15 +1400,22 @@ def handle_message(
         system = "\n\n".join(sections)
 
     try:
-        raw_reply = llm.ask(
+        request_retry = session.request_results.get(session.current_request_id or "") or {}
+        model_history = session.history
+        if (request_retry.get("status") == "retryable" and request_retry.get("user_saved") is True
+                and model_history and model_history[-1] == {"role": "user", "content": message}):
+            model_history = model_history[:-1]
+        ask_reply = llm.ask_without_fake if settings.model == llm.AUTO_MODEL else llm.ask
+        raw_reply = ask_reply(
             system=system,
-            history=session.history,
+            history=model_history,
             user=message,
             doc_titles=[doc.title for doc in docs],
             settings=settings,
         )
-    except llm.ModelOutputTooLarge:
-        raw_reply = _build_guardrail_reply(schema, unfilled)
+    except (llm.ModelOutputTooLarge, RuntimeError, TimeoutError, ValueError):
+        return _retryable_model_result(
+            session, schema, effective_participant_id, message)
 
     # Keep the whole-output guard before parsing or mutation, including slot
     # payloads and trailing text. Reject ambiguous/unterminated slot envelopes;
@@ -1084,6 +1426,19 @@ def handle_message(
     output_safe = (reply != blocked_reply and len(raw_reply) <= MAX_REPLY_CHARS
                    and len(slot_markers) <= 1
                    and (not slot_markers or intake._SLOTS_FENCE_RE.search(raw_reply) is not None))
+    if slot_markers and intake._SLOTS_FENCE_RE.search(raw_reply) is None:
+        return _retryable_model_result(
+            session, schema, effective_participant_id, message)
+    slot_envelope = intake._SLOTS_FENCE_RE.search(raw_reply)
+    if slot_envelope is not None:
+        try:
+            parsed_slots = json.loads(slot_envelope.group(1))
+        except json.JSONDecodeError:
+            return _retryable_model_result(
+                session, schema, effective_participant_id, message)
+        if not isinstance(parsed_slots, dict):
+            return _retryable_model_result(
+                session, schema, effective_participant_id, message)
     if not output_safe:
         reply = _build_guardrail_reply(schema, unfilled)
     if schema is not None and settings.model == "fake":
@@ -1096,6 +1451,11 @@ def handle_message(
         reply, real_fills = intake.extract_real(
             raw_reply if output_safe else reply, schema, session.slots, message, session.last_question_slot_id
         )
+        real_fills = {
+            slot_id: value for slot_id, value in real_fills.items()
+            if not (slot_id in new_fills and value in session.slots.get(slot_id, ""))
+        }
+        _record_slot_evidence(session, real_fills, message)
         session.slots.update(real_fills)
         new_fills.update(real_fills)
         if "track" in real_fills:
@@ -1150,24 +1510,20 @@ def handle_message(
                 if session.handoff["fallback_used"]:
                     reply += "\n\n" + referral.DEFAULT_GUIDANCE
 
-    storage.append_turn(session_id, "user", message, participant_id=effective_participant_id)
-    storage.append_turn(session_id, "assistant", reply, participant_id=effective_participant_id)
-
-    session.history.append({"role": "user", "content": message})
+    retry = session.request_results.get(session.current_request_id or "") or {}
+    reused_user = retry.get("status") == "retryable" and retry.get("user_saved") is True
+    if not reused_user:
+        session.history.append({"role": "user", "content": message})
+        session.turns += 1
     session.history.append({"role": "assistant", "content": reply})
-    session.turns += 1
+    pending_turns = ([] if reused_user else [("user", message)]) + [("assistant", reply)]
 
     if session.turns >= MAX_TURNS:
         if schema is not None:
             # 채워진 슬롯이 이미 세션 상태에 있으므로 LLM을 부를 이유가 없다 —
             # 결정론 생성이라 fake 모드에서도 동일하게 돈다(CAP08).
             summary_json = _session_summary(session, schema)
-            storage.append_turn(
-                session_id,
-                "intake_summary",
-                json.dumps(summary_json, ensure_ascii=False),
-                participant_id=effective_participant_id,
-            )
+            pending_turns.append(("intake_summary", json.dumps(summary_json, ensure_ascii=False)))
         else:
             try:
                 summary = llm.ask(
@@ -1178,12 +1534,7 @@ def handle_message(
                     settings=settings,
                 )
                 safe_summary = safety.sanitize_model_reply(summary, _SUMMARY_FALLBACK)
-                storage.append_turn(
-                    session_id,
-                    "intake_summary",
-                    safe_summary,
-                    participant_id=effective_participant_id,
-                )
+                pending_turns.append(("intake_summary", safe_summary))
             except Exception:
                 pass  # 요약 실패가 본 대화 저장까지 유실시키지 않도록 격리
 
@@ -1193,8 +1544,22 @@ def handle_message(
         # 패널 상태와 다음 fallback 기준은 최종 session.slots 기준으로 다시 계산한다.
         final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
         session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
-        _persist_intake_snapshot(session, schema, effective_participant_id)
         result["intake"] = _intake_state(schema, session.slots, final_unfilled)
         if session.handoff is not None:
             result.update(handoff=session.handoff, conversation_ended=True)
+    def metadata(refs):
+        source = retry.get("source") if reused_user else refs[0]
+        for slot_id in new_fills:
+            if slot_id in session.slot_evidence:
+                session.slot_evidence[slot_id]["source"] = source
+            for revision in session.slot_revisions:
+                same_request = (session.current_request_id is not None
+                                and revision.get("source_request_id") == session.current_request_id)
+                if revision.get("field") == slot_id and (
+                        same_request or revision.get("source_turn") == session.turns):
+                    revision["source"] = source
+        return {"intake_snapshot": _session_summary(session, schema)} if schema is not None else None
+
+    storage.commit_conversation(
+        session_id, pending_turns, participant_id=effective_participant_id, metadata=metadata)
     return result

@@ -25,6 +25,10 @@ _SLOTS_FENCE_RE = re.compile(r"```slots\s*?\n(.*?)```", re.DOTALL)
 _MAX_SLOT_VALUE_LEN = 200
 _MAX_SCHEMA_FILE_BYTES = 64 * 1024
 _TRACK_RANK = {"정서": 0, "관계": 1, "중독": 2, "위기": 3}
+_EVIDENCE_MUTABLE_FREE_TEXT_IDS = {
+    "chief_complaint", "symptom_context", "relationship_duration",
+    "cause", "coping", "expectation",
+}
 
 
 class SchemaExtractError(ValueError):
@@ -168,7 +172,30 @@ def _is_rejected_by_signal_guard(message: str | None, slot: Slot) -> bool:
     먹으려고 한 적" is past attempt history, not current means. The schema
     owns these domain distinctions through reject_signals/reject_unless_signals.
     """
-    if message is None or not slot.reject_signals:
+    if message is None:
+        return False
+    if slot.id == "coping":
+        normalized = safety.normalize_for_signal(message)
+        counselor_preference = any(marker in normalized for marker in (
+            "상담사가", "상담사에게", "선생님이", "먼저대화를걸어",
+            "들어주면", "해주면", "진행해주면",
+        ))
+        future_only = any(marker in normalized for marker in (
+            "해보고싶", "하고싶", "가보고싶", "해볼게", "해볼래",
+            "배우고싶", "알고싶", "방법을배우", "방법을알고",
+        ))
+        actual_attempt = any(marker in normalized for marker in (
+            "해봤", "써봤", "했어", "했습니다", "쉬었", "쉬고있", "걸었",
+            "산책했", "운동했", "상담받", "대화했", "얘기했", "이야기했",
+            "일기를썼", "기록했", "참았", "견뎌", "가보려했",
+        ))
+        if counselor_preference or (future_only and not actual_attempt):
+            return True
+        if "걸어" in message and not any(
+            marker in message for marker in ("걸어봤", "걸었", "걸어서", "산책")
+        ):
+            return True
+    if not slot.reject_signals:
         return False
     if not any(
         safety.normalize_for_signal(word) in safety.normalize_for_signal(message)
@@ -195,6 +222,18 @@ def _can_override(
     지나가는 언급에 관계로 덮어써짐). 원문 message가 없는 호출에서는
     override_signals가 선언된 값을 안전하게 거부한다.
     """
+    normalized = safety.normalize_for_signal(message or "")
+    correction_markers = ("정정할게", "정정합니다", "바꿀게", "바꿔주세요", "아니라", "잘못말했")
+    evidence_bound = bool(message and new_value in message)
+    if (slot.id in _EVIDENCE_MUTABLE_FREE_TEXT_IDS
+            and slot.capture == "full_message" and not slot.values and not slot.red_flag
+            and current_value != new_value and evidence_bound
+            and any(marker in normalized for marker in correction_markers)):
+        return True
+    if (slot.id in _EVIDENCE_MUTABLE_FREE_TEXT_IDS
+            and slot.capture == "full_message" and not slot.values and not slot.red_flag
+            and current_value != new_value and evidence_bound):
+        return True
     if slot.id == "track" and slot.values and current_value not in slot.values:
         return new_value in slot.values  # A placeholder is not an established track.
     if slot.allow_override_values is None or new_value not in slot.allow_override_values:
