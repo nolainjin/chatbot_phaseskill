@@ -1,0 +1,63 @@
+{
+  "organizations": [
+    "trial-A"
+  ],
+  "aCount": 1,
+  "cross": [
+    {
+      "path": "/api/portal/intakes?org_id=trial-B",
+      "status": 403
+    },
+    {
+      "path": "/api/portal/summary?org_id=trial-B",
+      "status": 403
+    },
+    {
+      "path": "/api/portal/intakes/B-test-id?org_id=trial-A",
+      "status": 404
+    },
+    {
+      "path": "/api/portal/intakes/B-test-id/transcript?org_id=trial-A",
+      "status": 404
+    },
+    {
+      "action": "cross-org review body",
+      "status": 404
+    }
+  ],
+  "cookieFlags": [
+    {
+      "name": "maeum_link",
+      "secure": true,
+      "httpOnly": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "maeum_device",
+      "secure": true,
+      "httpOnly": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "maeum_portal",
+      "secure": true,
+      "httpOnly": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "maeum_browser",
+      "secure": true,
+      "httpOnly": true,
+      "sameSite": "Strict"
+    }
+  ],
+  "flow": {
+    "realEmailReceived": true,
+    "pkceVerified": true,
+    "realClaudeTurns": 6,
+    "handoffComplete": true,
+    "reportVersion": 8,
+    "sourceFocusCorrect": true,
+    "reviewed": true
+  }
+}

@@ -22,6 +22,8 @@ def portal_page():
     if portal_config.cloud():
         html = html.replace('<details><summary>초대 수락</summary>',
                             '<details hidden><summary>초대 수락</summary>')
+        html = html.replace('로컬 합성 시험 환경 · 실제 상담 자료와 실제 이메일 발송을 사용하지 않습니다.',
+                            '합성 접수 시험 환경 · 등록된 담당자 이메일로 기기를 확인합니다.')
     return HTMLResponse(html)
 
 
