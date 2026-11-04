@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-11-04T04:31:15.252378+00:00",
+  "scope": "local PostgreSQL and capture mail; provider HTTP mocked",
+  "productionChanged": false,
+  "actualNumericEmailReceived": false,
+  "regression": {
+    "passed": 710,
+    "skipped": 58,
+    "seconds": 20.06
+  },
+  "isolatedPostgres": {
+    "passed": 58,
+    "seconds": 18.88,
+    "originalDataHashesUnchanged": true
+  },
+  "browser": {
+    "signupEmailOnly": true,
+    "ownerCodeLogin": true,
+    "ownerAssignedOrgAndSummaryRole": true,
+    "newApprovedUserCodeLogin": true,
+    "summaryReadable": true,
+    "rawReadBlocked": true,
+    "registrarPanelHiddenForMember": true,
+    "foreignOrganization": 403,
+    "mobileWidth": 390,
+    "horizontalOverflow": false,
+    "passwordFieldVisible": false
+  },
+  "review": {
+    "blockingLocalFindingsRemaining": 0,
+    "timingEnumerationRemains": true
+  },
+  "pending": [
+    "sender selection and SMTP",
+    "numeric Token templates",
+    "production migration and registrar",
+    "feature flag and deployment",
+    "actual numeric email E2E and first provider identity binding"
+  ]
+}

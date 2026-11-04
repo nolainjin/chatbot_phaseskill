@@ -14,23 +14,72 @@ async function api(path, method = "GET", body) {
   }
   return data;
 }
-function clearWorkspace() { $("workspace").hidden = true; $("verify").hidden = true; $("login").hidden = false; $("cases").replaceChildren(); $("report").replaceChildren(el("h2","접수 보고서")); selected = null; }
+function clearWorkspace() { $("workspace").hidden = true; $("verify").hidden = true; $("email-verify").hidden = true; $("signup").hidden = true; $("registration-panel").hidden = true; $("login").hidden = false; $("cases").replaceChildren(); $("report").replaceChildren(el("h2","접수 보고서")); selected = null; }
+const emailMode = document.body.dataset.emailLogin === "true";
+let pendingEmail = "";
+let isRegistrar = false;
+if (emailMode) {
+  $("email-login-hint").hidden = false;
+  $("signup-open").hidden = false;
+  $("invite-accept").closest("details").hidden = true;
+}
 async function work(fn) { notice(""); try { await fn(); } catch(e) { notice(e.message); } }
-function form(id, fn) { $(id).onsubmit = event => { event.preventDefault(); work(fn); }; }
+function form(id, fn) { $(id).onsubmit = async event => {
+  event.preventDefault(); const submit = event.submitter;
+  if (submit?.disabled) return;
+  if (submit) submit.disabled = true;
+  try { await work(fn); } finally { if (submit) submit.disabled = false; }
+}; }
 function query() { return "?org_id=" + encodeURIComponent(org); }
 function has(p) { return permissions.includes(p); }
 async function load() {
   const me = await api("/me"); csrf = me.csrf;
+  isRegistrar = Boolean(me.registrar);
+  $("email-verify").hidden = true; $("signup").hidden = true;
+  $("registration-panel").hidden = !me.registrar;
   $("code-form").hidden = me.verification === "email_link";
   $("send-code").textContent = me.verification === "email_link" ? "이메일 확인 링크 받기" : "인증번호 받기";
   for (const id of ["invite-accept", "password-form", "email-form"]) $(id).closest("details").hidden = !me.account_changes;
   $("invite-form").hidden = !me.account_changes;
   $("login").hidden = true; $("verify").hidden = me.state !== "pending_device"; $("workspace").hidden = me.state !== "verified";
+  if (emailMode && me.state !== "verified") { clearWorkspace(); return; }
   if (me.state === "pending_device") { $("remember").checked=false; $("code").value=""; $("send-code").focus(); return; }
   $("org").replaceChildren(...me.organizations.map(o => { const option = el("option", o.name); option.value = o.id; option.dataset.permissions = JSON.stringify(o.permissions); return option; }));
   if (me.organizations.some(o => o.id === org)) $("org").value = org;
   if (!me.organizations.length) { notice("현재 접근 가능한 기관이 없습니다."); $("layout").hidden = true; return; }
   await selectOrg();
+}
+
+function showEmailCode(result) {
+  csrf = result.csrf;
+  $("login").hidden = true; $("signup").hidden = true; $("verify").hidden = true; $("workspace").hidden = true;
+  $("email-verify").hidden = false; $("email-code").value = "";
+  $("email-code-status").textContent = result.message;
+  $("email-code").focus();
+}
+async function startEmail() {
+  const result = await api("/auth/email-start", "POST", {email: pendingEmail});
+  showEmailCode(result);
+}
+async function loadDirectory() {
+  const data = await api("/registrations");
+  const chosen = $("registration-org").value;
+  $("registration-org").replaceChildren(...data.organizations.map(o => {
+    const option = el("option", o.name); option.value = o.id; return option;
+  }));
+  if (data.organizations.some(o => o.id === chosen)) $("registration-org").value = chosen;
+  $("registration-requests").replaceChildren();
+  if (!data.requests.length) $("registration-requests").append(el("p", "승인 대기 중인 신청이 없습니다."));
+  data.requests.forEach(r => {
+    const row = el("div"); row.append(el("span", r.email + " · " + new Date(r.requested_at * 1000).toLocaleString()));
+    row.append(button("기관·권한 선택 후 승인", () => {
+      $("registration-email").value = r.email; $("registration-role").value = "summary";
+      $("registration-org").focus(); notice("소속 기관과 권한을 확인한 뒤 이메일 등록 / 신청 승인 버튼을 눌러 주세요.");
+    }), button("신청 거절", async () => { await api("/registrations/reject", "POST", {email:r.email}); await loadDirectory(); }));
+    $("registration-requests").append(row);
+  });
+  const names = new Map(data.organizations.map(o => [o.id, o.name]));
+  $("registration-users").replaceChildren(...data.registered.map(r => el("p", r.email + " · " + (names.get(r.org_id) || r.org_id) + " · " + (r.active ? "등록됨" : "중지됨"))));
 }
 async function selectOrg() {
   org = $("org").value; permissions = JSON.parse($("org").selectedOptions[0].dataset.permissions); offset = 0; selected = null;
@@ -57,6 +106,7 @@ async function refresh() {
     members.forEach(m=>{ const row=el("div");row.append(el("span",m.user_id+" · "+m.permissions.join(", ")+" · "+(m.active?"활성":"중지")));
       row.append(button(m.active?"소속 회수":"소속 복원",async()=>{await api("/members/"+encodeURIComponent(m.user_id),"PATCH",{org_id:org,permissions:m.permissions,active:!m.active});await load();}));$("members").append(row); });
   }
+  if (isRegistrar) await loadDirectory();
 }
 async function list() {
   const data=await api("/intakes"+query()+"&search="+encodeURIComponent($("search").value)+"&offset="+offset);
@@ -94,7 +144,31 @@ async function showReport(id) {
   }
   target.append(raw);target.tabIndex=-1;target.focus();await list();
 }
-form("login-form",async()=>{const result=await api("/auth/login","POST",{email:$("email").value,password:$("password").value});$("password").value="";csrf=result.csrf;await load();});
+form("login-form",async()=>{
+  if (emailMode) { pendingEmail = $("email").value.trim(); await startEmail(); return; }
+  const result=await api("/auth/login","POST",{email:$("email").value,password:$("password").value});$("password").value="";csrf=result.csrf;await load();
+});
+form("email-code-form", async () => {
+  const result = await api("/auth/email-login-verify", "POST", {code:$("email-code").value});
+  $("email-code").value = ""; csrf = result.csrf; await load();
+});
+$("email-resend").onclick = () => work(async () => {
+  $("email-resend").disabled = true;
+  try { await startEmail(); } finally { $("email-resend").disabled = false; }
+});
+$("email-back").onclick = () => work(async () => {
+  await api("/auth/email-cancel", "POST", {}); clearWorkspace(); $("email-verify").hidden = true; $("email").focus();
+});
+$("signup-open").onclick = () => { notice(""); $("login").hidden = true; $("signup").hidden = false; $("signup-email").value = $("email").value; $("signup-email").focus(); };
+$("signup-back").onclick = () => { $("signup").hidden = true; $("login").hidden = false; notice(""); $("email").focus(); };
+form("signup-form", async () => {
+  const result = await api("/auth/apply", "POST", {email:$("signup-email").value});
+  $("signup-status").textContent = result.message;
+});
+form("registration-form", async () => {
+  const result = await api("/registrations", "POST", {email:$("registration-email").value, org_id:$("registration-org").value, role:$("registration-role").value});
+  $("registration-email").value = ""; await refresh(); notice(result.message);
+});
 $("send-code").onclick=()=>work(async()=>{const r=await api("/auth/device-challenge","POST",{});$("send-status").textContent=r.verification==="email_link"?"이메일을 보냈습니다. 로그인한 이 브라우저에서 확인 링크를 열어 주세요.":"로컬 메일함에 인증번호를 캡처했습니다. 재전송은 "+r.retry_after+"초 후 가능합니다.";if(r.verification!=="email_link")$("code").focus();});
 form("code-form",async()=>{const r=await api("/auth/device-verify","POST",{code:$("code").value,remember:$("remember").checked});csrf=r.csrf;$("code").value="";await load();});
 async function logout(){await api("/auth/logout","POST",{});csrf="";clearWorkspace();}
@@ -109,4 +183,11 @@ form("email-form",async()=>{await api("/auth/email-challenge","POST",{email:$("n
 form("email-verify-form",async()=>{await api("/auth/email-verify","POST",{token:$("email-token").value});$("email-token").value="";clearWorkspace();notice("이메일을 변경했습니다. 새 이메일로 로그인하고 기기를 확인해 주세요.");});
 // Prevent restored browser history from exposing a stale report after logout.
 window.addEventListener("pageshow",event=>{if(event.persisted){clearWorkspace();work(load);}});
-load().catch(e=>{clearWorkspace();if(!e.message.includes("로그인"))notice(e.message);});
+load().catch(async e=>{
+  clearWorkspace();
+  if (emailMode) {
+    try { const pending=await api("/auth/email-pending"); pendingEmail=pending.email; showEmailCode(pending); return; }
+    catch (_) { /* No pending attempt is the normal logged-out state. */ }
+  }
+  if(!e.message.includes("로그인"))notice(e.message);
+});

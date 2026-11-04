@@ -89,6 +89,7 @@ def init():
                 conn.execute((ROOT / "supabase/migrations/202611040003_portal_sources_identity.sql").read_text())
                 conn.execute((ROOT / "supabase/migrations/202611040004_portal_runtime_boundary.sql").read_text())
                 conn.execute((ROOT / "supabase/migrations/202611040005_portal_cloud_identity.sql").read_text())
+                conn.execute((ROOT / "supabase/migrations/202611040006_email_login.sql").read_text())
                 seed(conn, password)
             else:
                 # Recover interrupted first provisioning, never run when config exists.

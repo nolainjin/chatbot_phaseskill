@@ -30,6 +30,263 @@ PASSWORD = "synthetic-test-password-only"
 ORIGIN = "http://testserver"
 
 
+@pytest.fixture
+def email_env(env, monkeypatch):
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET is_registrar=true WHERE id='A0'")
+    return env
+
+
+def email_start(c, email='a0@example.test'):
+    result = post(c, '/auth/email-start', {'email': email})
+    assert result.status_code == 200, result.text
+    c.headers['X-CSRF-Token'] = result.json()['csrf']
+    return result.json()
+
+
+def email_enter(c, email='a0@example.test'):
+    email_start(c, email)
+    code = latest_mail(email, purpose='login')['code']
+    result = post(c, '/auth/email-login-verify', {'code': code})
+    assert result.status_code == 200, result.text
+    c.headers['X-CSRF-Token'] = result.json()['csrf']
+    return code
+
+
+def test_email_only_login_rotation_and_legacy_disabled(email_env):
+    c = client()
+    for path in ['/portal', '/portal/', '/portal/index.html', '/portal/login']:
+        html = c.get(path).text
+        assert 'data-email-login="true"' in html
+        assert 'id="signup-open" class="secondary" hidden' not in html
+        assert 'id="password" type="password" disabled' in html
+    email_start(c)
+    assert c.get('/api/portal/me').status_code == 401
+    assert post(c, '/auth/login', {'email': 'a0@example.test', 'password': PASSWORD}).status_code == 410
+    assert post(c, '/auth/device-challenge').status_code == 410
+    pending = c.cookies.get('maeum_email')
+    code = latest_mail(purpose='login')['code']
+    result = post(c, '/auth/email-login-verify', {'code': code})
+    assert result.status_code == 200
+    c.headers['X-CSRF-Token'] = result.json()['csrf']
+    assert not c.cookies.get('maeum_email')
+    assert c.cookies.get(auth.SESSION) != pending
+    assert c.get('/api/portal/me').json()['registrar'] is True
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert c.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 401
+    assert post(c, '/auth/logout').status_code == 200
+    assert c.get('/api/portal/me').status_code == 401
+
+
+def test_email_registration_is_pending_until_owner_assigns_org(email_env):
+    applicant = client()
+    result = post(applicant, '/auth/apply', {'email': ' New.Person@example.test ', 'org_id': 'B', 'role': 'manager'})
+    assert result.status_code == 200
+    assert c_has_user(email_env, 'new.person@example.test') is False
+    unknown = email_start(applicant, 'new.person@example.test')
+    assert not list(Path(os.environ['PORTAL_MAIL_DIR']).glob('*.json'))
+    assert post(applicant, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
+    assert applicant.get('/api/portal/registrations').status_code == 401
+    admin = client()
+    email_enter(admin)
+    directory = admin.get('/api/portal/registrations').json()
+    assert directory['requests'][0]['email'] == 'new.person@example.test'
+    assert post(admin, '/registrations', {'email': 'new.person@example.test', 'org_id': 'A', 'role': 'summary'}).status_code == 200
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute('TRUNCATE maeum.portal_limits')
+    known = email_start(applicant, 'new.person@example.test')
+    assert known['message'] == unknown['message']
+    code = latest_mail('new.person@example.test', 'login')['code']
+    result = post(applicant, '/auth/email-login-verify', {'code': code})
+    applicant.headers['X-CSRF-Token'] = result.json()['csrf']
+    assert applicant.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert applicant.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert applicant.get('/api/portal/registrations').status_code == 403
+    assert post(applicant, '/registrations', {'email': 'other@example.test', 'org_id': 'A', 'role': 'manager'}).status_code == 403
+    assert post(applicant, '/registrations/reject', {'email': 'a0@example.test'}).status_code == 403
+
+
+def c_has_user(env, email):
+    with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
+        return conn.execute('SELECT 1 FROM maeum.portal_users WHERE email=%s', (email,)).fetchone() is not None
+
+
+def test_email_code_wrong_nonce_csrf_attempts_and_expiry(email_env):
+    c = client()
+    email_start(c)
+    code = latest_mail(purpose='login')['code']
+    other = client()
+    assert post(other, '/auth/email-login-verify', {'code': code}).status_code == 401
+    saved = c.headers['X-CSRF-Token']
+    c.headers['X-CSRF-Token'] = 'wrong'
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 403
+    c.headers['X-CSRF-Token'] = saved
+    for _ in range(5):
+        assert post(c, '/auth/email-login-verify', {'code': ('0' * 8 if code != '0' * 8 else '1' * 8)}).status_code == 400
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 400
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        row = conn.execute('SELECT attempts,consumed FROM maeum.email_login_attempts WHERE email=%s', ('a0@example.test',)).fetchone()
+        assert row == (5, True)
+        conn.execute('TRUNCATE maeum.portal_limits')
+    email_start(c)
+    code = latest_mail(purpose='login')['code']
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute('UPDATE maeum.email_login_attempts SET expires_at=0')
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 400
+
+
+@pytest.mark.parametrize('change', ['member', 'identity', 'user'])
+def test_email_rechecks_membership_and_identity_at_verify(email_env, change):
+    c = client()
+    email_start(c)
+    code = latest_mail(purpose='login')['code']
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        if change == 'member':
+            conn.execute("UPDATE maeum.memberships SET active=false WHERE user_id='A0'")
+        elif change == 'identity':
+            conn.execute("UPDATE maeum.portal_users SET auth_version=auth_version+1 WHERE id='A0'")
+        else:
+            conn.execute("UPDATE maeum.portal_users SET active=false WHERE id='A0'")
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 400
+    assert c.get('/api/portal/me').status_code == 401
+
+
+def test_email_code_concurrent_single_success_and_cancel(email_env):
+    c = client()
+    email_start(c)
+    code = latest_mail(purpose='login')['code']
+    copies = [client(), client()]
+    for copy in copies:
+        copy.cookies.update(c.cookies)
+        copy.headers['X-CSRF-Token'] = c.headers['X-CSRF-Token']
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda copy: post(copy, '/auth/email-login-verify', {'code': code}).status_code, copies))
+    assert sorted(statuses) == [200, 400]
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute('TRUNCATE maeum.portal_limits')
+    email_start(c)
+    code = latest_mail(purpose='login')['code']
+    assert post(c, '/auth/email-cancel').status_code == 200
+    assert post(c, '/auth/email-login-verify', {'code': code}).status_code == 401
+
+
+def test_email_directory_reject_and_disabled_account_protection(email_env):
+    c = client()
+    email_enter(c)
+    assert post(client(), '/auth/apply', {'email': 'declined@example.test'}).status_code == 200
+    assert post(c, '/registrations/reject', {'email': 'declined@example.test'}).status_code == 200
+    assert c.get('/api/portal/registrations').json()['requests'] == []
+    assert post(c, '/registrations', {'email': 'valid@example.test', 'org_id': 'missing', 'role': 'summary'}).status_code == 404
+    assert post(c, '/registrations', {'email': 'valid@example.test', 'org_id': 'A', 'role': 'superuser'}).status_code == 400
+    with psycopg.connect(email_env['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("UPDATE maeum.portal_users SET active=false WHERE id='A1'")
+    assert post(c, '/registrations', {'email': 'a1@example.test', 'org_id': 'A', 'role': 'manager'}).status_code == 409
+    with store.connect() as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT * FROM maeum.registration_requests')
+
+
+def test_email_provider_passwordless_boundary(provider_env, monkeypatch):
+    c, _, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        uid = str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0])
+    calls = []
+    def otp_api(path, body, **kwargs):
+        calls.append((path, body))
+        if path == '/otp':
+            assert body == {'email': 'a0@example.test', 'create_user': False}
+            return {}
+        if path == '/verify':
+            assert body['type'] == 'email' and body['email'] == 'a0@example.test'
+            if body['token'] != '12345678':
+                raise auth.HTTPException(401)
+            return {'user': {'id': uid, 'email': 'a0@example.test', 'email_confirmed_at': '2026-11-04'}, 'access_token': 'synthetic-discard'}
+        if path.startswith('/logout'):
+            return {}
+        raise AssertionError(path)
+    monkeypatch.setattr(provider, 'request_api', otp_api)
+    email_start(c)
+    assert post(c, '/auth/email-login-verify', {'code': '00000000'}).status_code == 400
+    result = post(c, '/auth/email-login-verify', {'code': '12345678'})
+    assert result.status_code == 200, result.text
+    assert any(path.startswith('/logout') for path, _ in calls)
+    assert all(cookie.secure for cookie in c.cookies.jar)
+    assert not any('password' in body for _, body in calls)
+
+
+def test_email_provider_failure_keeps_quota_and_unknown_is_not_created(provider_env, monkeypatch):
+    c, _, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    calls = []
+    def failing(path, body, **kwargs):
+        calls.append(path)
+        raise auth.HTTPException(503)
+    monkeypatch.setattr(provider, 'request_api', failing)
+    email_start(c)
+    for _ in range(3):
+        assert post(c, '/auth/email-start', {'email': 'a0@example.test'}).status_code == 429
+    assert calls == ['/otp']
+    stranger = client()
+    stranger.base_url = c.base_url
+    stranger.headers['Origin'] = str(c.base_url).rstrip('/')
+    email_start(stranger, 'unknown@example.test')
+    assert calls == ['/otp']
+    assert c_has_user({'MAEUM_DATABASE_URL': os.environ['MAEUM_DATABASE_URL']}, 'unknown@example.test') is False
+
+
+@pytest.mark.parametrize('mismatch', ['email', 'id', 'unconfirmed'])
+def test_email_provider_rejects_identity_mismatch(provider_env, monkeypatch, mismatch):
+    c, _, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    uid = str(uuid4())
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        expected = str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='A0'").fetchone()[0])
+    def otp_api(path, body, **kwargs):
+        if path == '/otp' or path.startswith('/logout'):
+            return {}
+        return {'access_token':'synthetic', 'user': {
+            'id': uid if mismatch == 'id' else expected,
+            'email': 'foreign@example.test' if mismatch == 'email' else 'a0@example.test',
+            'email_confirmed_at': None if mismatch == 'unconfirmed' else '2026-11-04'}}
+    monkeypatch.setattr(provider, 'request_api', otp_api)
+    email_start(c)
+    assert post(c, '/auth/email-login-verify', {'code': '12345678'}).status_code == 400
+    assert c.get('/api/portal/me').json()['state'] == 'pending_device'
+
+
+def test_email_provider_first_preregistered_identity_binding(provider_env, monkeypatch):
+    c, _, provider = provider_env
+    monkeypatch.setenv('PORTAL_EMAIL_LOGIN', '1')
+    uid = str(uuid4())
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        conn.execute("INSERT INTO maeum.portal_users(id,email) VALUES('NEW','first@example.test')")
+        conn.execute("INSERT INTO maeum.memberships(org_id,user_id,permissions) VALUES('A','NEW',ARRAY['report:read'])")
+    calls = []
+    def otp_api(path, body, **kwargs):
+        calls.append(path)
+        if path == '/otp':
+            assert body == {'email': 'first@example.test', 'create_user': True}
+            return {}
+        if path == '/verify':
+            assert body == {'email': 'first@example.test', 'token': '12345678', 'type': 'email'}
+            return {'user': {'id': uid, 'email': 'first@example.test', 'email_confirmed_at': '2026-11-04'}, 'access_token': 'synthetic'}
+        if path.startswith('/logout'):
+            return {}
+        raise AssertionError(path)
+    monkeypatch.setattr(provider, 'request_api', otp_api)
+    email_start(c, 'first@example.test')
+    result = post(c, '/auth/email-login-verify', {'code': '12345678'})
+    assert result.status_code == 200, result.text
+    with psycopg.connect(os.environ['MAEUM_DATABASE_URL']) as conn:
+        assert str(conn.execute("SELECT supabase_user_id FROM maeum.portal_users WHERE id='NEW'").fetchone()[0]) == uid
+    assert c.get('/api/portal/me').json()['organizations'][0]['id'] == 'A'
+    assert c.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert calls == ['/otp', '/verify', '/logout?scope=local']
+
+
 @pytest.fixture(scope="module")
 def database():
     config = json.loads(Path(os.environ["PORTAL_TEST_CONFIG"]).read_text())
@@ -43,7 +300,7 @@ def database():
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     with psycopg.connect(owner_url) as conn:
-        for filename in ("202611040001_cloud_store.sql", "202611040002_portal.sql", "202611040003_portal_sources_identity.sql", "202611040004_portal_runtime_boundary.sql", "202611040005_portal_cloud_identity.sql"):
+        for filename in ("202611040001_cloud_store.sql", "202611040002_portal.sql", "202611040003_portal_sources_identity.sql", "202611040004_portal_runtime_boundary.sql", "202611040005_portal_cloud_identity.sql", "202611040006_email_login.sql"):
             conn.execute((Path("supabase/migrations") / filename).read_text())
     yield config | {"MAEUM_DATABASE_URL": owner_url, "PORTAL_DATABASE_URL": runtime_url, "PORTAL_AUTH_DATABASE_URL": auth_url}
     with psycopg.connect(admin_url, autocommit=True) as conn:

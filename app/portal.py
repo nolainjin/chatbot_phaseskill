@@ -10,12 +10,14 @@ from fastapi.responses import FileResponse, HTMLResponse
 from app import cloud_store, intake, portal_auth as auth, portal_store as store
 from app.config import Settings
 from app.portal_config import Policy
-from app import portal_config
+from app import portal_config, portal_email
 
 router = APIRouter()
 
 
 @router.get("/portal")
+@router.get("/portal/")
+@router.get("/portal/index.html")
 @router.get("/portal/login")
 def portal_page():
     html = (Path(__file__).resolve().parents[1] / "static/portal/index.html").read_text()
@@ -24,6 +26,14 @@ def portal_page():
                             '<details hidden><summary>초대 수락</summary>')
         html = html.replace('로컬 합성 시험 환경 · 실제 상담 자료와 실제 이메일 발송을 사용하지 않습니다.',
                             '합성 접수 시험 환경 · 등록된 담당자 이메일로 기기를 확인합니다.')
+    if portal_email.enabled():
+        html = html.replace('data-email-login="false"', 'data-email-login="true"')
+        html = html.replace('<div id="password-fields">', '<div id="password-fields" hidden>')
+        html = html.replace('id="password" type="password"', 'id="password" type="password" disabled')
+        html = html.replace('<button id="login-submit">로그인</button>', '<button id="login-submit">인증번호 받기</button>')
+        html = html.replace('id="signup-open" class="secondary" hidden', 'id="signup-open" class="secondary"')
+        html = html.replace('<details><summary>초대 수락</summary>', '<details hidden><summary>초대 수락</summary>')
+        html = html.replace('등록된 담당자 이메일로 기기를 확인합니다.', '등록된 담당자는 이메일 인증번호로 로그인합니다.')
     return HTMLResponse(html)
 
 
@@ -39,7 +49,7 @@ def auth_return():
 
 @router.post('/api/portal/auth/exchange')
 def auth_exchange(request: Request, response: Response, payload: dict = Body(...)):
-    if not portal_config.cloud():
+    if not portal_config.cloud() or portal_email.enabled():
         raise HTTPException(404)
     from app.portal_supabase import exchange
     return exchange(request, response, payload)
@@ -47,17 +57,82 @@ def auth_exchange(request: Request, response: Response, payload: dict = Body(...
 
 @router.post("/api/portal/auth/login")
 def login(request: Request, response: Response, payload: dict = Body(...)):
+    if portal_email.enabled():
+        raise HTTPException(410, '이메일 인증번호 로그인을 이용해 주세요.')
     return auth.login(request, response, payload)
 
 
 @router.post("/api/portal/auth/device-challenge")
 def challenge(request: Request):
+    if portal_email.enabled():
+        raise HTTPException(410, '이메일 인증번호 로그인을 이용해 주세요.')
     return auth.challenge(request)
 
 
 @router.post("/api/portal/auth/device-verify")
 def verify(request: Request, response: Response, payload: dict = Body(...)):
+    if portal_email.enabled():
+        raise HTTPException(410, '이메일 인증번호 로그인을 이용해 주세요.')
     return auth.verify(request, response, payload)
+
+
+def email_mode():
+    if not portal_email.enabled():
+        raise HTTPException(404)
+
+
+@router.post('/api/portal/auth/email-start')
+def email_start(request: Request, response: Response, payload: dict = Body(...)):
+    email_mode()
+    return portal_email.start(request, response, payload)
+
+
+@router.get('/api/portal/auth/email-pending')
+def email_pending(request: Request):
+    email_mode()
+    return portal_email.pending(request)
+
+
+@router.post('/api/portal/auth/email-login-verify')
+def email_verify(request: Request, response: Response, payload: dict = Body(...)):
+    email_mode()
+    return portal_email.verify(request, response, payload)
+
+
+@router.post('/api/portal/auth/email-cancel')
+def email_cancel(request: Request, response: Response):
+    email_mode()
+    with auth.connect() as conn:
+        row = portal_email.attempt(conn, request)
+        auth.csrf(request, row)
+        conn.execute('UPDATE maeum.email_login_attempts SET consumed=true WHERE token_hash=%s', (row['token_hash'],))
+    response.delete_cookie(portal_email.ATTEMPT, path='/')
+    response.delete_cookie(portal_email.BROWSER, path='/')
+    return {'cancelled': True}
+
+
+@router.post('/api/portal/auth/apply')
+def signup_apply(request: Request, payload: dict = Body(...)):
+    email_mode()
+    return portal_email.apply(request, payload)
+
+
+@router.get('/api/portal/registrations')
+def registration_directory(request: Request):
+    email_mode()
+    return portal_email.directory(request)
+
+
+@router.post('/api/portal/registrations')
+def preregister_email(request: Request, payload: dict = Body(...)):
+    email_mode()
+    return portal_email.register(request, payload)
+
+
+@router.post('/api/portal/registrations/reject')
+def registration_reject(request: Request, payload: dict = Body(...)):
+    email_mode()
+    return portal_email.reject(request, payload)
 
 
 @router.get("/api/portal/me")
@@ -67,9 +142,14 @@ def me(request: Request):
         orgs = []
         if s["state"] == "verified":
             orgs = conn.execute("SELECT o.id,o.name,m.permissions FROM maeum.memberships m JOIN maeum.organizations o ON o.id=m.org_id WHERE m.user_id=%s AND m.active AND o.active ORDER BY o.id", (s["user_id"],)).fetchall()
+        registrar = False
+        if portal_email.enabled() and s['state'] == 'verified':
+            with auth.connect() as auth_conn:
+                registrar = auth_conn.execute('SELECT maeum.registrar_valid(%s) AS ok', (s['token_hash'],)).fetchone()['ok']
         return {"state": s["state"], "csrf": s["csrf"], "organizations": orgs,
                 "verification": "email_link" if portal_config.cloud() else "code",
-                "account_changes": not portal_config.cloud()}
+                "account_changes": not portal_config.cloud() and not portal_email.enabled(),
+                "registrar": registrar}
 
 
 @router.post("/api/portal/auth/logout")
@@ -78,8 +158,13 @@ def logout(request: Request, response: Response):
         s = auth.session(conn, request, verified=False)
         auth.csrf(request, s)
         conn.execute("UPDATE maeum.portal_sessions SET revoked=true WHERE token_hash=%s", (s["token_hash"],))
+        if portal_email.enabled():
+            conn.execute('UPDATE maeum.email_login_attempts SET consumed=true WHERE token_hash=%s',
+                         (store.digest(request.cookies.get(portal_email.ATTEMPT, '')),))
     response.delete_cookie(auth.SESSION, path="/")
     response.delete_cookie(auth.NONCE, path="/")
+    response.delete_cookie(portal_email.ATTEMPT, path='/')
+    response.delete_cookie(portal_email.BROWSER, path='/')
     return {"logged_out": True}
 
 
