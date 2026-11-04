@@ -1,0 +1,78 @@
+{
+  "date": "2026-11-04",
+  "runtimeCommit": "2047b436da9c0fdba2239aeabe340fd38ad8e8c9",
+  "deployment": "dpl_DZJPdKU9UZPV6BVq8SWCAbVeXr8j",
+  "origin": "https://project-4nww4.vercel.app",
+  "mode": "Gmail email-link PKCE; numeric OTP disabled; Owner recipient allowlist",
+  "actualMail": {
+    "sender": "noreply@mail.app.supabase.io",
+    "receivedAtKST": "2026-11-04 13:55",
+    "linkOpened": true,
+    "explicitConfirmationVerified": true,
+    "usedLinkRejected": true
+  },
+  "report": {
+    "version": 8,
+    "fields": 6,
+    "sourceId": "turn-2026-11-04-10",
+    "sourceMatches": true,
+    "turnCount": 14,
+    "priorReviewPreserved": true
+  },
+  "checks": {
+    "state": "verified",
+    "registrar": true,
+    "organizations": [
+      "trial-A"
+    ],
+    "cross": [
+      {
+        "path": "/api/portal/intakes?org_id=trial-B",
+        "status": 403
+      },
+      {
+        "path": "/api/portal/summary?org_id=trial-B",
+        "status": 403
+      },
+      {
+        "path": "/api/portal/intakes/B-test-id?org_id=trial-A",
+        "status": 404
+      },
+      {
+        "path": "/api/portal/intakes/B-test-id/transcript?org_id=trial-A",
+        "status": 404
+      },
+      {
+        "action": "cross-org review body",
+        "status": 404
+      }
+    ],
+    "csrfWrong": 403,
+    "directoryStatus": 200,
+    "reportFields": 6
+  },
+  "regression": {
+    "passed": 710,
+    "skipped": 68,
+    "seconds": 19.88
+  },
+  "isolatedPostgres": {
+    "passed": 68,
+    "seconds": 20.92,
+    "originalDataHashesUnchanged": true
+  },
+  "limits": [
+    "Only designated Owner Gmail receives authentication email with default SMTP",
+    "Other Gmail applications can be registered but cannot sign in until SMTP setup",
+    "Numeric code and new external recipient live delivery not verified",
+    "Response timing can reveal registration likelihood"
+  ],
+  "verification": "Root browser directly verified; Astra redteam inspected code and local TestClient, no independent live retest",
+  "mobile": {
+    "viewport": 390,
+    "documentWidth": 390,
+    "reportFields": 6,
+    "screenshot": "portal-email-link-live-mobile.png",
+    "visuallyInspected": true
+  }
+}

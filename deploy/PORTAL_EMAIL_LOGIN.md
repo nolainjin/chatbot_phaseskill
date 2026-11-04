@@ -1,6 +1,6 @@
 # 이메일 코드 로그인 · 사전 등록 및 가입 신청
 
-2026-11-04. 사용자 지시에 따라 **Gmail만 허용하는 비밀번호 없는 이메일 링크 로그인**을 공개 반영한다.
+2026-11-04. 사용자 지시에 따라 **Gmail만 허용하는 비밀번호 없는 이메일 링크 로그인**을 공개 반영했다.
 숫자 코드 로그인도 구현되어 있지만 현재 무료 기본 메일에서는 활성화하지 않는다.
 이전 [비밀번호+PKCE 공개 시험](PORTAL_CLOUD.md)의 같은 Vercel/Supabase 프로젝트와 상담 자료를 사용한다.
 
@@ -21,7 +21,7 @@
   기존 기관/접수/보고서를 이관하거나 다시 생성하지 않는다.
 - 최종 배포/실메일 결과는 별도 공개 시험 증거에 기록한다. 로컬 검사만으로 실제 수신을 주장하지 않는다.
 
-## 사용 흐름
+## 숫자 코드 후보의 사용 흐름 (현재 공개는 위의 링크 방식)
 
 - 로그인 첫 화면: 이메일 한 칸, `인증번호 받기`, `회원가입/신청`.
 - 미리 등록된 이메일: 메일 코드 확인 → 지정된 기관과 역할로 로그인.
@@ -106,3 +106,16 @@
 - 추가 10개: Gmail 정확 도메인/발송 allowlist, 링크 PKCE 성공, 다른 브라우저/nonce/CSRF/state/만료/인증버전/소속/모드전환 거절, 첫 UUID 연결과 동시 단일 성공.
 - 이 공급자 경계 검사는 HTTP 모사이며, 공개 실제 발송과 구분한다.
 - 무료 기본 메일 템플릿 제한 공식 근거: [2026-06-03 변경 공지](https://supabase.com/changelog/46599-changes-to-email-template-customisation-on-free-tier).
+
+## 이번 실제 공개 시험
+
+- runtime commit `2047b436da9c0fdba2239aeabe340fd38ad8e8c9`, deployment `dpl_DZJPdKU9UZPV6BVq8SWCAbVeXr8j`, READY 및 동일 공개 alias 확인.
+- Gmail 2026-11-04 13:55 실제 수신, 새 `/portal/email-return` 진입, 확인 버튼 후 비밀번호 없는 로그인 성공.
+- 기존 합성 A 보고서 v8/6항목/14발화/담당확인이력 유지. 기대 항목의 출처 `#10` 원문으로 포커스 이동 및 문장 일치.
+- B 목록/집계403, B 상세/원문/확인404, 잘못된 CSRF403. 등록관리자 디렉터리200. 사용한 링크 재방문은 로그인 불가.
+- health `/api/health` 200 postgres, 미인증목록401, 포털·콜백 no-store, 이전 비밀번호410/숫자검증404, 학교메일 신청400.
+- [공개 검증 JSON](evidence/portal-email-link-live-20261104.json), [원문 출처 화면](evidence/portal-email-link-live-desktop.png).
+- Astra 레드팀은 diff/콜백/모드/allowlist/UUID·소속 경계와 별도 TestClient를 확인했고 새 차단결함은 찾지 못했다. 레드팀의 외부 독립 재실행은 아니다.
+- 수신 가능한 새 Gmail 담당자 추가와 실제 숫자 코드, 임상/운영 승인으로 확대해 해석하지 않는다.
+
+- 이번 실제 모바일 390×844: 문서 폭390, 6항목 보고서 유지, [화면](evidence/portal-email-link-live-mobile.png) 직접 확인.
