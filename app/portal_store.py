@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
+from pathlib import Path
 import secrets
 import time
 from urllib.parse import urlparse
@@ -49,11 +50,17 @@ def require_database_url(url):
         raise RuntimeError('Unexpected cloud database target')
 
 
+def database_tls():
+    if not portal_config.cloud():
+        return {'sslmode': 'disable'}
+    return {'sslmode': 'verify-full', 'sslrootcert': str(Path(__file__).resolve().parents[1] / 'deploy/supabase-ca.crt')}
+
+
 @contextmanager
 def connect(*, authentication=False):
     url = os.environ["PORTAL_AUTH_DATABASE_URL" if authentication else "PORTAL_DATABASE_URL"]
     require_database_url(url)
-    with psycopg.connect(url, sslmode="require" if portal_config.cloud() else "disable", prepare_threshold=None,
+    with psycopg.connect(url, **database_tls(), prepare_threshold=None,
                          row_factory=dict_row, connect_timeout=5) as conn:
         # Do not silently use an owner/service connection for the portal.
         role = conn.execute("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()

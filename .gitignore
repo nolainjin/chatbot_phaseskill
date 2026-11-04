@@ -13,3 +13,5 @@ scripts/gui-smoke/screenshots/
 screenshots/
 .omo/
 .voice-model-cache/
+.vercel
+.env*

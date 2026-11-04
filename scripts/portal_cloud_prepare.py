@@ -35,7 +35,8 @@ def main():
     backup = PRIVATE / 'pre-portal-cloud-schema.sql'
     if not backup.exists():
         env = dict(os.environ, PGHOST=owner.hostname, PGPORT=str(owner.port), PGUSER=owner.username,
-                   PGPASSWORD=owner.password, PGDATABASE='postgres', PGSSLMODE='require')
+                   PGPASSWORD=owner.password, PGDATABASE='postgres', PGSSLMODE='verify-full',
+                   PGSSLROOTCERT=str(ROOT / 'deploy/supabase-ca.crt'))
         with open(backup, 'wb') as out:
             result = subprocess.run(['/opt/homebrew/opt/postgresql@17/bin/pg_dump', '--schema-only', '--schema=maeum', '--no-owner'],
                                     env=env, stdout=out, stderr=subprocess.PIPE)
@@ -49,7 +50,8 @@ def main():
     bundle = '\n'.join(p.read_text() for p in files)
     fingerprint = hashlib.sha256(bundle.encode()).hexdigest()
     role_keys = {'maeum_portal': 'PORTAL_DATABASE_URL', 'maeum_auth': 'PORTAL_AUTH_DATABASE_URL', 'maeum_engine': 'PORTAL_ENGINE_DATABASE_URL'}
-    with psycopg.connect(config['MAEUM_DATABASE_URL'], sslmode='require', prepare_threshold=None) as conn:
+    with psycopg.connect(config['MAEUM_DATABASE_URL'], sslmode='verify-full',
+                         sslrootcert=str(ROOT / 'deploy/supabase-ca.crt'), prepare_threshold=None) as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('maeum-cloud-deploy',0))")
         existing = conn.execute("SELECT to_regclass('maeum.portal_users')").fetchone()[0]
         if existing:

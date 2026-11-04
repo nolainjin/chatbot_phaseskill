@@ -28,17 +28,17 @@ def enabled():
 def _connect():
     import psycopg
 
-    sslmode = "require"
+    tls = {'sslmode': 'require'}
     if os.getenv("PORTAL_ENABLED") == "1":
-        from app.portal_store import require_database_url
+        from app.portal_store import require_database_url, database_tls
         from app.portal_config import cloud
         require_database_url(os.environ["MAEUM_DATABASE_URL"])
-        sslmode = "require" if cloud() else "disable"
+        tls = database_tls()
 
     conn = psycopg.connect(
         os.environ["MAEUM_DATABASE_URL"],
         connect_timeout=10,
-        sslmode=sslmode,
+        **tls,
         prepare_threshold=None,  # Supavisor transaction pooling has no prepared statements.
     )
     try:
