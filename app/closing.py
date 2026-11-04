@@ -73,13 +73,40 @@ def analyze(message: str, settings: Settings, *, current_draft_items=None,
     for item in items:
         category = item.get("category") if isinstance(item, dict) else None
         evidence = item.get("evidence") if isinstance(item, dict) else None
-        if (category not in CATEGORY_LABELS or not isinstance(evidence, str)
+        if (not isinstance(category, str) or category not in CATEGORY_LABELS
+                or not isinstance(evidence, str)
                 or not evidence.strip() or evidence.strip() not in message):
             raise ValueError("semantic response lacks source evidence")
         accepted.append({"category": category, "evidence": evidence.strip()})
-    corrections = payload.get("corrections", [])
-    if (not isinstance(corrections, list)
-            or not all(category in CATEGORY_LABELS for category in corrections)):
+    raw_corrections = payload.get("corrections", [])
+    if not isinstance(raw_corrections, list):
         raise ValueError("semantic response has invalid corrections")
+    accepted_categories = {item["category"] for item in accepted}
+    corrections = []
+    for correction in raw_corrections:
+        if isinstance(correction, str):
+            category = correction
+        elif isinstance(correction, dict):
+            # Some providers return the requested category list as objects.
+            # Accept only a canonical category already grounded by an accepted
+            # item from this same message. Optional evidence must also be a
+            # literal source substring; arbitrary object fields never control
+            # which existing draft category gets replaced.
+            category = correction.get("category")
+            evidence = correction.get("evidence")
+            if not isinstance(category, str) or category not in accepted_categories:
+                raise ValueError("semantic response has ungrounded correction")
+            if evidence is not None and (
+                    not isinstance(evidence, str) or not evidence.strip()
+                    or evidence.strip() not in message):
+                raise ValueError("semantic response has invalid correction evidence")
+        else:
+            raise ValueError("semantic response has invalid corrections")
+        if not isinstance(category, str) or category not in CATEGORY_LABELS:
+            raise ValueError("semantic response has invalid corrections")
+        if category not in accepted_categories:
+            raise ValueError("semantic response has ungrounded correction")
+        if category not in corrections:
+            corrections.append(category)
     return {"items": accepted, "corrections": corrections,
             "needs_clarification": needs_clarification}

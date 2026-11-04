@@ -85,6 +85,77 @@ def test_real_analysis_keeps_multiple_evidence_bound_items(monkeypatch):
         "preferred_time", "center_question"]
 
 
+def test_dict_corrections_normalize_only_grounded_canonical_categories(monkeypatch):
+    message = "시간은 화요일이 아니라 목요일 오전으로 바꿔주세요"
+    settings = replace(Settings.from_env(), model="codex-cli")
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '```json\n{"items":[{"category":"preferred_time",'
+        '"evidence":"시간은 화요일이 아니라 목요일 오전으로 바꿔주세요"}],'
+        '"corrections":[{"category":"preferred_time"}],'
+        '"needs_clarification":false}\n```')
+    result = closing.analyze(message, settings)
+    assert result["corrections"] == ["preferred_time"]
+
+
+@pytest.mark.parametrize("correction", [
+    "coping",
+    {"category": {"nested": "preferred_time"}},
+    {"category": "coping"},
+    {"category": "preferred_time", "evidence": ["not", "text"]},
+])
+def test_malformed_or_ungrounded_dict_corrections_become_retryable_value_error(
+        monkeypatch, correction):
+    message = "목요일 오전으로 바꿔주세요"
+    settings = replace(Settings.from_env(), model="codex-cli")
+    payload = {"items": [{"category": "preferred_time", "evidence": message}],
+               "corrections": [correction], "needs_clarification": False}
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+                        "```json\n" + __import__("json").dumps(payload, ensure_ascii=False) + "\n```")
+    with pytest.raises(ValueError, match="correction"):
+        closing.analyze(message, settings)
+
+
+def test_malformed_dict_correction_is_retryable_and_preserves_revision_input(monkeypatch):
+    session = _ready()
+    session.closing_draft = {"label": "추가 전달 내용", "text": "화요일", "items": [
+        {"category": "preferred_time", "label": "시간", "text": "화요일",
+         "source_text": "화요일"},
+    ]}
+    settings = replace(Settings.from_env(), model="codex-cli")
+    message = "시간은 화요일이 아니라 목요일 오전으로 바꿔주세요"
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '```json\n{"items":[{"category":"preferred_time",'
+        '"evidence":"시간은 화요일이 아니라 목요일 오전으로 바꿔주세요"}],'
+        '"corrections":[{"category":{"bad":"preferred_time"}}],'
+        '"needs_clarification":false}\n```')
+    result = chat.handle_message("semantic", message, settings, request_id="bad-correction-0001")
+    assert result["processing_status"] == "retryable"
+    assert session.history[-1] == {"role": "user", "content": message}
+    assert session.closing_draft["items"][0]["text"] == "화요일"
+
+
+def test_unrelated_string_correction_is_retryable_and_preserves_other_draft(monkeypatch):
+    session = _ready()
+    session.closing_draft = {"label": "추가 전달 내용", "text": "기존", "items": [
+        {"category": "preferred_time", "label": "시간", "text": "화요일",
+         "source_text": "화요일"},
+        {"category": "coping", "label": "대처", "text": "산책했어요",
+         "source_text": "산책했어요"},
+    ]}
+    before = [dict(item) for item in session.closing_draft["items"]]
+    settings = replace(Settings.from_env(), model="codex-cli")
+    message = "시간은 목요일 오전으로 바꿔주세요"
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '```json\n{"items":[{"category":"preferred_time",'
+        '"evidence":"시간은 목요일 오전으로 바꿔주세요"}],'
+        '"corrections":["coping"],"needs_clarification":false}\n```')
+    result = chat.handle_message("semantic", message, settings,
+                                 request_id="bad-string-correction-0001")
+    assert result["processing_status"] == "retryable"
+    assert session.history[-1] == {"role": "user", "content": message}
+    assert session.closing_draft["items"] == before
+
+
 def test_uncertain_analysis_asks_for_clarification_instead_of_retry(monkeypatch):
     _ready()
     settings = replace(Settings.from_env(), model="codex-cli")
