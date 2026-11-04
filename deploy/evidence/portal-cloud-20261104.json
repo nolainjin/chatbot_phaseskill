@@ -59,5 +59,25 @@
     "reportVersion": 8,
     "sourceFocusCorrect": true,
     "reviewed": true
-  }
+  },
+  "deletion": {
+    "syntheticConsent": true,
+    "wrongToken": 401,
+    "deleteCode": 200
+  },
+  "authContinuation": {
+    "afterLogout": 401,
+    "sameDeviceNoEmail": true,
+    "newDeviceRequiredEmail": true,
+    "secondRealEmailVerified": true
+  },
+  "persistence": {
+    "afterRedeploy": true,
+    "reportStatus": "complete",
+    "version": 8,
+    "reviewCount": 1,
+    "expectedAnswerPreserved": true,
+    "savedUserTurns": 7
+  },
+  "csrfWrongToken": 403
 }
