@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
   "regions": ["icn1"],
   "functions": {"app/main.py": {"maxDuration": 180}},
   "crons": [{"path": "/api/maintenance/retention", "schedule": "0 18 * * *"}]
