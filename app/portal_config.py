@@ -8,6 +8,7 @@ class Policy:
     device_seconds: int = 30 * 86400
     idle_seconds: int = 1800
     session_seconds: int = 8 * 3600
+    email_session_seconds: int = 14 * 86400
     code_seconds: int = 600
     code_attempts: int = 5
     resend_seconds: int = 60
@@ -20,7 +21,15 @@ class Policy:
                   for k, v in cls.__dataclass_fields__.items()}
         if any(v <= 0 for v in values.values()):
             raise RuntimeError('Portal policy values must be positive')
+        if values['email_session_seconds'] > 14 * 86400:
+            raise RuntimeError('Email login sessions cannot exceed 14 days')
         return cls(**values)
+
+
+def session_idle_seconds():
+    policy = Policy.load()
+    # Email sessions keep a fixed absolute deadline; activity never extends it.
+    return policy.email_session_seconds if os.getenv('PORTAL_EMAIL_LOGIN') == '1' else policy.idle_seconds
 
 
 def enabled():

@@ -32,6 +32,9 @@ def portal_page():
         html = html.replace('id="password" type="password"', 'id="password" type="password" disabled')
         html = html.replace('<button id="login-submit">로그인</button>', '<button id="login-submit">인증번호 받기</button>')
         html = html.replace('id="signup-open" class="secondary" hidden', 'id="signup-open" class="secondary"')
+        html = html.replace('id="email-session-hint" class="hint" hidden', 'id="email-session-hint" class="hint"')
+        html = html.replace('로그인 상태는 이 브라우저에 유지됩니다.',
+                            f'이 브라우저에서 최대 {Policy.load().email_session_seconds / 86400:g}일간 로그인 상태를 유지합니다.')
         html = html.replace('<details><summary>초대 수락</summary>', '<details hidden><summary>초대 수락</summary>')
         html = html.replace('등록된 담당자 이메일로 기기를 확인합니다.', '등록된 담당자는 이메일 인증번호로 로그인합니다.')
         if portal_email.link_delivery():
@@ -169,6 +172,7 @@ def me(request: Request):
             with auth.connect() as auth_conn:
                 registrar = auth_conn.execute('SELECT maeum.registrar_valid(%s) AS ok', (s['token_hash'],)).fetchone()['ok']
         return {"state": s["state"], "csrf": s["csrf"], "organizations": orgs,
+                "email": s["email"], "expires_at": s["expires_at"],
                 "verification": "email_link" if portal_config.cloud() else "code",
                 "account_changes": not portal_config.cloud() and not portal_email.enabled(),
                 "registrar": registrar}

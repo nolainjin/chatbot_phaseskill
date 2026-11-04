@@ -77,7 +77,7 @@ def context(conn, user_id, org_id, permission, session_hash=""):
     conn.execute("SELECT set_config('maeum.user',%s,true),set_config('maeum.org',%s,true)",
                  (user_id, org_id))
     conn.execute("SELECT set_config('maeum.session',%s,true),set_config('maeum.idle_seconds',%s,true)",
-                 (session_hash, str(portal_config.Policy.load().idle_seconds)))
+                 (session_hash, str(portal_config.session_idle_seconds())))
     if not conn.execute("SELECT maeum.permitted(%s,%s) AS ok", (org_id, permission)).fetchone()["ok"]:
         raise HTTPException(403, "기관 권한이 없습니다.")
 

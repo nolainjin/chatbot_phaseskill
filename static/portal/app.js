@@ -37,6 +37,10 @@ async function load() {
   isRegistrar = Boolean(me.registrar);
   $("email-verify").hidden = true; $("signup").hidden = true;
   $("registration-panel").hidden = !me.registrar;
+  $("session-info").hidden = !emailMode || me.state !== "verified";
+  $("session-info").textContent = emailMode && me.state === "verified"
+    ? me.email + " · 이 브라우저에서 " + new Date(me.expires_at * 1000).toLocaleString() + "까지 로그인 유지"
+    : "";
   $("code-form").hidden = me.verification === "email_link";
   $("send-code").textContent = me.verification === "email_link" ? "이메일 확인 링크 받기" : "인증번호 받기";
   for (const id of ["invite-accept", "password-form", "email-form"]) $(id).closest("details").hidden = !me.account_changes;
@@ -194,4 +198,4 @@ load().catch(async e=>{
     catch (_) { /* No pending attempt is the normal logged-out state. */ }
   }
   if(!e.message.includes("로그인"))notice(e.message);
-});
+}).finally(() => { $("session-loading").hidden = true; });

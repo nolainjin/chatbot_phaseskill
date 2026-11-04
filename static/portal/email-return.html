@@ -1,14 +1,15 @@
 <!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>이메일 로그인 확인</title>
-<style>body{font:18px system-ui;max-width:520px;margin:12vh auto;padding:24px;background:#f4f7f4;color:#1c302a}button{display:block;margin-top:24px;padding:14px 24px;font:inherit;background:#285c4d;color:white;border:0;border-radius:10px}p{line-height:1.7}button:focus-visible,a:focus-visible{outline:3px solid #d87910;outline-offset:3px}</style>
-<h1>이메일 로그인 확인</h1><p>로그인을 시작한 브라우저에서 아래 버튼을 눌러 주세요. 이 링크는 10분 동안 한 번만 사용할 수 있습니다.</p>
-<button id="confirm">확인하고 로그인</button><p id="result" role="status"></p><a href="/portal">로그인으로 돌아가기</a>
+<style>body{font:18px system-ui;max-width:520px;margin:12vh auto;padding:24px;background:#f4f7f4;color:#1c302a}button{display:block;margin-top:24px;padding:14px 24px;font:inherit;background:#285c4d;color:white;border:0;border-radius:10px}p{line-height:1.7}[hidden]{display:none!important}button:focus-visible,a:focus-visible{outline:3px solid #d87910;outline-offset:3px}</style>
+<h1>이메일 로그인</h1><p>로그인을 시작한 브라우저인지 확인한 뒤 바로 연결합니다. 이 링크는 10분 동안 한 번만 사용할 수 있습니다.</p>
+<button id="confirm" hidden>로그인 다시 시도</button><p id="result" role="status" aria-live="polite">이메일을 확인하고 있습니다.</p><a href="/portal">포털로 이동</a>
 <script>
 'use strict';
 const params = new URLSearchParams(location.search);
 const code = params.get('code'), state = params.get('state');
 history.replaceState(null, '', '/portal/email-return');
-document.getElementById('confirm').onclick = async function () {
- this.disabled = true;
+const confirmButton = document.getElementById('confirm');
+async function completeLogin() {
+ confirmButton.disabled = true;
  const result = document.getElementById('result');
  try {
   if (!code || !state) throw new Error('올바른 이메일 링크를 다시 열어 주세요.');
@@ -19,6 +20,12 @@ document.getElementById('confirm').onclick = async function () {
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || '이메일 확인에 실패했습니다.');
   location.replace('/portal');
- } catch (e) { result.textContent = e.message; this.disabled = false; }
-};
+ } catch (e) {
+  result.textContent = e.message;
+  confirmButton.hidden = false;
+  confirmButton.disabled = false;
+ }
+}
+confirmButton.onclick = completeLogin;
+completeLogin();
 </script></html>

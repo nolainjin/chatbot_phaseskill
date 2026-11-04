@@ -108,6 +108,89 @@ def test_email_registration_is_pending_until_owner_assigns_org(email_env):
     assert post(applicant, '/registrations/reject', {'email': 'a0@example.test'}).status_code == 403
 
 
+def test_email_session_persists_for_14_days_without_sliding(email_env):
+    c = client()
+    email_start(c)
+    response = post(c, '/auth/email-login-verify', {'code': latest_mail(purpose='login')['code']})
+    assert response.status_code == 200
+    for name in [auth.SESSION, auth.NONCE]:
+        header = next(v for v in response.headers.get_list('set-cookie') if v.startswith(name + '='))
+        assert 'Max-Age=1209600' in header and 'HttpOnly' in header and 'SameSite=strict' in header
+    session_hash = store.digest(c.cookies.get(auth.SESSION))
+    with owner() as conn:
+        created, expiry, device_expiry = conn.execute(
+            'SELECT s.created_at,s.expires_at,d.expires_at FROM maeum.portal_sessions s '
+            'JOIN maeum.trusted_devices d ON d.id=s.device_id WHERE s.token_hash=%s', (session_hash,)).fetchone()
+        assert expiry - created == pytest.approx(14 * 86400)
+        assert device_expiry == pytest.approx(expiry, abs=2, rel=0)
+        # Simulate 13 days of inactivity while the fixed 14-day window remains open.
+        old = time.time() - 13 * 86400
+        expiry = time.time() + 86400
+        conn.execute('UPDATE maeum.portal_sessions SET created_at=%s,seen_at=%s,expires_at=%s WHERE token_hash=%s',
+                     (old, old, expiry, session_hash))
+        conn.execute('UPDATE maeum.trusted_devices SET expires_at=%s', (expiry,))
+    # A fresh HTTP client restoring the browser's persistent cookies needs no new email.
+    restored = client()
+    restored.cookies.update(c.cookies)
+    with store.connect() as conn:
+        store.context(conn, 'A0', 'A', 'report:read', session_hash)
+        assert conn.execute("SELECT maeum.permitted('A','report:read') AS ok").fetchone()['ok']
+    result = restored.get('/api/portal/me')
+    assert result.status_code == 200 and result.json()['expires_at'] == expiry
+    assert restored.get('/api/portal/intakes?org_id=A').status_code == 200
+    assert restored.get('/api/portal/intakes?org_id=B').status_code == 403
+    assert restored.get('/api/portal/registrations').status_code == 200
+    assert len(list(Path(os.environ['PORTAL_MAIL_DIR']).glob('*.json'))) == 1
+    with owner() as conn:
+        assert conn.execute('SELECT expires_at FROM maeum.portal_sessions WHERE token_hash=%s', (session_hash,)).fetchone()[0] == expiry
+    assert client().get('/api/portal/me').status_code == 401
+    missing_nonce = client()
+    missing_nonce.cookies.set(auth.SESSION, c.cookies.get(auth.SESSION))
+    assert missing_nonce.get('/api/portal/me').status_code == 401
+
+
+def test_email_session_absolute_14_day_expiry_requires_email_again(email_env):
+    c = client()
+    email_enter(c)
+    with owner() as conn:
+        conn.execute('UPDATE maeum.portal_sessions SET created_at=%s,expires_at=%s,seen_at=%s',
+                     (time.time() - 14 * 86400 - 1, time.time() - 1, time.time()))
+    assert c.get('/api/portal/me').status_code == 401
+    assert c.get('/api/portal/intakes?org_id=A').status_code == 401
+    with store.connect() as conn:
+        with pytest.raises(auth.HTTPException) as error:
+            store.context(conn, 'A0', 'A', 'report:read', store.digest(c.cookies.get(auth.SESSION)))
+        assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize('change', ['logout', 'device', 'user', 'version', 'membership', 'registrar'])
+def test_email_persistent_session_still_respects_revocation(email_env, change):
+    c = client()
+    email_enter(c)
+    if change == 'logout':
+        assert post(c, '/auth/logout').status_code == 200
+    elif change == 'device':
+        device = c.get('/api/portal/devices').json()[0]['id']
+        assert post(c, '/devices/' + device, method='DELETE').status_code == 200
+    else:
+        with owner() as conn:
+            statements = {'user': "UPDATE maeum.portal_users SET active=false WHERE id='A0'",
+                          'version': "UPDATE maeum.portal_users SET auth_version=auth_version+1 WHERE id='A0'",
+                          'membership': "UPDATE maeum.memberships SET active=false WHERE user_id='A0'",
+                          'registrar': "UPDATE maeum.portal_users SET is_registrar=false WHERE id='A0'"}
+            conn.execute(statements[change])
+    # Organization membership and the global registrar role are independent grants.
+    assert c.get('/api/portal/intakes?org_id=A').status_code in ({200} if change == 'registrar' else {401, 403})
+    assert c.get('/api/portal/registrations').status_code in ({200} if change == 'membership' else {401, 403})
+
+
+def test_email_session_policy_caps_at_two_weeks(email_env, monkeypatch):
+    from app.portal_config import Policy
+    monkeypatch.setenv('PORTAL_EMAIL_SESSION_SECONDS', str(14 * 86400 + 1))
+    with pytest.raises(RuntimeError, match='cannot exceed 14 days'):
+        Policy.load()
+
+
 def c_has_user(env, email):
     with psycopg.connect(env['MAEUM_DATABASE_URL']) as conn:
         return conn.execute('SELECT 1 FROM maeum.portal_users WHERE email=%s', (email,)).fetchone() is not None

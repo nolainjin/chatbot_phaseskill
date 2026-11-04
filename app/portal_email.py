@@ -180,16 +180,17 @@ def verify(request, response, payload, *, link=False):
                 conn.execute('UPDATE maeum.portal_sessions SET revoked=true WHERE token_hash=%s', (digest(request.cookies.get(auth.SESSION, '')),))
                 device_id, device_token, nonce = str(uuid4()), secrets.token_urlsafe(32), secrets.token_urlsafe(32)
                 conn.execute('INSERT INTO maeum.trusted_devices VALUES(%s,%s,%s,%s,false,%s)',
-                             (device_id, user['id'], digest(device_token), now + policy.session_seconds, now))
-                token, csrf = auth.new_session(conn, user, nonce, 'verified', device_id)
+                             (device_id, user['id'], digest(device_token), now + policy.email_session_seconds, now))
+                token, csrf = auth.new_session(conn, user, nonce, 'verified', device_id,
+                                               lifetime=policy.email_session_seconds)
                 success = True
             else:
                 conn.execute('UPDATE maeum.email_login_attempts SET consumed=(attempts >= %s) WHERE token_hash=%s',
                              (policy.code_attempts, row['token_hash']))
     if not success:
         raise HTTPException(400, '이메일 인증이 올바르지 않거나 만료되었습니다. 등록된 이메일로 다시 시작해 주세요.')
-    auth.cookie(response, auth.SESSION, token, policy.session_seconds)
-    auth.cookie(response, auth.NONCE, nonce, policy.session_seconds)
+    auth.cookie(response, auth.SESSION, token, policy.email_session_seconds)
+    auth.cookie(response, auth.NONCE, nonce, policy.email_session_seconds)
     for name in [ATTEMPT, BROWSER, auth.DEVICE]:
         response.delete_cookie(name, path='/')
     return {'state': 'verified', 'csrf': csrf}
@@ -215,7 +216,7 @@ def registrar(conn, request):
     row = auth.session(conn, request)
     if request.method != 'GET':
         auth.csrf(request, row)
-    conn.execute("SELECT set_config('maeum.idle_seconds',%s,true)", (str(Policy.load().idle_seconds),))
+    conn.execute("SELECT set_config('maeum.idle_seconds',%s,true)", (str(portal_config.session_idle_seconds()),))
     if not conn.execute('SELECT maeum.registrar_valid(%s) AS ok', (row['token_hash'],)).fetchone()['ok']:
         raise HTTPException(403, '이메일 등록 관리자만 이용할 수 있습니다.')
     return row

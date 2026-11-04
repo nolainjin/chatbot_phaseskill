@@ -15,7 +15,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
 
-from app.portal_config import Policy, cloud
+from app.portal_config import Policy, cloud, session_idle_seconds
 from app.portal_store import connect as database_connect, digest
 
 
@@ -67,7 +67,7 @@ def session(conn, request, *, verified=True):
                        "WHERE s.token_hash=%s FOR UPDATE OF s", (digest(token),)).fetchone()
     now = time.time()
     if (not row or row["revoked"] or not row["active"] or row["auth_version"] != row["current_version"]
-            or row["expires_at"] <= now or row["seen_at"] + Policy.load().idle_seconds <= now
+            or row["expires_at"] <= now or row["seen_at"] + session_idle_seconds() <= now
             or row["nonce_hash"] != digest(request.cookies.get(NONCE, ""))):
         raise HTTPException(401, "다시 로그인해 주세요.")
     if row["device_id"]:
@@ -104,11 +104,11 @@ def limit(key, count=20, seconds=3600):
         raise HTTPException(429, "잠시 후 다시 시도해 주세요.")
 
 
-def new_session(conn, user, nonce, state, device_id=None):
+def new_session(conn, user, nonce, state, device_id=None, *, lifetime=None):
     now, policy = time.time(), Policy.load()
     token, csrf_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     conn.execute("INSERT INTO maeum.portal_sessions(token_hash,user_id,auth_version,state,device_id,nonce_hash,csrf,created_at,seen_at,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                 (digest(token), user["id"], user["auth_version"], state, device_id, digest(nonce), csrf_token, now, now, now + policy.session_seconds))
+                 (digest(token), user["id"], user["auth_version"], state, device_id, digest(nonce), csrf_token, now, now, now + (lifetime if lifetime is not None else policy.session_seconds)))
     return token, csrf_token
 
 
