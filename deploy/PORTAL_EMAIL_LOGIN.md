@@ -145,3 +145,9 @@
 - 새 실제 메일 검사는 이전 시험의 이메일/프로젝트 발송 예산에 막혔다. 기존 한도를 수정하거나 초기화하지 않았다.
   2026-11-04 14:31 KST 읽기 전용 확인 기준 재시도 가능 시각은 14:55:30 KST.
   공개 새 링크 성공·14일 쿠키·재접속의 실메일 재검증은 이번 기록에서 미완료이며, 로컬/공급자 모사 결과와 구분한다.
+- runtime commit `145f997d6d1bdcdf9ef599031a96f49e12e56c41`, 최종 공개 배포
+  `dpl_C9UCB57dZysEZ8Bt13wQn9qgQkbF` READY. 최종 HTTP 검사: health200/postgres,
+  portal200/14일 안내, 미인증 me401/쿠키 미설정, JS 로컬 바이트 일치, 모두 no-store.
+- [검증 JSON](evidence/portal-persistent-session-20261104.json),
+  [로컬 로그인 유지 화면](evidence/portal-persistent-session-local-mobile.png),
+  [공개 로그인 화면](evidence/portal-persistent-session-live-login.png). 두 화면 직접 확인, 390px 가로 넘침 없음.

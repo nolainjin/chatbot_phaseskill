@@ -1,0 +1,72 @@
+{
+  "date": "2026-11-04",
+  "runtimeCommit": "145f997d6d1bdcdf9ef599031a96f49e12e56c41",
+  "deployment": "dpl_C9UCB57dZysEZ8Bt13wQn9qgQkbF",
+  "origin": "https://project-4nww4.vercel.app",
+  "policy": {
+    "emailSessionSeconds": 1209600,
+    "absoluteDeadlineFromOriginalLogin": true,
+    "activityExtendsDeadline": false,
+    "existingLiveShortSessionUpgraded": true,
+    "expiredOrRevokedSessionRevived": false,
+    "ipChangeRequiresLogin": false,
+    "callbackAutoExchange": true
+  },
+  "regression": {"passed": 710, "skipped": 79, "seconds": 24.95},
+  "isolatedPostgres": {
+    "passed": 79,
+    "seconds": 24.85,
+    "originalDataHashesUnchanged": true,
+    "providerRequests": "HTTP stubs; no real email delivery",
+    "checks": [
+      "persistent cookies and restored browser state after 13 days of inactivity",
+      "fixed deadline does not slide after use",
+      "absolute 14-day expiry including direct report-role RLS",
+      "fresh client and missing nonce rejected",
+      "logout, device, account, auth-version and permission revocation",
+      "existing active 8-hour login upgraded from its original login time",
+      "expired old session not revived",
+      "session policy rejects more than 14 days"
+    ]
+  },
+  "localBrowser": {
+    "initialEmailCodeLogin": true,
+    "sessionAndNonceCookieRemainingDays": 14,
+    "httpOnly": true,
+    "sameSite": "Strict",
+    "closeTabAndReopenWithoutNewEmail": true,
+    "mobileViewport": 390,
+    "documentWidth": 390,
+    "screenshot": "portal-persistent-session-local-mobile.png",
+    "visuallyInspected": true
+  },
+  "publicChecks": {
+    "productionReady": true,
+    "health": {"status": 200, "storage": "postgres"},
+    "portalStatus": 200,
+    "fourteenDayHintVisible": true,
+    "unauthenticatedMeStatus": 401,
+    "unauthenticatedMeSetsCookie": false,
+    "portalJsMatchesLocalBytes": true,
+    "noStore": true,
+    "invalidCallbackAutomaticallyRejected": true,
+    "callbackQueryRemoved": true,
+    "mobileViewport": 390,
+    "documentWidth": 390,
+    "screenshot": "portal-persistent-session-live-login.png",
+    "visuallyInspected": true
+  },
+  "freshPublicEmailLogin": {
+    "status": "not_verified_rate_limited",
+    "checkedAt": "2026-11-04T14:31:29+09:00",
+    "existingEmailAndProjectBudgetActiveAttempts": 2,
+    "retryAfter": "2026-11-04T14:55:30+09:00",
+    "limitsResetOrBypassed": false,
+    "gmailConnector": "requires reauthentication; existing browser used for narrow sender search only"
+  },
+  "limitations": [
+    "New real-email callback success and public 14-day cookie persistence were not reverified in this change",
+    "Local and provider-stub checks are distinct from a public authenticated test",
+    "Default SMTP still supports only the designated Owner Gmail recipient"
+  ]
+}
