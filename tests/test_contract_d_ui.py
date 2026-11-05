@@ -53,7 +53,7 @@ if (spec.scenario === 'pending-chat-reload') {
   session.setItem('lmwiki_pending_chat_request', JSON.stringify({request_id: 'retry-id-123', message: '보존된 재시도 원문', session_id: 'old-session'}));
 }
 let href = 'http://test.local/';
-if (['link', 'retryable', 'mode-only'].includes(spec.scenario)) href += '?keep=yes&management_id=2026-003&link_ticket=v1.synthetic#anchor';
+if (['link', 'retryable', 'mode-only', 'closing-recovery', 'background-response', 'institution-notice', 'institution-missing-link', 'institution-server-error'].includes(spec.scenario)) href += '?keep=yes&management_id=2026-003&link_ticket=v1.synthetic#anchor';
 if (spec.scenario === 'invalid-link') href += '?management_id=2026-003';
 const closingResponses = [
   {reply: '마지막으로 센터에 미리 전하고 싶은 것이 있으면 골라 주세요. 없으면 바로 보내도 돼요.',
@@ -65,31 +65,41 @@ const closingResponses = [
   {reply: '센터에 전달했어요. 센터에서 확인한 뒤 연락드릴 거예요. 109 · 1588-9191 · 119 · 삭제 코드',
     turn: 10, conversation_ended: true, handoff: {mode: 'center', sent: true}}
 ];
-const config = {mode: 'intake', intake_schema: true, ui: {}, slot_labels: {cause: '원인·계기', chief_complaint: '주 호소'},
+const config = {mode: 'intake', intake_schema: true, institution_link_required: spec.scenario.startsWith('institution-'), ui: {}, slot_labels: {cause: '원인·계기', chief_complaint: '주 호소'},
   consent_required: spec.mode === 'chat', privacy: {consent_version: 'v1', body: '합성 개인정보 고지'}};
-let chatRequestCount = 0;
+let chatRequestCount = 0, uuidCount = 0;
 const context = {
   document: {getElementById: node, querySelector: node, querySelectorAll() {return [];},
     createElement(tag) {return new Element(tag);}, body: new Element('body'),
     createTextNode(text) {const n = new Element(); n.textContent = text; return n;}},
   window: {location: {get href() {return href;}}, history: {replaceState(_state, _title, url) {
     replaced.push(url); href = new URL(url, href).href;
-  }}, matchMedia() {return {matches: true};}, setTimeout(f) {f();}},
+  }}, matchMedia() {return {matches: spec.scenario !== 'background-response'};}, setTimeout(f) {
+    assert.notEqual(spec.scenario, 'background-response', 'response must not wait on background timers'); f();}},
   navigator: {clipboard: {writeText(text) {copies.push(text); return Promise.resolve();}}},
   localStorage: local, sessionStorage: session, URL, URLSearchParams,
-  crypto: {randomUUID() {return 'new-session';}}, console: {warn() {}},
+  crypto: {randomUUID() {return 'synthetic-' + (++uuidCount);}}, console: {warn() {}},
   fetch(url, options) {
     const payload = options && JSON.parse(options.body);
     requests.push({url, payload});
-    let ok = true, data;
+    let ok = true, status = 200, data;
     if (url === '/api/config') data = config;
+    else if (url === '/api/intake-link/exchange') {
+      ok = !['institution-missing-link', 'institution-server-error'].includes(spec.scenario);
+      status = spec.scenario === 'institution-missing-link' ? 410 : spec.scenario === 'institution-server-error' ? 500 : 200;
+      data = ok ? {organization: '합성 기관', purpose: '합성 접수'} : {detail: '합성 오류'};
+    }
     else if (url === '/api/consent') {
       ok = spec.scenario !== 'invalid-link';
       data = ok ? {accepted: true, participant_id: '2026-003', participant_ticket: 'v1.verified', session_token: 'new-token',
         delete_code: 'AAAA-BBBB-CCCC', reply: '첫 질문'} : {detail: '링크가 올바르지 않아요. 센터에 다시 요청해 주세요. 109 · 119'};
     } else if (url === '/api/chat') {
       chatRequestCount += 1;
-      data = spec.scenario === 'retryable' && chatRequestCount === 1
+      data = spec.scenario === 'closing-recovery' && chatRequestCount <= 3
+        ? {reply: '수정 내용을 분석하지 못했어요.', turn: 1, processing_status: 'retryable', retryable: true,
+          closing: {stage: 'confirm', draft: {text: '기존 시간'}},
+          quick_replies: [{label: '이 수정 취소하고 이전 내용 확인', message: '수정 취소', action: 'cancel_revision'}]}
+        : spec.scenario === 'retryable' && chatRequestCount === 1
         ? {reply: '처리 결과를 확인하지 못했어요.', turn: 1, processing_status: 'retryable', retryable: true}
         : spec.scenario === 'mode-only' && chatRequestCount === 1
           ? {reply: '아직 센터에 보내지 않았어요.', turn: 1, processing_status: 'completed', handoff: {mode: 'center', sent: false}}
@@ -100,7 +110,7 @@ const context = {
     else if (String(url).startsWith('/api/stats/session?')) data = {turns: [{role: 'user', text: '<script>원문</script>'}],
       summary: {slots: {cause: '모르겠어요'}, center_requests: [{label: '센터에 묻고 싶은 것', text: '<img src=x>주차 가능한가요?'}]}};
     else throw Error('unexpected fetch: ' + url);
-    return Promise.resolve({ok, json() {return Promise.resolve(data);}});
+    return Promise.resolve({ok, status, json() {return Promise.resolve(data);}});
   }
 };
 const tick = async () => {for (let i=0; i<12; i++) await new Promise(setImmediate);};
@@ -124,6 +134,17 @@ const walk = el => [el, ...el.children.flatMap(walk)];
     ['접수 요약표', '원인·계기', '모르겠어요', '센터에 묻고 싶은 것', '<img src=x>주차 가능한가요?', '<script>원문</script>'].forEach(value => assert.ok(detail.includes(value)));
     return;
   }
+  if (['institution-missing-link', 'institution-server-error'].includes(spec.scenario)) {
+    assert.equal(node('message-input').disabled, true);
+    assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
+    assert.equal(node('messages').children.length, 0);
+    assert.equal(requests.some(r => ['/api/consent', '/api/chat'].includes(r.url)), false);
+    const text = node('status').textContent;
+    assert.equal(text.includes('개별 접수 링크'), spec.scenario === 'institution-missing-link');
+    assert.equal(text.includes('새로고침'), spec.scenario === 'institution-server-error');
+    if (spec.scenario === 'institution-missing-link') assert.equal(node('delivery-status').textContent, '접수 링크 확인 필요');
+    return;
+  }
   if (spec.scenario === 'pending-chat-reload') {
     assert.equal(node('message-input').value, '보존된 재시도 원문');
     assert.equal(node('chips').hidden, true);
@@ -131,6 +152,8 @@ const walk = el => [el, ...el.children.flatMap(walk)];
     return;
   }
   assert.equal(node('message-input').disabled, true);
+  assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
+  assert.equal(node('institution-access-notice').hidden, spec.scenario !== 'institution-notice');
   if (spec.scenario !== 'pending-reload') {
     assert.equal(new URL(href).searchParams.has('management_id'), false);
     assert.equal(new URL(href).searchParams.has('link_ticket'), false);
@@ -148,9 +171,30 @@ const walk = el => [el, ...el.children.flatMap(walk)];
     return;
   }
   assert.equal(node('message-input').disabled, false);
+  assert.equal(context.document.body.getAttribute('data-input-ready'), 'true');
+  assert.ok(!node('delivery-help').textContent.includes('동의 후'));
   assert.equal(local.getItem('lmwiki_participant_id'), '2026-003');
   assert.equal(session.getItem('lmwiki_pending_intake_link'), null);
   assert.equal(node('delete-code-value').textContent, 'AAAA-BBBB-CCCC');
+  if (spec.scenario === 'closing-recovery') {
+    node('message-input').value = '시간을 목요일로 정정해 주세요';
+    node('chat-form').fire('submit'); await tick();
+    assert.equal(node('delivery-status').textContent, '처리 다시 시도 필요');
+    node('retry-button').fire('click'); await tick();
+    const matching = walk(node('messages')).filter(el => el.className === 'message message-assistant' && el.textContent === '수정 내용을 분석하지 못했어요.');
+    assert.equal(matching.length, 1, 'retry must not append the same transient error again');
+    node('message-input').value = '시간을 금요일 오전으로 정정해 주세요';
+    node('message-input').fire('input');
+    node('chat-form').fire('submit'); await tick();
+    assert.ok(node('messages').children.at(-2).textContent.includes('금요일 오전'), 'new failure follows the newly edited input');
+    const cancel = walk(node('contextual-replies')).find(el => el.tag === 'button' && el.textContent.includes('수정 취소'));
+    assert.ok(cancel, 'server-provided recovery action must remain available');
+    cancel.fire('click'); await tick();
+    assert.equal(requests.filter(r => r.url === '/api/chat').at(-1).payload.message, '수정 취소');
+    assert.equal(node('retry-button').hidden, true);
+    assert.equal(node('delivery-status').textContent, '접수 완료 전 확인');
+    return;
+  }
   if (spec.scenario === 'retryable') {
     node('message-input').value = '합성 재시도 원문';
     node('chat-form').fire('submit'); await tick();
@@ -188,7 +232,7 @@ const walk = el => [el, ...el.children.flatMap(walk)];
 """
 
 
-@pytest.mark.parametrize("scenario", ["link", "pending-reload", "pending-chat-reload", "invalid-link", "retryable", "mode-only", "stats"])
+@pytest.mark.parametrize("scenario", ["link", "pending-reload", "pending-chat-reload", "invalid-link", "retryable", "mode-only", "closing-recovery", "background-response", "institution-notice", "institution-missing-link", "institution-server-error", "stats"])
 def test_actual_client_scripts_without_network(scenario):
     mode = "stats" if scenario == "stats" else "chat"
     result = subprocess.run(["node", "-e", BROWSER], input=json.dumps({

@@ -1945,3 +1945,11 @@ details[open] > .privacy-summary::after {
 .handoff-institution h3 { display: inline; margin-right: .6rem; font-size: 1rem; }
 .handoff-badge { display: inline-block; padding: .15rem .4rem; border-radius: .4rem; background: #dcefe6; font-size: .8rem; }
 .handoff-institution a { color: #235e49; text-decoration: underline; }
+
+/* Consent owns its full reading width; the disclosure icon indent is unrelated. */
+#consent-notice { padding: 0; margin: 0 0 1rem; line-height: 1.75; overflow-wrap: anywhere; }
+body[data-input-ready="false"] .composer { display: none; }
+@media (max-width: 520px) {
+  .consent-actions { flex-direction: column; }
+  .consent-actions button { width: 100%; }
+}

@@ -398,18 +398,21 @@ def _center_closing_safe(session: ChatSession, schema: intake.Schema) -> bool:
 
 def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple[str, list[dict]]:
     closing = schema.closing
+    completion_notice = (
+        "보낸 대화는 저장되어 기관 담당자가 진행 중인 접수로 확인할 수 있어요. "
+        f"‘{closing['send_label']}’를 누르면 접수 완료로 등록돼요."
+    )
     if session.closing_draft is not None:
         draft = session.closing_draft
         if draft.get("no_additional"):
             return ("추가로 반영할 내용은 없는 것으로 확인할게요. "
-                    f"‘{closing['send_label']}’를 눌러야 센터에 전달됩니다."), [
+                    + completion_notice), [
                 {"label": "내용 추가", "message": "내용 추가", "action": "add"},
                 {"label": closing["send_label"], "message": closing["send_label"], "action": "send"},
             ]
         lines = [f"· {item['label']}: {item['text']}" for item in draft.get("items", [draft])]
         reply = ("다음 내용으로 반영할게요.\n" + "\n".join(lines) + "\n"
-                 f"수정하거나 더 추가할 수 있어요. ‘{closing['send_label']}’ 전에는 "
-                 "센터로 전달되지 않아요.")
+                 "수정하거나 더 추가할 수 있어요. " + completion_notice)
         return reply, [
             {"label": "수정할게요", "message": "수정할게요", "action": "revise"},
             {"label": "내용 추가", "message": "내용 추가", "action": "add"},
@@ -421,6 +424,7 @@ def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple
     else:
         reply = closing["question"]
         choices = [{"label": label, "message": label} for label in closing["options"]]
+    reply += "\n" + completion_notice
     choices.append({"label": closing["send_label"], "message": closing["send_label"], "action": "send"})
     return reply, choices
 
@@ -669,7 +673,9 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                     message, settings, current_draft_items=old.get("items", [old]),
                     current_slots=session.slots, recent_history=session.history,
                 )
-            except (RuntimeError, ValueError, llm.ModelOutputTooLarge):
+            except (RuntimeError, ValueError, llm.ModelOutputTooLarge) as exc:
+                logger.warning("Closing analysis failed: %s",
+                               str(exc) if isinstance(exc, closing.AnalysisError) else type(exc).__name__)
                 analysis = None
             if analysis is None:
                 source = _save_retryable_center_input(session, participant_id, message)
@@ -680,6 +686,8 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                         "processing_status": "retryable", "retryable": True,
                         "closing": {"stage": "confirm", "remaining": None, "delivery_status": "not_sent",
                                     "draft": old},
+                        "quick_replies": [{"label": "이 수정 취소하고 이전 내용 확인",
+                                           "message": "수정 취소", "action": "cancel_revision"}],
                         "intake": _intake_state(schema, session.slots,
                                                 schema.unfilled_by_priority(session.slots, ()))}
             if analysis["needs_clarification"]:
@@ -727,7 +735,9 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
         elif message.strip():
             try:
                 analysis = closing.analyze(message, settings)
-            except (RuntimeError, ValueError, llm.ModelOutputTooLarge):
+            except (RuntimeError, ValueError, llm.ModelOutputTooLarge) as exc:
+                logger.warning("Closing analysis failed: %s",
+                               str(exc) if isinstance(exc, closing.AnalysisError) else type(exc).__name__)
                 source = _save_retryable_center_input(session, participant_id, message)
                 session.closing_analysis_pending = {"message": message, "source": source,
                                                     "request_id": session.current_request_id}
@@ -736,6 +746,8 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                         "processing_status": "retryable", "retryable": True,
                         "closing": {"stage": "answer", "remaining": None,
                                     "delivery_status": "not_sent"},
+                        "quick_replies": [{"label": "이 추가 내용 취소하고 돌아가기",
+                                           "message": "수정 취소", "action": "cancel_revision"}],
                         "intake": _intake_state(schema, session.slots,
                                                 schema.unfilled_by_priority(session.slots, ()))}
             if analysis["needs_clarification"]:
@@ -1440,7 +1452,11 @@ def handle_message(
             return _retryable_model_result(
                 session, schema, effective_participant_id, message)
     if not output_safe:
-        reply = _build_guardrail_reply(schema, unfilled)
+        # This is a failure to validate our generated answer, not a rejected
+        # user request. Keep the input recoverable without blaming the user or
+        # treating an unparsed answer as successful intake progress.
+        return _retryable_model_result(
+            session, schema, effective_participant_id, message)
     if schema is not None and settings.model == "fake":
         reply = _build_fake_intake_reply(schema, new_fills, unfilled, session.turns)
         reply += _fake_progress_suffix(schema, new_fills, unfilled)

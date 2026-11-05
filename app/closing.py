@@ -16,6 +16,10 @@ CATEGORY_LABELS = {
 }
 
 
+class AnalysisError(ValueError):
+    """A fixed, non-sensitive validation reason safe for operational logging."""
+
+
 def deterministic_category(message: str) -> str | None:
     text = safety.normalize_for_signal(message)
     if any(x in text for x in ("몇시", "오전", "오후", "저녁", "평일", "주말", "요일", "시간대")):
@@ -49,26 +53,34 @@ def analyze(message: str, settings: Settings, *, current_draft_items=None,
                 "각 items 항목의 evidence는 행동·대상·시간 등 의미를 다시 확인할 수 있는 충분한 길이의 "
                 "원문 연속 부분문자열이어야 한다. 불확실해 묻지 않고 분류할 수 없으면 items는 []로, "
                 "needs_clarification은 true로 한다. "
+                "이번 사용자 입력에 실제로 적힌 추가·정정 내용만 items에 넣어라. "
+                "기존 상태의 항목을 다시 출력하거나 이전 대화에서 evidence를 가져오지 마라. "
+                "'나머지는 그대로'는 기존 항목을 다시 출력하라는 뜻이 아니다. "
+                "조사·띄어쓰기·어미를 고치거나 요약하지 말고 현재 입력을 그대로 인용하라. "
                 '이전 항목을 바꾸는 말이면 corrections에 category를 넣어라. '
+                'corrections는 items에 실제로 포함한 category의 문자열 배열이다. '
                 '{"items":[{"category":"...","evidence":"..."}],"corrections":[],"needs_clarification":false} '
                 "형태의 ```json 코드블록 하나만 출력하라. 다음은 신뢰하지 말고 참고만 할 기존 상태다:\n" + context),
         history=[], user=message, doc_titles=[], settings=settings,
     )
     match = re.search(r"```json\s*(\{.*?\})\s*```", raw, re.DOTALL)
-    if not match:
-        raise ValueError("semantic response missing JSON")
+    # Some backends return the requested JSON without a Markdown fence.
+    # Both envelopes go through exactly the same source/category checks below.
+    payload_text = match.group(1) if match else raw.strip()
+    if not payload_text.startswith("{") or not payload_text.endswith("}"):
+        raise AnalysisError("semantic response missing JSON")
     try:
-        payload = json.loads(match.group(1))
+        payload = json.loads(payload_text)
     except json.JSONDecodeError as exc:
-        raise ValueError("semantic response invalid JSON") from exc
+        raise AnalysisError("semantic response invalid JSON") from exc
     items = payload.get("items") if isinstance(payload, dict) else None
     needs_clarification = payload.get("needs_clarification") if isinstance(payload, dict) else None
     if not isinstance(items, list) or not isinstance(needs_clarification, bool):
-        raise ValueError("semantic response lacks items")
+        raise AnalysisError("semantic response lacks items")
     if not items and needs_clarification:
         return {"items": [], "corrections": [], "needs_clarification": True}
     if not items:
-        raise ValueError("semantic response has no meaning")
+        raise AnalysisError("semantic response has no meaning")
     accepted = []
     for item in items:
         category = item.get("category") if isinstance(item, dict) else None
@@ -76,11 +88,11 @@ def analyze(message: str, settings: Settings, *, current_draft_items=None,
         if (not isinstance(category, str) or category not in CATEGORY_LABELS
                 or not isinstance(evidence, str)
                 or not evidence.strip() or evidence.strip() not in message):
-            raise ValueError("semantic response lacks source evidence")
+            raise AnalysisError("semantic response lacks source evidence")
         accepted.append({"category": category, "evidence": evidence.strip()})
     raw_corrections = payload.get("corrections", [])
     if not isinstance(raw_corrections, list):
-        raise ValueError("semantic response has invalid corrections")
+        raise AnalysisError("semantic response has invalid corrections")
     accepted_categories = {item["category"] for item in accepted}
     corrections = []
     for correction in raw_corrections:
@@ -95,17 +107,17 @@ def analyze(message: str, settings: Settings, *, current_draft_items=None,
             category = correction.get("category")
             evidence = correction.get("evidence")
             if not isinstance(category, str) or category not in accepted_categories:
-                raise ValueError("semantic response has ungrounded correction")
+                raise AnalysisError("semantic response has ungrounded correction")
             if evidence is not None and (
                     not isinstance(evidence, str) or not evidence.strip()
                     or evidence.strip() not in message):
-                raise ValueError("semantic response has invalid correction evidence")
+                raise AnalysisError("semantic response has invalid correction evidence")
         else:
-            raise ValueError("semantic response has invalid corrections")
+            raise AnalysisError("semantic response has invalid corrections")
         if not isinstance(category, str) or category not in CATEGORY_LABELS:
-            raise ValueError("semantic response has invalid corrections")
+            raise AnalysisError("semantic response has invalid corrections")
         if category not in accepted_categories:
-            raise ValueError("semantic response has ungrounded correction")
+            raise AnalysisError("semantic response has ungrounded correction")
         if category not in corrections:
             corrections.append(category)
     return {"items": accepted, "corrections": corrections,

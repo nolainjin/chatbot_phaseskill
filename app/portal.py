@@ -303,6 +303,17 @@ def testbed(request: Request, payload: dict = Body(...)):
     # The registrar role never grants access to an institution by itself.
     with auth.connect() as conn:
         portal_email.registrar(conn, request)
+    return _issue_testbed_link(request, payload)
+
+
+@router.post('/api/portal/institutions/testbed')
+def institution_testbed(request: Request, payload: dict = Body(...)):
+    # Institution staff already authorized to issue links may create synthetic
+    # links; this does not confer global registration/organization privileges.
+    return _issue_testbed_link(request, payload)
+
+
+def _issue_testbed_link(request: Request, payload: dict):
     org_id = payload.get('org_id')
     if not isinstance(org_id, str) or not org_id or len(org_id) > 128:
         raise HTTPException(400, '테스트할 소속 기관을 선택해 주세요.')

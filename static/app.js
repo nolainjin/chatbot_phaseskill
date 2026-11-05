@@ -153,6 +153,7 @@
   var requestPending = false;
   var configReady = false;
   var consentRequired = false;
+  var institutionAccess = false;
   var consentGranted = false;
   var privacy = null;
   var consentCardEl = document.getElementById("consent-card");
@@ -164,21 +165,25 @@
   var declineEl = document.getElementById("consent-decline");
   var handoffCardEl = null;
   var pendingRequest = null;
+  var retryMessage = null;
+  var retryMessageRequestId = null;
 
   function setDeliveryState(state, help) {
     if (state === "completed") state = "saved";
     var states = {
-      ready: ["작성 준비", "동의 후 편하게 입력해 주세요. 아직 저장된 내용은 없습니다."],
-      saved: ["저장됨", "입력 내용이 접수 기록에 저장되었습니다. 아직 센터 전달 전입니다."],
+      ready: ["작성 준비", consentGranted ? "편하게 입력해 주세요. 아직 저장된 내용은 없습니다." : "동의 후 편하게 입력해 주세요. 아직 저장된 내용은 없습니다."],
+      link_required: ["접수 링크 확인 필요", "센터에서 받은 개별 접수 링크로 열어 주세요."],
+      draft: ["작성 중 · 임시 보관", "작성 중인 내용은 이 탭에만 임시 보관됩니다. 전송 버튼을 눌러야 접수 기록에 저장됩니다."],
+      saved: ["저장됨", institutionAccess ? "보낸 대화는 접수 중에도 소속 센터의 권한 있는 담당자가 확인할 수 있어요." : "보낸 대화가 접수 기록에 저장되었습니다."],
       analyzing: ["분석 중", "입력 내용을 안전하게 저장하고 정리하고 있습니다."],
-      confirmation_required: ["확인 필요", "센터에 보내기 전, 반영된 내용을 확인하거나 수정해 주세요."],
-      retryable: ["확인 필요", "전송 결과를 확인하지 못했습니다. 같은 내용으로 다시 시도할 수 있습니다."],
-      delivered: ["센터 전달 완료", "센터 보고서가 등록되었습니다. 상담사 검토 완료를 뜻하지는 않습니다."]
+      confirmation_required: ["접수 완료 전 확인", "반영된 내용을 확인하거나 수정해 주세요. 전달 버튼을 누르면 접수 완료로 표시됩니다."],
+      retryable: ["처리 다시 시도 필요", "입력은 보관되어 있습니다. 다시 시도하거나 내용을 수정해 주세요."],
+      delivered: ["접수 완료", "접수 완료로 표시되었습니다. 상담사 검토 완료를 뜻하지는 않습니다."]
     };
     var entry = states[state] || states.ready;
     if (deliveryStatusEl) {
       deliveryStatusEl.textContent = entry[0];
-      deliveryStatusEl.setAttribute("data-state", state === "analyzing" ? "processing" : state === "delivered" ? "delivered" : state === "confirmation_required" || state === "retryable" ? "attention" : "saved");
+      deliveryStatusEl.setAttribute("data-state", state === "analyzing" ? "processing" : state === "delivered" ? "delivered" : state === "confirmation_required" || state === "retryable" || state === "link_required" ? "attention" : "saved");
     }
     if (deliveryHelpEl) deliveryHelpEl.textContent = help || entry[1];
   }
@@ -207,6 +212,8 @@
     sessionStorage.removeItem(CONSENT_KEY);
     consentGranted = false;
     messagesEl.textContent = "";
+    retryMessage = null;
+    retryMessageRequestId = null;
     slotListEl.textContent = "";
     panelEl.hidden = true;
     hideContextualReplies();
@@ -240,7 +247,7 @@
       sessionStorage.removeItem(PENDING_REQUEST_KEY);
     } catch (error) { sessionStorage.removeItem(PENDING_REQUEST_KEY); }
     inputEl.value = sessionStorage.getItem(DRAFT_KEY) || "";
-    setDeliveryState(inputEl.value ? "saved" : "ready", inputEl.value ? "작성 중인 내용은 이 탭에 임시 보관되어 있습니다." : "");
+    setDeliveryState(inputEl.value ? "draft" : "ready");
   }
 
   function rememberUiState(data) {
@@ -274,7 +281,11 @@
     var data = saved.data;
     userHasSpoken = true;
     hideChips();
-    addMessage("assistant", data.reply.replace(/ \| (채움|다음 질문): .*$/, ""));
+    var restoredMessage = addMessage("assistant", data.reply.replace(/ \| (채움|다음 질문): .*$/, ""));
+    if (data.processing_status === "retryable" || data.retryable === true) {
+      retryMessage = restoredMessage;
+      retryMessageRequestId = pendingRequest && pendingRequest.request_id;
+    }
     updateTurnCounter(data.turn || 0);
     if (data.closing) turnCounterEl.textContent = "마지막 확인";
     if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";
@@ -552,29 +563,21 @@
   }
 
 
-  function typeAssistantMessage(text) {
-    var rendered = addMessage("assistant", "");
-    var bubble = rendered.bubble;
-    var reducedMotion =
-      window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var step = reducedMotion ? text.length : 3;
-    var delay = reducedMotion ? 0 : 14;
-    var index = 0;
-
-    return new Promise(function (resolve) {
-      function tick() {
-        index = Math.min(index + step, text.length);
-        bubble.textContent = text.slice(0, index);
-        rendered.row.scrollIntoView({ block: "nearest" });
-        if (index < text.length) {
-          window.setTimeout(tick, delay);
-        } else {
-          appendSupportLinks(bubble, text);
-          resolve(rendered);
-        }
-      }
-      tick();
-    });
+  function typeAssistantMessage(text, retryable, requestId) {
+    // A completed response must not wait on background-tab animation timers.
+    // Retry errors are transient UI feedback, not new conversation turns.
+    var rendered;
+    if (retryable && retryMessage && retryMessageRequestId === requestId) {
+      rendered = retryMessage;
+    } else {
+      if (retryMessage) retryMessage.row.remove();
+      rendered = addMessage("assistant", "");
+      retryMessage = retryable ? rendered : null;
+      retryMessageRequestId = retryable ? requestId : null;
+    }
+    appendSupportLinks(rendered.bubble, text);
+    rendered.row.scrollIntoView({ block: "nearest" });
+    return Promise.resolve(rendered);
   }
 
   function slotItem(state, label, value, isNext, redFlag) {
@@ -685,6 +688,7 @@
   }
 
   function updateInputState() {
+    document.body.setAttribute("data-input-ready", String(Boolean(configReady && (!consentRequired || consentGranted))));
     var length = inputEl.value.length;
     if (characterCountEl) {
       characterCountEl.textContent = length + "/" + MAX_MESSAGE_LEN;
@@ -770,6 +774,8 @@
     sessionStorage.removeItem(UI_STATE_KEY);
     setDeliveryState("ready");
     messagesEl.textContent = "";
+    retryMessage = null;
+    retryMessageRequestId = null;
     handoffCardEl = null;
     slotListEl.textContent = "";
     panelEl.hidden = true;
@@ -873,7 +879,7 @@
         // fake 모드 진행 접미사(" | 채움: ..")는 패널이 대신 보여주므로 표시에서만 제거.
         var replyText = data.reply.replace(/ \| (채움|다음 질문): .*$/, "");
         setStatus("답변을 작성하고 있어요…");
-        typeAssistantMessage(replyText).then(function () {
+        typeAssistantMessage(replyText, retryableResponse, request.request_id).then(function () {
           setStatus("");
           setDeliveryState(responseDeliveryState(data));
           updateTurnCounter(data.turn);
@@ -940,7 +946,7 @@
   inputEl.addEventListener("input", function () {
     saveDraft(inputEl.value);
     if (!requestPending && pendingRequest && inputEl.value !== pendingRequest.message) rememberPending(null);
-    if (!requestPending) setDeliveryState(inputEl.value ? "saved" : "ready", inputEl.value ? "작성 중인 내용은 이 기기에 임시 보관됩니다." : "");
+    if (!requestPending) setDeliveryState(inputEl.value ? "draft" : "ready");
   });
   inputEl.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -1107,6 +1113,8 @@
       sessionStorage.removeItem(INTAKE_LINK_KEY);
       sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
       consentGranted = true;
+      setDeliveryState("ready");
+      updateInputState();
       deleteCodeValueEl.textContent = data.delete_code;
       deleteCodeCardEl.hidden = false;
       deleteSessionEl.hidden = false;
@@ -1199,6 +1207,9 @@
           data.privacy.body = "접수 기관: " + link.organization + "\n" + link.purpose + "\n\n" + data.privacy.body;
           institutionToken = null;
           return data;
+        }).catch(function (error) {
+          error.stage = "intake-link";
+          throw error;
         });
       }
       return data;
@@ -1209,6 +1220,8 @@
       applyUiConfig(data && data.ui);
       configReady = true;
       consentRequired = data.consent_required === true;
+      institutionAccess = data.institution_link_required === true;
+      document.getElementById("institution-access-notice").hidden = !institutionAccess;
       privacy = data.privacy;
       if (consentRequired) {
         if (!privacy || !privacy.body || !privacy.consent_version) throw new Error("privacy config missing");
@@ -1232,7 +1245,16 @@
       configReady = false;
       disableInput();
       hideChips();
-      setStatus("이용 안내를 불러오지 못했습니다. 새로고침해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
+      if (err.stage === "intake-link" && err.status === 410) {
+        var linkHelp = "센터에서 받은 개별 접수 링크로 열어 주세요. 만료되었거나 이미 사용한 링크라면 담당자에게 새 링크를 요청해 주세요.";
+        document.title = "마음 접수 · 링크 확인";
+        setTextIf(".chat-title h1", "개별 접수 링크가 필요해요");
+        setTextIf(".subtitle", "센터 담당자에게 받은 링크를 확인해 주세요");
+        setDeliveryState("link_required", linkHelp);
+        setStatus(linkHelp + " 긴급 도움: 109 · 1588-9191 · 119");
+      } else {
+        setStatus("이용 안내를 불러오지 못했습니다. 새로고침해 주세요. 긴급 도움: 109 · 1588-9191 · 119");
+      }
       console.warn("intake config probe failed; stepper stays hidden", err);
     })
     .finally(function () {

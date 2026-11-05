@@ -190,7 +190,7 @@ def test_chat_client_linkifies_verified_support_resources():
     assert '"109": "tel:109"' in response.text
     assert '"119": "tel:119"' in response.text
     assert 'link.rel = "noopener noreferrer"' in response.text
-    assert "appendSupportLinks(bubble, text)" in response.text
+    assert "appendSupportLinks(rendered.bubble, text)" in response.text
 
 
 def test_intake_ui_preserves_drafts_and_retries_the_same_request():
@@ -220,7 +220,11 @@ def test_intake_ui_preserves_drafts_and_retries_the_same_request():
     assert 'data.handoff.mode === "center")) return "delivered"' not in script
     assert script.count('if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";') == 2
     assert 'sendMessage(pendingRequest.message, {request: pendingRequest, retry: true})' in script
-    assert '센터 보고서가 등록되었습니다. 상담사 검토 완료를 뜻하지는 않습니다.' in script
+    assert '접수 완료로 표시되었습니다. 상담사 검토 완료를 뜻하지는 않습니다.' in script
+    assert '접수 중에도 소속 센터의 권한 있는 담당자가 확인할 수 있어요.' in script
+    assert '아직 센터 전달 전입니다.' not in script
+    assert 'id="institution-access-notice" hidden' in html
+    assert '아직 보내지 않은 입력은 이 탭에만 임시 보관됩니다.' in html
 
 
 def test_portal_separates_intake_review_and_evidence_states():

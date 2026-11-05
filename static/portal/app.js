@@ -18,7 +18,7 @@ async function api(path, method = "GET", body) {
 function clearWorkspace() {
   $("workspace").hidden = true; $("verify").hidden = true; $("email-verify").hidden = true; $("signup").hidden = true;
   $("registration-panel").hidden = true; $("testbed-panel").hidden = true; $("admin-denied").hidden = true; $("login").hidden = false;
-  for (const id of ["cases","metrics","links","members","devices","registration-requests","registration-users","org-list","testbed-result"]) $(id).replaceChildren();
+  for (const id of ["cases","metrics","links","members","devices","registration-requests","registration-users","org-list","testbed-result","institution-testbed-result","search-status"]) $(id).replaceChildren();
   for (const id of ["org","testbed-org","registration-org"]) $(id).replaceChildren();
   for (const id of ["search","management","registration-email","org-new-name","invite-email","new-email"]) $(id).value = "";
   $("session-info").textContent = "";
@@ -97,6 +97,8 @@ async function load() {
     await loadDevices();
     return;
   }
+  const requestedSearch = new URLSearchParams(location.search).get("search");
+  if (requestedSearch && /^TEST-[A-Za-z0-9-]{1,27}$/.test(requestedSearch)) $("search").value = requestedSearch;
   await selectOrg();
 }
 
@@ -153,6 +155,9 @@ function clearInstitutionContext() {
   org = ""; permissions = []; offset = 0; selected = null;
   for (const id of ["cases","metrics","links","members"]) $(id).replaceChildren();
   $("link-result").replaceChildren();
+  $("institution-testbed-result").replaceChildren();
+  $("institution-testbed-start").disabled = true;
+  $("institution-testbed-permission").textContent = "접근 가능한 기관을 선택해 주세요.";
   $("report").replaceChildren(el("h2","접수 보고서"),el("p","접근 가능한 기관을 선택해 주세요."));
   $("layout").hidden = true; $("link-panel").hidden = true; $("member-panel").hidden = true;
 }
@@ -195,7 +200,11 @@ async function selectOrg() {
   org = $("org").value; permissions = JSON.parse($("org").selectedOptions[0].dataset.permissions); offset = 0; selected = null;
   $("report").replaceChildren(el("h2","접수 보고서"), el("p","목록에서 접수를 선택해 주세요."));
   $("link-panel").hidden = !has("link:issue"); $("member-panel").hidden = !has("member:manage"); $("layout").hidden = !has("report:read");
-  $("link-result").replaceChildren(); await refresh();
+  $("link-result").replaceChildren();
+  $("institution-testbed-result").replaceChildren();
+  $("institution-testbed-start").disabled = !has("link:issue");
+  $("institution-testbed-permission").textContent = has("link:issue") ? "선택 기관: " + $("org").selectedOptions[0].textContent : "테스트 링크를 만들려면 이 기관의 접수 링크 발급 권한이 필요합니다.";
+  await refresh();
 }
 async function refresh() {
   if (has("report:read")) {
@@ -218,7 +227,12 @@ async function refresh() {
 async function list() {
   const data=await api("/intakes"+query()+"&search="+encodeURIComponent($("search").value)+"&offset="+offset);
   $("cases").replaceChildren();
-  if(!data.items.length) $("cases").append(el("p","접수 내역이 없습니다."));
+  const search = $("search").value.trim();
+  $("search-status").textContent = search ? "관리번호 ‘" + search + "’ 검색 결과" : "전체 접수 목록";
+  if(!data.items.length) {
+    $("cases").append(el("p", search ? "검색한 관리번호와 일치하는 접수가 없습니다. 번호를 확인하거나 검색을 지워 전체 목록을 보세요." : "아직 접수된 내용이 없습니다."));
+    if(search) $("cases").append(button("검색 지우고 전체 목록 보기",async()=>{$("search").value="";offset=0;await list();$("search").focus();}));
+  }
   data.items.forEach(item=>{
     const b=button("",()=>showReport(item.id));
     b.append(el("span",item.management_id,"case-title"),el("span","저장 "+new Date(item.updated_at||item.created_at).toLocaleString(),"case-meta"));
@@ -252,18 +266,41 @@ async function showReport(id) {
     const label=r.slot_labels[key]; const item=evidence[key]||{}; const state=item.status||(slots[key]?"answered":"unconfirmed");
     const value=item.value||slots[key]||(state==="declined"?"답변하지 않음":state==="not_applicable"?"해당 없음":"미확인");
     const field=el("div",undefined,"field");field.append(el("strong",label),el("span",evidenceStatus(state),"field-state"),el("p",value));
-    if(has("raw:read") && !r.raw_expired) (r.sources[key]||[]).forEach(source=>{const sourceButton=button("출처 #"+source.seq,async()=>{await loadRaw();const t=document.getElementById("turn-"+source.day+"-"+source.seq);if(t){t.tabIndex=-1;t.focus();t.scrollIntoView({block:"center"});}});sourceButton.className="secondary source-button";field.append(sourceButton);});
+    if(has("raw:read") && !r.raw_expired) (r.sources[key]||[]).forEach(source=>field.append(sourceLink("출처 #"+source.seq,source)));
     (coreKeys.includes(key)?summarySection:detailSection).append(field);
   });
+  const completedAdditional = r.status === "complete" && Boolean(r.summary.center_requests?.length);
+  const requestSection=el("div",undefined,"report-section");
+  requestSection.append(el("h3", completedAdditional ? "접수 완료 때 반영한 추가 내용" : "센터 요청"));
+  if(!completedAdditional) requestSection.append(el("p","아직 접수 완료 때 반영한 추가 내용이 없습니다.","hint"));
+  if(r.summary.center_requests?.length) r.summary.center_requests.forEach((v,index)=>{const field=el("div",undefined,"field");field.append(el("strong",v.label||v.category||"센터에 전할 내용"),el("span",evidenceStatus(v.status||"confirmed"),"field-state"),el("p",v.text));if(has("raw:read")&&!r.raw_expired)(r.sources["center_request:"+index]||[]).forEach(source=>field.append(sourceLink("원문 출처 #"+source.seq,source)));requestSection.append(field);});
+  if(completedAdditional){
+    target.append(requestSection);
+    const caveat = "대화에서 모은 기록에는 정정 전 표현이 남아 있을 수 있습니다. 접수 완료 때 반영한 추가 내용과 함께 확인해 주세요.";
+    target.append(el("p", caveat + (has("raw:read")&&!r.raw_expired ? " 필요한 경우 원문 출처도 함께 확인해 주세요." : ""), "hint"));
+  }
   target.append(summarySection,detailSection);
-  const requestSection=el("div",undefined,"report-section");requestSection.append(el("h3","센터 요청"));
-  if(r.summary.center_requests?.length) r.summary.center_requests.forEach((v,index)=>{const field=el("div",undefined,"field");field.append(el("strong",v.label||v.category||"센터에 전할 내용"),el("span",evidenceStatus(v.status||"confirmed"),"field-state"),el("p",v.text));if(has("raw:read")&&!r.raw_expired)(r.sources["center_request:"+index]||[]).forEach(source=>{const sourceButton=button("원문 출처 #"+source.seq,async()=>{await loadRaw();const t=document.getElementById("turn-"+source.day+"-"+source.seq);if(t){t.tabIndex=-1;t.focus();t.scrollIntoView({block:"center"});}});sourceButton.className="secondary source-button";field.append(sourceButton);});requestSection.append(field);});
-  else requestSection.append(el("p","별도로 등록된 센터 요청이 없습니다.","hint"));
-  target.append(requestSection);
+  if(!completedAdditional) target.append(requestSection);
   const reviewSection=el("div",undefined,"report-section");reviewSection.append(el("h3","상담사 검토 상태"),el("p",reviewStatus(reportReviewStatus)+" · 센터 보고서 등록과 상담사 검토는 서로 다른 단계입니다.","hint"));target.append(reviewSection);
   if(has("review:write")) target.append(button("담당자 확인 완료",async()=>{await api("/intakes/"+id+"/review","POST",{org_id:org,status:"reviewed"});await showReport(id);await refresh();}),button("추가 확인 필요",async()=>{await api("/intakes/"+id+"/review","POST",{org_id:org,status:"needs_followup"});await showReport(id);await refresh();}));
   r.reviews.forEach(v=>target.append(el("p",v.actor_id+" · "+(v.status==="reviewed"?"확인 완료":"추가 확인 필요")+" · "+new Date(v.created_at).toLocaleString(),"hint")));
   const raw=el("div");raw.id="raw";
+  let sourceOrigin = null;
+  const returnToField=button("보고서 항목으로 돌아가기",()=>{
+    if(sourceOrigin?.isConnected){sourceOrigin.focus();sourceOrigin.scrollIntoView({block:"center"});}
+  });
+  returnToField.hidden=true;
+  function sourceLink(label,source){
+    const sourceButton=button(label,async()=>{
+      await loadRaw();
+      const turn=document.getElementById("turn-"+source.day+"-"+source.seq);
+      if(turn){
+        sourceOrigin=sourceButton;returnToField.hidden=false;turn.prepend(returnToField);
+        turn.tabIndex=-1;turn.focus();turn.scrollIntoView({block:"center"});
+      } else notice("연결된 원문 위치를 찾지 못했습니다. 저장 원문에서 내용을 확인해 주세요.");
+    });
+    sourceButton.className="secondary source-button";return sourceButton;
+  }
   const sourceSection=el("div",undefined,"report-section");sourceSection.append(el("h3","원문 출처"));
   if(r.raw_expired) sourceSection.append(el("p","원문 보관 기간이 만료되었습니다."));
   else if(has("raw:read")) sourceSection.append(button("저장 원문 열기",loadRaw));
@@ -275,7 +312,7 @@ async function showReport(id) {
     data.documents.forEach(doc=>doc.turns.filter(t=>["user","assistant"].includes(t.role)).forEach(t=>{const item=el("div",undefined,"turn "+t.role);item.id="turn-"+doc.day+"-"+t.seq;item.append(el("strong",doc.day+" #"+t.seq+" "+(t.role==="user"?"내담자":"도우미")),el("p",t.text));raw.append(item);}));
     if(raw.children.length===1) raw.append(el("p","저장된 발화가 없습니다."));
   }
-  sourceSection.append(raw);target.tabIndex=-1;target.focus();await list();
+  sourceSection.append(returnToField,raw);target.tabIndex=-1;target.focus();await list();
 }
 $("google-login").onclick = () => work(async () => {
   $("google-login").disabled = true;
@@ -321,18 +358,45 @@ async function logout(){await api("/auth/logout","POST",{});csrf="";clearWorkspa
 $("logout").onclick=()=>work(logout);$("pending-logout").onclick=()=>work(logout);
 $("admin-logout").onclick=()=>work(logout);$("admin-refresh").onclick=()=>work(load);
 $("org").onchange=()=>work(selectOrg);$("refresh").onclick=()=>work(refresh);
-$("testbed-org").onchange=updateTestbedActions;
+$("testbed-org").onchange=()=>{$("testbed-result").replaceChildren();updateTestbedActions();};
 $("testbed-open-org").onclick=event=>{if($("testbed-open-org").getAttribute("aria-disabled") === "true")event.preventDefault();};
-form("testbed-form",async()=>{
-  const orgId=$("testbed-org").value;
-  const result=await api("/testbed","POST",{org_id:orgId});
+function renderTestbedResult(result,orgId,container,canRead){
   if(result.synthetic!==true || !/^TEST-[A-Za-z0-9-]+$/.test(result.management_id||"")) throw new Error("합성 TEST 접수를 확인하지 못했습니다.");
   const target=new URL(result.url,location.origin);
   if(!["http:","https:"].includes(target.protocol) || target.origin!==location.origin) throw new Error("안전한 테스트 링크를 확인하지 못했습니다.");
   const link=el("a","새 챗봇 테스트 열기");link.href=target.href;link.target="_blank";link.rel="noopener noreferrer";
-  $("testbed-result").replaceChildren(el("strong","관리번호 "+result.management_id),el("p","선택 기관의 합성 접수로 저장되며 집계·목록·보고서에서 TEST 관리번호로 구분됩니다."),link);
+  container.replaceChildren(el("strong","관리번호 "+result.management_id),el("p","선택 기관의 합성 접수로 저장되며 집계·목록·보고서에서 TEST 관리번호로 구분됩니다."),link);
+  if(canRead){
+    const reportLink=el("a","이 테스트의 접수·보고서 확인");
+    reportLink.href="/portal?org_id="+encodeURIComponent(orgId)+"&search="+encodeURIComponent(result.management_id);
+    reportLink.target="_blank";reportLink.rel="noopener noreferrer";
+    const row=el("p");row.append(reportLink);container.append(row);
+    container.append(el("p","챗봇에서 동의하면 접수 목록에 나타납니다. 대화 후 ‘확인한 내용 전달하기’를 누른 다음 보고서를 확인해 주세요.","hint"));
+  }
+  link.focus();
+}
+form("testbed-form",async()=>{
+  const orgId=$("testbed-org").value;
+  const canRead=JSON.parse($("testbed-org").selectedOptions[0]?.dataset.permissions||"[]").includes("report:read");
+  const result=await api("/testbed","POST",{org_id:orgId});
+  if($("testbed-org").value===orgId) renderTestbedResult(result,orgId,$("testbed-result"),canRead);
 });
-form("search-form",async()=>{offset=0;await list();});$("prev").onclick=()=>work(async()=>{offset=Math.max(0,offset-20);await list();});$("next").onclick=()=>work(async()=>{offset+=20;await list();});
+$("institution-testbed-start").onclick=()=>work(async()=>{
+  if(!has("link:issue")||!org) return;
+  const orgId=org,canRead=has("report:read"),start=$("institution-testbed-start");
+  start.disabled=true;
+  $("institution-testbed-result").textContent="합성 테스트 링크를 만들고 있습니다.";
+  try {
+    const result=await api("/institutions/testbed","POST",{org_id:orgId});
+    if(org===orgId) renderTestbedResult(result,orgId,$("institution-testbed-result"),canRead);
+  } catch(error) {
+    if(org===orgId) $("institution-testbed-result").textContent="테스트 링크를 만들지 못했습니다. " + error.message + " 다시 시도해 주세요.";
+    throw error;
+  } finally {start.disabled=!org||!has("link:issue");}
+});
+$("open-org-admin").onclick=()=>{$("registration-details").open=true;$("org-admin").open=true;};
+$("open-registration-requests").onclick=()=>{$("registration-details").open=true;};
+form("search-form",async()=>{offset=0;selected=null;$("report").replaceChildren(el("h2","접수 보고서"),el("p","검색 결과에서 접수를 선택해 주세요."));await list();});$("prev").onclick=()=>work(async()=>{offset=Math.max(0,offset-20);await list();});$("next").onclick=()=>work(async()=>{offset+=20;await list();});
 form("link-form",async()=>{const r=await api("/links","POST",{org_id:org,management_id:$("management").value});const a=el("a",r.url);a.href=r.url;a.target="_blank";a.rel="noopener noreferrer";$("link-result").replaceChildren(a,button("링크 복사",()=>navigator.clipboard.writeText(r.url)));await refresh();});
 form("invite-form",async()=>{await api("/invitations","POST",{org_id:org,email:$("invite-email").value,permissions:$("invite-role").value==="summary"?["report:read"]:["report:read","raw:read","review:write"]});notice("초대 메일을 로컬 메일함에 캡처했습니다.");});
 form("invite-accept",async()=>{await api("/auth/accept-invitation","POST",{token:$("invite-token").value,password:$("invite-password").value});$("invite-token").value="";$("invite-password").value="";notice("초대를 수락했습니다. 로그인 후 이메일로 기기를 확인해 주세요.");});

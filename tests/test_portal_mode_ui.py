@@ -87,3 +87,24 @@ def test_unauthorized_clear_removes_sensitive_portal_dom():
     assert '$("report").replaceChildren' in script
     assert '$("link-result").replaceChildren()' in script
     assert 'for (const id of ["org","testbed-org","registration-org"]) $(id).replaceChildren()' in script
+
+
+def test_institution_testbed_is_separate_from_global_admin():
+    html, script = source("index.html"), source("app.js")
+    assert 'id="institution-testbed-start"' in html
+    assert '이 기관의 목록·집계·보고서에 포함됩니다' in html
+    assert 'api("/institutions/testbed","POST",{org_id:orgId})' in script
+    assert 'if(!has("link:issue")||!org) return' in script
+    assert '$("institution-testbed-start").disabled = !has("link:issue")' in script
+    assert '"institution-testbed-result"' in script[script.index("function clearWorkspace()"):script.index("const emailMode")]
+
+
+def test_search_and_source_navigation_are_explicit():
+    html, script = source("index.html"), source("app.js")
+    assert 'id="search-status"' in html
+    assert "검색한 관리번호와 일치하는 접수가 없습니다" in script
+    assert "아직 접수된 내용이 없습니다" in script
+    assert "검색 지우고 전체 목록 보기" in script
+    assert "보고서 항목으로 돌아가기" in script
+    assert "sourceOrigin.focus()" in script
+    assert '<h2 id="account-title">기기 및 담당자 관리</h2><details>' in html

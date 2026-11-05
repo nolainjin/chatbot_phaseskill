@@ -85,6 +85,43 @@ def test_real_analysis_keeps_multiple_evidence_bound_items(monkeypatch):
         "preferred_time", "center_question"]
 
 
+@pytest.mark.parametrize("fenced", [False, True])
+def test_correction_envelopes_preserve_the_same_source_boundary(monkeypatch, fenced):
+    message = "시간은 목요일 오전으로, 대처는 일기를 쓴 것으로 정정할게요"
+    settings = replace(Settings.from_env(), model="codex-cli")
+    payload = {"items": [
+        {"category": "preferred_time", "evidence": "시간은 목요일 오전으로"},
+        {"category": "coping", "evidence": "대처는 일기를 쓴 것으로 정정할게요"},
+    ], "corrections": ["preferred_time", "coping"], "needs_clarification": False}
+    raw = __import__("json").dumps(payload, ensure_ascii=False)
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw: "```json\n" + raw + "\n```" if fenced else raw)
+    result = closing.analyze(message, settings)
+    assert len(result["items"]) == 2
+    assert result["corrections"] == ["preferred_time", "coping"]
+    payload["items"][1]["evidence"] = "산책했어요"
+    raw = __import__("json").dumps(payload, ensure_ascii=False)
+    with pytest.raises(closing.AnalysisError, match="source evidence"):
+        closing.analyze(message, settings)
+
+
+def test_plain_json_cannot_use_prior_context_as_current_evidence(monkeypatch):
+    settings = replace(Settings.from_env(), model="codex-cli")
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '{"items":[{"category":"preferred_time","evidence":"화요일"}],'
+        '"corrections":["preferred_time"],"needs_clarification":false}')
+    with pytest.raises(closing.AnalysisError, match="source evidence"):
+        closing.analyze("목요일 오전으로 정정해 주세요", settings,
+                        current_draft_items=[{"category": "preferred_time", "text": "화요일"}])
+
+
+def test_json_with_trailing_explanation_is_not_a_valid_envelope(monkeypatch):
+    settings = replace(Settings.from_env(), model="codex-cli")
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '{"items":[],"needs_clarification":true} 추가 설명')
+    with pytest.raises(closing.AnalysisError):
+        closing.analyze("목요일 오전", settings)
+
+
 def test_dict_corrections_normalize_only_grounded_canonical_categories(monkeypatch):
     message = "시간은 화요일이 아니라 목요일 오전으로 바꿔주세요"
     settings = replace(Settings.from_env(), model="codex-cli")
@@ -183,6 +220,30 @@ def test_category_correction_preserves_other_draft_items(monkeypatch):
         ("center_question", "주차가 되나요"),
         ("preferred_time", "정정할게요, 토요일 오전이에요"),
     ]
+
+
+def test_multi_correction_replaces_only_grounded_fields_and_still_requires_send(monkeypatch):
+    session = _ready()
+    originals = {"preferred_time": "화요일 저녁", "coping": "산책했어요",
+                 "center_question": "첫 상담은 얼마나 걸리나요",
+                 "expectation": "걱정을 다루는 방법을 배우고 싶어요",
+                 "counselor_preference": "차분히 설명해 주세요"}
+    session.closing_draft = {"label": "추가 전달 내용", "text": "기존 내용", "items": [
+        {"category": category, "label": closing.CATEGORY_LABELS[category],
+         "text": value, "source_text": value} for category, value in originals.items()]}
+    message = "시간은 목요일 오전으로 바꿔 주세요. 대처는 일기를 써봤어요."
+    settings = replace(Settings.from_env(), model="codex-cli")
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw:
+        '{"items":[{"category":"preferred_time","evidence":"시간은 목요일 오전으로 바꿔 주세요"},'
+        '{"category":"coping","evidence":"대처는 일기를 써봤어요"}],'
+        '"corrections":["preferred_time","coping"],"needs_clarification":false}')
+    result = chat.handle_message("semantic", message, settings, request_id="multi-correction-001")
+    actual = {item["category"]: item["text"] for item in result["closing"]["draft"]["items"]}
+    assert actual == {**originals, "preferred_time": "시간은 목요일 오전으로 바꿔 주세요",
+                      "coping": "대처는 일기를 써봤어요"}
+    assert result["processing_status"] == "confirmation_required"
+    assert session.handoff is None
+    assert result.get("conversation_ended") is not True
 
 
 def test_selected_time_label_does_not_mislabel_semantic_counselor_item():
@@ -305,9 +366,38 @@ def test_failed_revision_blocks_send_until_retry_or_explicit_cancel(monkeypatch)
     monkeypatch.setattr(llm, "ask_strict", lambda **kw: (_ for _ in ()).throw(RuntimeError("timeout")))
     failed = chat.handle_message("semantic", "정정할게요, 토요일이에요", settings, request_id="revision-0001")
     assert failed["processing_status"] == "retryable"
+    assert failed["quick_replies"] == [{"label": "이 수정 취소하고 이전 내용 확인",
+                                      "message": "수정 취소", "action": "cancel_revision"}]
+    assert failed["closing"]["draft"]["items"][0]["text"] == "화요일"
     blocked = chat.handle_message("semantic", "이대로 보내기", settings, request_id="revision-send-0001")
     assert session.handoff is None
     assert "아직 전달할 수 없어요" in blocked["reply"]
+    restored = chat.handle_message("semantic", "수정 취소", settings, request_id="revision-cancel-0001")
+    assert restored["closing"]["draft"]["items"][0]["text"] == "화요일"
+    assert session.handoff is None and session.closing_analysis_pending is None
+
+
+def test_closing_failure_logs_only_fixed_validation_reason_or_exception_type(monkeypatch, caplog):
+    _ready()
+    settings = replace(Settings.from_env(), model="codex-cli")
+    monkeypatch.setattr(llm, "ask_strict", lambda **kw: (_ for _ in ()).throw(
+        RuntimeError("private token and private message must not enter logs")))
+    failed = chat.handle_message("semantic", "부드럽게 진행해 주세요", settings)
+    assert "RuntimeError" in caplog.text
+    assert "private" not in caplog.text and "부드럽게" not in caplog.text
+    assert failed["quick_replies"][0]["action"] == "cancel_revision"
+    assert "돌아가기" in failed["quick_replies"][0]["label"]
+
+
+def test_generated_output_rejection_does_not_blame_or_drop_user_input(monkeypatch):
+    settings = replace(Settings.from_env(), model="codex-cli")
+    message = "잠을 잘 못 자서 낮에 피곤해요"
+    monkeypatch.setattr(llm, "ask", lambda **kw: "SYSTEM_INSTRUCTIONS: private instructions")
+    result = chat.handle_message("output-recovery", message, settings, request_id="output-recovery-001")
+    assert result["processing_status"] == "retryable"
+    assert "그 요청은 여기서 다루지" not in result["reply"]
+    assert chat._sessions["output-recovery"].history == [{"role": "user", "content": message}]
+    assert "private instructions" not in str(result)
 
 
 @pytest.mark.parametrize("failure", [RuntimeError("timeout"), llm.ModelOutputTooLarge("large")])
@@ -340,7 +430,26 @@ def test_plain_none_response_does_not_implicitly_send():
     assert session.handoff is None
     assert result["closing"]["stage"] == "confirm"
     assert [choice["action"] for choice in result["quick_replies"]] == ["add", "send"]
-    assert "‘확인한 내용 전달하기’를 눌러야" in result["reply"]
+    assert "‘확인한 내용 전달하기’를 누르면 접수 완료로 등록돼요" in result["reply"]
+
+
+@pytest.mark.parametrize("draft,pending", [
+    (None, None),
+    (None, "상담 가능한 요일·시간"),
+    ({"no_additional": True}, None),
+    ({"items": [{"label": "상담 가능한 요일·시간", "text": "목요일 오전"}]}, None),
+])
+def test_closing_notice_distinguishes_saved_conversation_from_completion(draft, pending):
+    schema = intake.load_schema(ROOT / "knowledge-maeum")
+    session = _ready()
+    session.closing_draft = draft
+    session.closing_pending = pending
+    reply, choices = chat._center_closing_prompt(session, schema)
+    assert "보낸 대화는 저장되어 기관 담당자가 진행 중인 접수로 확인할 수 있어요" in reply
+    assert "누르면 접수 완료로 등록돼요" in reply
+    assert "전달되지 않아요" not in reply
+    assert session.handoff is None
+    assert choices[-1]["action"] == "send"
 
 
 def test_pending_analysis_without_draft_still_blocks_new_send_request(monkeypatch):

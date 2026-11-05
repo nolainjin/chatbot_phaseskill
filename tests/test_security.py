@@ -96,7 +96,9 @@ def test_leaked_model_output_is_replaced_before_history_or_storage_mutation(monk
 
     assert result["reply"] != leaked
     assert "SYSTEM_INSTRUCTIONS" not in result["reply"]
-    assert chat._sessions[session_id].history[-1]["content"] == result["reply"]
+    assert result["processing_status"] == "retryable"
+    assert chat._sessions[session_id].history[-1] == {"role": "user", "content": "안녕하세요"}
+    assert leaked not in str(chat._sessions[session_id].history)
 
 
 def test_direct_fresh_session_starts_at_one_and_enforces_ten_turn_cap(monkeypatch, tmp_path):

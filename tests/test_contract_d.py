@@ -209,7 +209,9 @@ def test_closing_uses_pack_options_without_model_calls(monkeypatch):
     schema.closing = {"question": "센터에 전할까요?", "options": ["센터별 질문"], "send_label": "전달"}
     monkeypatch.setattr(intake, "load_schema", lambda _: schema)
     result = _closing_custom()
-    assert result["reply"] == "센터에 전할까요?"
+    assert result["reply"].startswith("센터에 전할까요?\n")
+    assert "진행 중인 접수로 확인할 수 있어요" in result["reply"]
+    assert "‘전달’" in result["reply"]
     assert [choice["label"] for choice in result["quick_replies"]] == ["센터별 질문", "전달"]
     monkeypatch.setattr(llm, "ask", lambda **kw: pytest.fail("closing must not call the model"))
     chat.handle_message("custom", "센터별 질문")

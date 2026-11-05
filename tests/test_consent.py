@@ -167,7 +167,8 @@ class Node {
   set innerHTML(value) { assert.ok(value.startsWith('<svg '), 'only the fixed avatar SVG may use HTML'); }
   get textContent() { return this._text; }
   appendChild(node) { this.children.push(node); }
-  setAttribute() {}
+  setAttribute(key, value) { this[key] = value; }
+  getAttribute(key) { return this[key]; }
   querySelectorAll() { return []; }
   addEventListener(name, action) { this.listeners[name] = action; }
   scrollIntoView() {}
@@ -185,7 +186,7 @@ let resolveConfig, confirmResult = false, confirmations = 0;
 const code = 'ABCD-EFGH-JK23';
 const configPromise = new Promise(resolve => {resolveConfig = resolve;});
 const context = {
-  document: {getElementById: node, querySelector: node, querySelectorAll() {return [];},
+  document: {body: new Node(), getElementById: node, querySelector: node, querySelectorAll() {return [];},
     createElement() {return new Node();}, createTextNode(text) {const n = new Node(); n.textContent = text; return n;}},
   window: {location: {href: 'http://test.local/'}, history: {replaceState() {}},
     matchMedia() {return {matches: true};}, setTimeout(f) {f();},
@@ -212,6 +213,7 @@ const tick = async () => { for(let i=0; i<5; i++) await new Promise(setImmediate
 (async () => {
   node('message-input').disabled = true;
   vm.runInNewContext(spec.source, context);
+  assert.equal(context.document.body.getAttribute("data-input-ready"), "false");
   node('message-input').value = '동의 전 합성 입력';
   node('chat-form').fire('submit');
   assert.deepEqual(requests.map(r => r.url), ['/api/config']);
@@ -220,22 +222,26 @@ const tick = async () => { for(let i=0; i<5; i++) await new Promise(setImmediate
   resolveConfig({ok: spec.scenario !== 'config-failure', json() {return Promise.resolve(config);}});
   await tick();
   if (spec.scenario === 'config-failure') {
+    assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
     assert.equal(node('message-input').disabled, true);
     assert.equal(node('messages').children.length, 0);
     assert.ok(node('status').textContent.includes('109'));
   } else if (spec.scenario === 'legacy') {
+    assert.equal(context.document.body.getAttribute('data-input-ready'), 'true');
     assert.equal(node('message-input').disabled, false);
     assert.equal(node('messages').children.length, 1);
     assert.equal(node('consent-card').hidden, true);
   } else {
     assert.equal(node('message-input').disabled, true);
     assert.equal(node('consent-card').hidden, false);
+    assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
     assert.equal(node('consent-notice').textContent, config.privacy.body);
     assert.equal(node('messages').children.length, 0);
     node('chat-form').fire('submit');
     assert.equal(requests.length, 1);
     if (spec.scenario === 'decline') {
       node('consent-decline').fire('click'); await tick();
+      assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
       assert.equal(node('message-input').disabled, true);
       assert.equal(sessionStorage.getItem('lmwiki_session_token'), null);
       assert.equal(requests[1].payload.accepted, false);
@@ -245,6 +251,7 @@ const tick = async () => { for(let i=0; i<5; i++) await new Promise(setImmediate
       assert.equal(node('messages').children.length, 0);
     } else {
       node('consent-accept').fire('click'); await tick();
+      assert.equal(context.document.body.getAttribute('data-input-ready'), 'true');
       assert.equal(node('message-input').disabled, false);
       assert.equal(node('consent-card').hidden, true);
       assert.equal(node('delete-code-value').textContent, code);
@@ -268,6 +275,7 @@ const tick = async () => { for(let i=0; i<5; i++) await new Promise(setImmediate
       assert.equal(node('delete-code-value').textContent, '');
       assert.equal(sessionStorage.getItem('lmwiki_session_token'), null);
       assert.equal(node('consent-card').hidden, false);
+      assert.equal(context.document.body.getAttribute('data-input-ready'), 'false');
       assert.equal(node('message-input').disabled, true);
       assert.equal(node('messages').children.length, 0);
     }
