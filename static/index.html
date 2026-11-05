@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>대화 준비 중</title>
-  <link rel="stylesheet" href="style.css?v=21" />
+  <link rel="stylesheet" href="style.css?v=22" />
 </head>
-<body data-input-ready="false">
+<body class="chat-page" data-input-ready="false">
   <div class="layout">
   <main class="chat">
     <header class="chat-header">
@@ -19,6 +19,7 @@
         <p class="turn-counter" id="turn-counter" aria-live="polite">0/10</p>
       </div>
     </header>
+    <div class="chat-content" id="chat-content">
     <ol class="stepper" id="stepper" aria-label="문진 진행 단계" hidden>
       <li class="stepper-step" data-step="1">
         <span class="stepper-circle">1</span>
@@ -110,6 +111,7 @@
     </div>
 
     <div class="contextual-replies" id="contextual-replies" hidden aria-label="현재 질문 빠른 답변"></div>
+    </div>
 
     <div class="composer">
       <section class="chat-surface" id="chat-surface" aria-label="채팅 입력">
@@ -143,6 +145,6 @@
     <ul class="slot-list" id="slot-list"></ul>
   </aside>
   </div>
-  <script src="app.js?v=d1-25"></script>
+  <script src="app.js?v=d1-26"></script>
 </body>
 </html>

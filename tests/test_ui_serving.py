@@ -38,13 +38,19 @@ def _element_by_id(document: ET.Element, element_id: str) -> ET.Element:
 
 
 def _assert_chat_surface(document: ET.Element) -> None:
-    """텍스트 입력 표면이 composer 안에 있고, 대화 기록은 그 밖에 있어야 한다."""
+    """중앙 기록은 단일 scroll owner에, 입력 표면은 그 밖의 composer에 둔다."""
     parents = {child: parent for parent in document.iter() for child in parent}
     messages = _element_by_id(document, "messages")
+    chat_content = _element_by_id(document, "chat-content")
     chat_surface = _element_by_id(document, "chat-surface")
+    composer = parents[chat_surface]
 
-    assert "composer" in parents[chat_surface].attrib.get("class", "").split()
+    assert "composer" in composer.attrib.get("class", "").split()
     assert messages not in set(chat_surface.iter()), "history must live outside the composer"
+    assert messages in set(chat_content.iter()), "history must use the central scroll owner"
+    assert chat_content not in set(composer.iter()), "composer must stay outside the scroll owner"
+    assert parents[chat_content] is parents[composer], "scroll owner and composer must be siblings"
+    assert list(parents[composer]).index(chat_content) < list(parents[composer]).index(composer)
     assert "hidden" not in chat_surface.attrib
     assert "inert" not in chat_surface.attrib
     assert all(

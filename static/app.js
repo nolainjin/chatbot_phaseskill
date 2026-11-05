@@ -126,6 +126,7 @@
     '<path d="M9 19v2M15 19v2"></path></svg>';
 
   var messagesEl = document.getElementById("messages");
+  var chatContentEl = document.getElementById("chat-content");
   var statusEl = document.getElementById("status");
   var turnCounterEl = document.getElementById("turn-counter");
   var formEl = document.getElementById("chat-form");
@@ -166,6 +167,18 @@
   var pendingRequest = null;
   var retryMessage = null;
   var retryMessageRequestId = null;
+
+  function resetChatScroll() {
+    if (chatContentEl) chatContentEl.scrollTop = 0;
+  }
+
+  function scrollChatToBottom() {
+    if (chatContentEl) chatContentEl.scrollTop = chatContentEl.scrollHeight;
+  }
+
+  function focusComposer() {
+    inputEl.focus({preventScroll: true});
+  }
 
   function setDeliveryState(state, help) {
     if (state === "completed") state = "saved";
@@ -219,6 +232,7 @@
     deleteSessionEl.hidden = true;
     deleteCodeCardEl.hidden = true;
     deleteCodeValueEl.textContent = "";
+    resetChatScroll();
   }
 
   function applyPendingState() {
@@ -291,6 +305,7 @@
     renderHandoff(data.handoff);
     setDeliveryState(responseDeliveryState(data));
     if ((data.conversation_ended || data.limit_reached) && !pendingRequest) disableInput();
+    scrollChatToBottom();
     return true;
   }
 
@@ -387,7 +402,7 @@
     });
     handoffCardEl = card;
     messagesEl.appendChild(card);
-    card.scrollIntoView({ block: "nearest" });
+    scrollChatToBottom();
   }
 
   function getSessionId() {
@@ -518,7 +533,7 @@
 
     row.appendChild(col);
     messagesEl.appendChild(row);
-    row.scrollIntoView({ block: "nearest" });
+    scrollChatToBottom();
     return { row: row, bubble: bubble, time: time, col: col };
   }
 
@@ -548,7 +563,7 @@
     typingEl.appendChild(avatar);
     typingEl.appendChild(bubble);
     messagesEl.appendChild(typingEl);
-    typingEl.scrollIntoView({ block: "nearest" });
+    scrollChatToBottom();
   }
 
   function hideTyping() {
@@ -572,7 +587,7 @@
       retryMessageRequestId = retryable ? requestId : null;
     }
     appendSupportLinks(rendered.bubble, text);
-    rendered.row.scrollIntoView({ block: "nearest" });
+    scrollChatToBottom();
     return Promise.resolve(rendered);
   }
 
@@ -781,6 +796,7 @@
     setStatus("");
     updateTurnCounter(0);
     setActiveStep(1);
+    resetChatScroll();
     if (consentRequired) {
       showConsent();
     } else if (configReady) {
@@ -788,7 +804,7 @@
     }
     maybeShowChips();
     updateInputState();
-    inputEl.focus();
+    focusComposer();
   }
 
   function sendMessage(message) {
@@ -852,6 +868,7 @@
           inputEl.readOnly = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
           updateInputState();
+          scrollChatToBottom();
           return null;
         });
       })
@@ -887,6 +904,9 @@
           }
           renderCoachingStatus(data);
           renderHandoff(data.handoff);
+          // Closing choices render after the reply; keep them reachable in
+          // the central scroll owner without moving the document body.
+          scrollChatToBottom();
           requestPending = false;
           inputEl.readOnly = false;
           if (resetSessionEl) resetSessionEl.disabled = false;
@@ -894,7 +914,8 @@
           if (retryableResponse) {
             setStatus("처리 결과를 확정하지 못했습니다. 같은 내용으로 다시 시도해 주세요.");
             updateInputState();
-            inputEl.focus();
+            focusComposer();
+            scrollChatToBottom();
             return;
           }
 
@@ -902,17 +923,19 @@
             setStatus("안내가 완료되어 대화가 종료되었습니다. 다시 시작하려면 ‘새 대화’를 눌러 주세요.");
             hideContextualReplies();
             disableInput();
+            scrollChatToBottom();
             return;
           }
           if (data.limit_reached) {
             setStatus("대화 한도에 도달했습니다. 새 세션으로 다시 시작해 주세요.");
             hideContextualReplies();
             disableInput();
+            scrollChatToBottom();
             return;
           }
 
           updateInputState();
-          inputEl.focus();
+          focusComposer();
         });
       })
       .catch(function () {
@@ -926,6 +949,7 @@
         inputEl.readOnly = false;
         if (resetSessionEl) resetSessionEl.disabled = false;
         updateInputState();
+        scrollChatToBottom();
       });
   }
 
@@ -1048,6 +1072,7 @@
     disableInput();
     hideChips();
     hideContextualReplies();
+    resetChatScroll();
   }
 
   function postJson(url, payload) {
@@ -1096,7 +1121,8 @@
       inputEl.disabled = false;
       addMessage("assistant", data.reply);
       maybeShowChips();
-      inputEl.focus();
+      scrollChatToBottom();
+      focusComposer();
     }).catch(function (error) {
       if (error.status === 401) clearSensitiveTabState();
       setStatus(error.message);
