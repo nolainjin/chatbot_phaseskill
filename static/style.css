@@ -1,18 +1,18 @@
 :root {
   color-scheme: light;
-  --page-bg: #f7f3ed;
-  --card-bg: #fffdfa;
-  --header-bg: #255b4c;
+  --page-bg: #f6f5f1;
+  --card-bg: #fffefa;
+  --header-bg: #3f594e;
   --header-text: #ffffff;
   --header-text-muted: rgba(255, 255, 255, 0.86);
   --text: #2f3532;
   --muted: #50655b;
-  --bubble-assistant: #edf3ef;
-  --accent: #356a58;
-  --accent-hover: #285545;
+  --bubble-assistant: #f0f1eb;
+  --accent: #456653;
+  --accent-hover: #354f40;
   --accent-soft: rgba(53, 106, 88, 0.14);
   --bubble-user-text: #ffffff;
-  --input-bg: #fffdfa;
+  --input-bg: #fffefa;
   --input-border: #ded8cf;
   --track: #e5ded5;
   --error: #984b38;
@@ -86,14 +86,14 @@
     color-scheme: light;
     --page-bg: #f1ede6;
     --card-bg: #fffaf3;
-    --header-bg: #255b4c;
+    --header-bg: #3f594e;
     --header-text: #ffffff;
     --header-text-muted: rgba(255, 255, 255, 0.86);
     --text: #303733;
     --muted: #50655b;
     --bubble-assistant: #e9f1ec;
-    --accent: #356a58;
-    --accent-hover: #285545;
+    --accent: #456653;
+    --accent-hover: #354f40;
     --accent-soft: rgba(53, 106, 88, 0.16);
     --bubble-user-text: #ffffff;
     --input-bg: #fffaf3;
@@ -431,8 +431,8 @@ details[open] > .privacy-summary::after {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: var(--bubble-assistant);
-  color: var(--accent);
+  background: #e9e4d8;
+  color: #58674f;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -520,8 +520,8 @@ details[open] > .privacy-summary::after {
 }
 
 .chip {
-  min-height: 74px;
-  padding: 0.85rem 1rem;
+  min-height: 44px;
+  padding: 0.65rem 0.85rem;
   font-family: inherit;
   color: var(--accent);
   background: var(--accent-soft);
@@ -887,11 +887,7 @@ details[open] > .privacy-summary::after {
   }
 
   .chips {
-    grid-template-columns: 1fr;
-  }
-
-  .chip {
-    min-height: 68px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

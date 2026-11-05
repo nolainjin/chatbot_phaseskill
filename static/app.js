@@ -989,11 +989,9 @@
       document.title = ui.title;
       setTextIf(".chat-title h1", ui.title);
     }
-    setTextIf(".subtitle", ui.subtitle);
     setTextIf(".privacy-summary-text", ui.privacy_summary);
     setTextIf(".privacy-body", ui.privacy_body);
     setTextIf(".panel-title", ui.panel_title);
-    setTextIf(".lock-notice-text", ui.lock_notice);
     if (Array.isArray(ui.stepper_labels)) {
       document.querySelectorAll(".stepper-label").forEach(function (el, i) {
         if (ui.stepper_labels[i]) el.textContent = ui.stepper_labels[i];
@@ -1014,12 +1012,7 @@
         title.className = "chip-title";
         title.textContent = chip.title || chip.send;
         button.appendChild(title);
-        if (chip.desc) {
-          var desc = document.createElement("span");
-          desc.className = "chip-desc";
-          desc.textContent = chip.desc;
-          button.appendChild(desc);
-        }
+
         button.addEventListener("click", function () {
           sendMessage(chip.send);
         });
@@ -1032,13 +1025,11 @@
     greetingText = COACHING_GREETING;
     document.title = "학습 코칭 챗봇";
     setTextIf(".chat-title h1", "학습 코칭 챗봇");
-    setTextIf(".subtitle", "질문과 지식 문서를 바탕으로 함께 살펴봅니다");
     setTextIf(".privacy-summary-text", "학습 대화 안내");
     setTextIf(
       ".privacy-body",
       "대화 내용은 학습 흐름을 이어가기 위해 저장될 수 있습니다. 이름, 연락처, 학교명 같은 개인정보는 입력하지 마세요."
     );
-    setTextIf(".lock-notice-text", "대화 내용은 학습 흐름을 이어가기 위해 저장될 수 있습니다");
     if (panelEl) panelEl.hidden = true;
     if (stepperEl) stepperEl.hidden = true;
     if (chipsEl) chipsEl.hidden = true;
@@ -1050,13 +1041,11 @@
     greetingText = GREETING;
     document.title = "접수 면담 챗봇";
     setTextIf(".chat-title h1", "접수 면담 챗봇");
-    setTextIf(".subtitle", "첫 상담 전, 이야기를 정리하는 시간입니다");
     setTextIf(".privacy-summary-text", "첫 상담 전 접수용 안내");
     setTextIf(
       ".privacy-body",
       "대화 내용은 서버에 저장됩니다. 자·타해 위험, 학대 의심, 법적 요청처럼 안전 예외가 있는 경우에는 보호자·전문기관과 공유될 수 있습니다."
     );
-    setTextIf(".lock-notice-text", "접수 내용은 저장되며 안전 예외가 있습니다");
     if (deliveryProgressEl) deliveryProgressEl.hidden = false;
   }
 
@@ -1249,7 +1238,6 @@
         var linkHelp = "센터에서 받은 개별 접수 링크로 열어 주세요. 만료되었거나 이미 사용한 링크라면 담당자에게 새 링크를 요청해 주세요.";
         document.title = "마음 접수 · 링크 확인";
         setTextIf(".chat-title h1", "개별 접수 링크가 필요해요");
-        setTextIf(".subtitle", "센터 담당자에게 받은 링크를 확인해 주세요");
         setDeliveryState("link_required", linkHelp);
         setStatus(linkHelp + " 긴급 도움: 109 · 1588-9191 · 119");
       } else {

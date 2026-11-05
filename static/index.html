@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>대화 준비 중</title>
-  <link rel="stylesheet" href="style.css?v=19" />
+  <link rel="stylesheet" href="style.css?v=20" />
 </head>
 <body data-input-ready="false">
   <div class="layout">
@@ -12,7 +12,6 @@
     <header class="chat-header">
       <div class="chat-title">
         <h1>대화 준비 중</h1>
-        <p class="subtitle">이용 안내를 불러오고 있습니다</p>
       </div>
       <div class="header-actions">
         <button type="button" class="header-control" id="reset-session">새 대화</button>
@@ -41,7 +40,7 @@
     </div>
     <section class="delivery-progress" id="delivery-progress" aria-labelledby="delivery-progress-title" role="status" aria-live="polite" aria-atomic="true">
       <div>
-        <p class="eyebrow" id="delivery-progress-title">접수 진행 상태</p>
+        <p class="sr-only" id="delivery-progress-title">접수 진행 상태</p>
         <p class="delivery-status" id="delivery-status" data-state="saved">작성 준비</p>
       </div>
       <p class="delivery-help" id="delivery-help">동의 후 편하게 입력해 주세요. 아직 저장된 내용은 없습니다.</p>
@@ -95,23 +94,18 @@
     <div class="chips" id="chips" hidden aria-label="빠른 선택">
       <button type="button" class="chip" data-send="요즘 마음이 자주 불안하고 걱정이 많아요.">
         <span class="chip-title">불안·걱정</span>
-        <span class="chip-desc">초조하고 생각이 많아요</span>
       </button>
       <button type="button" class="chip" data-send="우울한 기분과 무기력함이 계속돼요.">
         <span class="chip-title">우울·무기력</span>
-        <span class="chip-desc">기운이 없고 가라앉아요</span>
       </button>
       <button type="button" class="chip" data-send="밤에 잠을 잘 못 자고 피곤해요.">
         <span class="chip-title">수면 문제</span>
-        <span class="chip-desc">잠들기 어렵거나 자주 깨요</span>
       </button>
       <button type="button" class="chip" data-send="가족이나 대인관계 때문에 힘들어요.">
         <span class="chip-title">관계 갈등</span>
-        <span class="chip-desc">가족·부부·대인관계</span>
       </button>
       <button type="button" class="chip" data-send="중독 문제로 도움받을 전문기관을 찾고 있어요.">
         <span class="chip-title">중독 관련 도움</span>
-        <span class="chip-desc">알코올·약물·도박·디지털</span>
       </button>
     </div>
 
@@ -144,22 +138,12 @@
         </div>
       </section>
     </div>
-    <p class="lock-notice">
-      <span class="lock-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="5" y="11" width="14" height="9" rx="2"></rect>
-          <path d="M8 11V7a4 4 0 018 0v4"></path>
-        </svg>
-      </span>
-      <span class="lock-notice-text">이용 안내를 확인한 뒤 시작해 주세요</span>
-    </p>
   </main>
   <aside class="intake-panel" id="intake-panel" aria-label="문진 진행 현황" hidden>
     <h2 class="panel-title">문진 진행</h2>
     <ul class="slot-list" id="slot-list"></ul>
-    <p class="panel-hint">대화에서 확인된 항목이 자동으로 채워집니다.</p>
   </aside>
   </div>
-  <script src="app.js?v=d1-23"></script>
+  <script src="app.js?v=d1-24"></script>
 </body>
 </html>

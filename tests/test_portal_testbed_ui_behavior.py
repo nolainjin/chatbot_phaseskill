@@ -58,14 +58,15 @@ def test_completed_additional_content_precedes_accumulated_slots_without_rewriti
     function = SCRIPT[SCRIPT.index("async function showReport("):SCRIPT.index('$("google-login").onclick')]
     result = run_node("""
 const vm=require('node:vm');
-function el(tag,text,cls){return {tag,text,cls,children:[],append(...items){this.children.push(...items)},replaceChildren(...items){this.children=items},focus(){}};}
+function el(tag,text,cls){return {tag,text,cls,children:[],append(...items){this.children.push(...items)},replaceChildren(...items){this.children=items},prepend(...items){this.children.unshift(...items)},setAttribute(){},focus(){}};}
 (async()=>{
  async function render(status,requests,rawPermission,expired=false){
   const root=el('section');
   const data={management_id:'TEST-UXR',status,review_status:'unreviewed',updated_at:'2026-11-05T00:00:00Z',version:2,reviews:[],raw_expired:expired,
    summary:{red_flags:['synthetic'],slots:{chief_complaint:'원문 그대로: 산책, 화요일'},center_requests:requests},
    slot_labels:{chief_complaint:'호소 문제'},sources:{chief_complaint:[{day:'2026-11-05',seq:1}],'center_request:0':[{day:'2026-11-05',seq:3}]}};
-  const c={el,$:()=>root,api:async()=>data,query:()=>'',has:p=>p==='raw:read'&&rawPermission,
+  const c={el,$:id=>id==='cases'?{children:[]}:root,api:async()=>data,query:()=>'',has:p=>p==='raw:read'&&rawPermission,
+   reportVersion:0,reportOpen:false,listPosition:null,window:{scrollX:0,scrollY:0},returnToCases(){},syncCaseView(){},
    intakeStatus:x=>x,reviewStatus:x=>x,evidenceStatus:x=>x,button:(label,action)=>el('button',label),list:async()=>{},Date};
   vm.createContext(c);vm.runInContext(FUNCTION,c);await c.showReport('test');return root.children;
  }

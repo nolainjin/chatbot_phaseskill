@@ -1,21 +1,53 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let csrf = "", org = "", permissions = [], offset = 0, selected = null, userOrganizations = [];
+let contextVersion = 0, listVersion = 0, reportVersion = 0;
+let reportOpen = false, listPosition = null;
+const mobileLayout = window.matchMedia("(max-width: 760px)");
+function syncCaseView() {
+  $("case-list").hidden = mobileLayout.matches && reportOpen;
+  $("report").hidden = mobileLayout.matches && !reportOpen;
+}
+function resetCaseView() {
+  listVersion++; reportVersion++;
+  selected = null; listPosition = null; reportOpen = false;
+  $("report").replaceChildren(el("h2", "접수 보고서"));
+  syncCaseView();
+}
+function returnToCases() {
+  reportOpen = false; syncCaseView();
+  const origin = Array.from($("cases").children).find(node => node.dataset.caseId === selected);
+  (origin || $("search")).focus({preventScroll:true});
+  if (listPosition) window.scrollTo(listPosition.x, listPosition.y);
+}
+mobileLayout.addEventListener("change", () => {
+  const focusWasHidden = (mobileLayout.matches && reportOpen && $("case-list").contains(document.activeElement)) ||
+    (mobileLayout.matches && !reportOpen && $("report").contains(document.activeElement));
+  syncCaseView();
+  if (!mobileLayout.matches && document.activeElement.classList.contains("back-to-cases")) $("report").focus();
+  if (focusWasHidden) (reportOpen ? $("report") : $("search")).focus();
+});
+syncCaseView();
 const portalMode = document.body.dataset.portalMode === "admin" ? "admin" : "institution";
 const notice = text => { $("notice").textContent = text || ""; };
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; }
 function button(label, action, secondary = true) { const b = el("button", label, secondary ? "secondary" : ""); b.type = "button"; b.onclick = () => work(action); return b; }
 async function api(path, method = "GET", body) {
+  const version = contextVersion;
   const response = await fetch("/api/portal" + path, {method, credentials:"same-origin", cache:"no-store",
     headers:{"Content-Type":"application/json", "X-CSRF-Token":csrf}, body: body === undefined ? undefined : JSON.stringify(body)});
   const data = await response.json().catch(() => ({}));
+  if (version !== contextVersion && path !== "/auth/logout") throw new Error("stale-context");
   if (!response.ok) {
     if (response.status === 401) clearWorkspace();
+    else if (response.status === 403 && org) clearInstitutionContext();
     throw new Error(typeof data.detail === "string" ? data.detail : "처리하지 못했습니다. 다시 시도해 주세요.");
   }
   return data;
 }
 function clearWorkspace() {
+  contextVersion++;
+  resetCaseView(); offset = 0;
   $("workspace").hidden = true; $("verify").hidden = true; $("email-verify").hidden = true; $("signup").hidden = true;
   $("registration-panel").hidden = true; $("testbed-panel").hidden = true; $("admin-denied").hidden = true; $("login").hidden = false;
   for (const id of ["cases","metrics","links","members","devices","registration-requests","registration-users","org-list","testbed-result","institution-testbed-result","search-status"]) $(id).replaceChildren();
@@ -28,7 +60,6 @@ const emailMode = document.body.dataset.emailLogin === "true";
 const googleMode = document.body.dataset.googleLogin === "true";
 if (portalMode === "admin") {
   $("portal-title").textContent = "마음 접수 · 관리자 대시보드";
-  $("portal-subtitle").textContent = "기관과 등록 승인을 관리하고 합성 TESTBED를 시작합니다.";
   $("institution-switch").hidden = false;
 }
 $("google-login-options").hidden = !googleMode;
@@ -41,7 +72,7 @@ if (emailMode) {
   $("signup-open").hidden = false;
   $("invite-accept").closest("details").hidden = true;
 }
-async function work(fn) { notice(""); try { await fn(); } catch(e) { notice(e.message); } }
+async function work(fn) { notice(""); try { await fn(); } catch(e) { if(e.message !== "stale-context") notice(e.message); } }
 function form(id, fn) { $(id).onsubmit = async event => {
   event.preventDefault(); const submit = event.submitter;
   if (submit?.disabled) return;
@@ -152,6 +183,8 @@ async function loadOrganizations() {
 }
 async function reloadOrganizations() { await load(); }
 function clearInstitutionContext() {
+  contextVersion++;
+  resetCaseView(); $("search").value = ""; $("search-status").textContent = "";
   org = ""; permissions = []; offset = 0; selected = null;
   for (const id of ["cases","metrics","links","members"]) $(id).replaceChildren();
   $("link-result").replaceChildren();
@@ -197,6 +230,9 @@ async function loadDevices() {
   });
 }
 async function selectOrg() {
+  contextVersion++;
+  resetCaseView();
+  for (const id of ["cases", "metrics", "links", "members"]) $(id).replaceChildren();
   org = $("org").value; permissions = JSON.parse($("org").selectedOptions[0].dataset.permissions); offset = 0; selected = null;
   $("report").replaceChildren(el("h2","접수 보고서"), el("p","목록에서 접수를 선택해 주세요."));
   $("link-panel").hidden = !has("link:issue"); $("member-panel").hidden = !has("member:manage"); $("layout").hidden = !has("report:read");
@@ -225,13 +261,15 @@ async function refresh() {
   }
 }
 async function list() {
+  const request = ++listVersion;
   const data=await api("/intakes"+query()+"&search="+encodeURIComponent($("search").value)+"&offset="+offset);
+  if (request !== listVersion) return;
   $("cases").replaceChildren();
   const search = $("search").value.trim();
   $("search-status").textContent = search ? "관리번호 ‘" + search + "’ 검색 결과" : "전체 접수 목록";
   if(!data.items.length) {
     $("cases").append(el("p", search ? "검색한 관리번호와 일치하는 접수가 없습니다. 번호를 확인하거나 검색을 지워 전체 목록을 보세요." : "아직 접수된 내용이 없습니다."));
-    if(search) $("cases").append(button("검색 지우고 전체 목록 보기",async()=>{$("search").value="";offset=0;await list();$("search").focus();}));
+    if(search) $("cases").append(button("검색 지우고 전체 목록 보기",async()=>{$("search").value="";offset=0;resetCaseView();await list();$("search").focus();}));
   }
   data.items.forEach(item=>{
     const b=button("",()=>showReport(item.id));
@@ -240,14 +278,20 @@ async function list() {
     if(/^TEST-/.test(item.management_id)) badges.append(el("span","TESTBED 합성","badge attention"));
     badges.append(el("span",intakeStatus(item.status),"badge"),el("span",reviewStatus(item.review_status),"badge"+(item.review_status==="needs_followup"?" attention":"")));
     b.append(badges);
-    b.className="case";b.setAttribute("aria-current",String(item.id===selected));$("cases").append(b);
+    b.dataset.caseId=item.id; b.className="case";b.setAttribute("aria-current",String(item.id===selected));$("cases").append(b);
   }); $("prev").disabled=offset===0;$("next").disabled=data.items.length<20;
 }
 async function showReport(id) {
-  const r=await api("/intakes/"+id+query());selected=id;
+  const request = ++reportVersion;
+  const position = reportOpen ? listPosition : {x:window.scrollX, y:window.scrollY};
+  const r=await api("/intakes/"+id+query());
+  if (request !== reportVersion) return;
+  selected=id; listPosition=position;
   const latestReview=r.reviews?.length?r.reviews[r.reviews.length-1].status:"unreviewed";
   const reportReviewStatus=r.review_status||latestReview;
   const target=$("report");target.replaceChildren(el("h2",r.management_id+" 접수 보고서"));
+  const back = button("접수 목록으로", returnToCases);
+  back.className="secondary back-to-cases"; target.prepend(back);
   const meta=el("div",undefined,"report-meta");
   [["관리번호",r.management_id],["접수 상태",intakeStatus(r.status)],["검토 상태",reviewStatus(reportReviewStatus)],["저장 시각·버전",new Date(r.updated_at).toLocaleString()+" · v"+r.version]].forEach(([label,value])=>meta.append(el("p",label+": "+value)));
   if(/^TEST-/.test(r.management_id)) meta.append(el("p","자료 구분: TESTBED 합성 자료"));
@@ -292,7 +336,7 @@ async function showReport(id) {
   returnToField.hidden=true;
   function sourceLink(label,source){
     const sourceButton=button(label,async()=>{
-      await loadRaw();
+      if (!await loadRaw() || (mobileLayout.matches && !reportOpen)) return;
       const turn=document.getElementById("turn-"+source.day+"-"+source.seq);
       if(turn){
         sourceOrigin=sourceButton;returnToField.hidden=false;turn.prepend(returnToField);
@@ -308,11 +352,15 @@ async function showReport(id) {
   target.append(sourceSection);
   async function loadRaw(){
     const data=await api("/intakes/"+id+"/transcript"+query()+ "&request=read");
+    if (request !== reportVersion) return;
     raw.replaceChildren(el("h3","저장 원문 · 직접 식별정보 치환"));
     data.documents.forEach(doc=>doc.turns.filter(t=>["user","assistant"].includes(t.role)).forEach(t=>{const item=el("div",undefined,"turn "+t.role);item.id="turn-"+doc.day+"-"+t.seq;item.append(el("strong",doc.day+" #"+t.seq+" "+(t.role==="user"?"내담자":"도우미")),el("p",t.text));raw.append(item);}));
     if(raw.children.length===1) raw.append(el("p","저장된 발화가 없습니다."));
+    return true;
   }
-  sourceSection.append(returnToField,raw);target.tabIndex=-1;target.focus();await list();
+  sourceSection.append(returnToField,raw);
+  for (const item of $("cases").children) item.setAttribute("aria-current", String(item.dataset.caseId === selected));
+  reportOpen=true; syncCaseView(); target.tabIndex=-1;target.focus();
 }
 $("google-login").onclick = () => work(async () => {
   $("google-login").disabled = true;
@@ -357,7 +405,7 @@ form("code-form",async()=>{const r=await api("/auth/device-verify","POST",{code:
 async function logout(){await api("/auth/logout","POST",{});csrf="";clearWorkspace();}
 $("logout").onclick=()=>work(logout);$("pending-logout").onclick=()=>work(logout);
 $("admin-logout").onclick=()=>work(logout);$("admin-refresh").onclick=()=>work(load);
-$("org").onchange=()=>work(selectOrg);$("refresh").onclick=()=>work(refresh);
+$("org").onchange=()=>work(async()=>{$("search").value="";await selectOrg();});$("refresh").onclick=()=>work(refresh);
 $("testbed-org").onchange=()=>{$("testbed-result").replaceChildren();updateTestbedActions();};
 $("testbed-open-org").onclick=event=>{if($("testbed-open-org").getAttribute("aria-disabled") === "true")event.preventDefault();};
 function renderTestbedResult(result,orgId,container,canRead){
@@ -396,7 +444,7 @@ $("institution-testbed-start").onclick=()=>work(async()=>{
 });
 $("open-org-admin").onclick=()=>{$("registration-details").open=true;$("org-admin").open=true;};
 $("open-registration-requests").onclick=()=>{$("registration-details").open=true;};
-form("search-form",async()=>{offset=0;selected=null;$("report").replaceChildren(el("h2","접수 보고서"),el("p","검색 결과에서 접수를 선택해 주세요."));await list();});$("prev").onclick=()=>work(async()=>{offset=Math.max(0,offset-20);await list();});$("next").onclick=()=>work(async()=>{offset+=20;await list();});
+form("search-form",async()=>{offset=0;resetCaseView();await list();});$("prev").onclick=()=>work(async()=>{offset=Math.max(0,offset-20);resetCaseView();await list();});$("next").onclick=()=>work(async()=>{offset+=20;resetCaseView();await list();});
 form("link-form",async()=>{const r=await api("/links","POST",{org_id:org,management_id:$("management").value});const a=el("a",r.url);a.href=r.url;a.target="_blank";a.rel="noopener noreferrer";$("link-result").replaceChildren(a,button("링크 복사",()=>navigator.clipboard.writeText(r.url)));await refresh();});
 form("invite-form",async()=>{await api("/invitations","POST",{org_id:org,email:$("invite-email").value,permissions:$("invite-role").value==="summary"?["report:read"]:["report:read","raw:read","review:write"]});notice("초대 메일을 로컬 메일함에 캡처했습니다.");});
 form("invite-accept",async()=>{await api("/auth/accept-invitation","POST",{token:$("invite-token").value,password:$("invite-password").value});$("invite-token").value="";$("invite-password").value="";notice("초대를 수락했습니다. 로그인 후 이메일로 기기를 확인해 주세요.");});
@@ -406,6 +454,7 @@ form("email-verify-form",async()=>{await api("/auth/email-verify","POST",{token:
 // Prevent restored browser history from exposing a stale report after logout.
 window.addEventListener("pageshow",event=>{if(event.persisted){clearWorkspace();work(load);}});
 load().catch(async e=>{
+  if (e.message === "stale-context") return;
   clearWorkspace();
   if (emailMode) {
     try { const pending=await api("/auth/email-pending"); pendingEmail=pending.email; showEmailCode(pending); return; }
