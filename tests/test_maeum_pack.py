@@ -71,7 +71,7 @@ def test_existing_slots_and_crisis_flags_are_preserved():
         updates = {}
         if slot.id in {"coping", "support", "expectation"}:
             updates["priority"] = slot.priority + 1
-        if slot.id == "expectation":
+        if slot.id in {"symptom_context", "relationship_duration", "expectation"}:
             updates["extract"] = "when_asked"
         if slot.id == "track":
             signals = {key: list(values) for key, values in slot.signals.items()}

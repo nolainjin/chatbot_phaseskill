@@ -82,7 +82,10 @@ def test_cause_follows_timing_and_accepts_unknown(track):
     session.slots = {"track": track, "chief_complaint": "합성 고민"}
     if track == "관계":
         session.slots["relationship_target"] = "동료"
-    session.last_question_slot_id = "symptom_context" if track == "정서" else "relationship_duration"
+    timing_slot_id = "symptom_context" if track == "정서" else "relationship_duration"
+    timing_ask = next(slot.ask for slot in intake.load_schema(PACK).slots if slot.id == timing_slot_id)
+    session.history = [{"role": "assistant", "content": timing_ask}]
+    session.last_question_slot_id = timing_slot_id
     result = chat.handle_message("cause", "몇 달째 이어지고 집중에 영향이 있어요")
     assert result["intake"]["unfilled"][0]["id"] == "cause"
     result = chat.handle_message("cause", "잘 모르겠어요")

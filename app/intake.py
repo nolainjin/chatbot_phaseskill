@@ -285,6 +285,23 @@ def _can_override(
     return True
 
 
+def _accepts_extraction_context(
+    schema: Schema,
+    slot: Slot,
+    filled: dict,
+    last_question_slot_id: str | None,
+) -> bool:
+    """Reject cross-question updates to an established center chief complaint."""
+    if not slot.accepts_answer(last_question_slot_id):
+        return False
+    return not (
+        schema.handoff_mode == "center"
+        and slot.id == "chief_complaint"
+        and slot.id in filled
+        and last_question_slot_id != slot.id
+    )
+
+
 def extract_fake(message: str, schema: Schema, filled: dict, last_question_slot_id=None) -> dict[str, str]:
     """fake 모드 전용 결정론적 슬롯 추출.
 
@@ -295,7 +312,7 @@ def extract_fake(message: str, schema: Schema, filled: dict, last_question_slot_
     """
     new_fills: dict[str, str] = {}
     for slot in schema.active_slots(filled):
-        if not slot.accepts_answer(last_question_slot_id):
+        if not _accepts_extraction_context(schema, slot, filled, last_question_slot_id):
             continue
         if slot.signals is None:
             continue
@@ -396,7 +413,9 @@ def extract_real(
         slot = active_slots.get(slot_id)
         if slot is None:
             continue
-        if not slot.accepts_answer(last_question_slot_id):
+        if not _accepts_extraction_context(
+            schema, slot, {**filled, **accepted}, last_question_slot_id
+        ):
             continue
         if not isinstance(value, str):
             continue

@@ -116,6 +116,7 @@ intake_schema:
       priority: 2
       when: "track=정서"
       capture: full_message
+      extract: when_asked
       ask: "이 어려움은 언제부터 시작됐고, 일상에는 어떤 영향을 주고 있나요?"
       signals: [언제부터, 얼마나, 자주, 상황, 개월, 달, 주일, 일주일, 갑자기, 계속, 시작, 집중, 일상, 영향, 심각, 업무, 회사, 학교, 잠, 수면, 불면, 피곤, 식욕, 무섭, 무서]
     - id: relationship_target
@@ -131,6 +132,7 @@ intake_schema:
       priority: 3
       when: "track=관계"
       capture: full_message
+      extract: when_asked
       ask: "이 관계에서 이런 상황은 언제부터 이어졌고, 일상에는 어떤 영향을 주고 있나요? 기간과 영향을 말씀해 주세요."
       signals: [언제부터, 얼마나 됐, 얼마나 오래, 얼마나 만났, 년, 개월, 달, 주일, 최근, 오래, 계속, 일상, 영향, 잠, 수면, 식욕, 집중, 피곤]
       reject_signals: [남편, 아내, 배우자, 부부, 가족, 아이, 자녀, 친구, 부모, 동료, 선생님, 상사, 연인]
