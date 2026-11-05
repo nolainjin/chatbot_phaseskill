@@ -1,0 +1,46 @@
+{
+  "summary": {
+    "track": "관계",
+    "track_inferred": true,
+    "slots": {
+      "track": "관계",
+      "chief_complaint": "공부에 집중하기가 너무 힘들어요 / 시험 성적 때문에 불안해요",
+      "relationship_target": "친구",
+      "relationship_duration": "한 석달전부터? 중간고사 이후부터요.",
+      "cause": "시험 성적 때문에 불안해요",
+      "coping": "집에서 쉬거나 버티면서 지냈어요.",
+      "support": "다 해도 다른 친구들한테 금방 따라잡히지 않나? 이런 생각요",
+      "expectation": "저녁에 책상에 앉으면요"
+    },
+    "unfilled": {},
+    "red_flags": [],
+    "handoff": {"mode": "center", "sent": true},
+    "slot_evidence": {
+      "track": {"status": "answered", "value": "관계", "source": {"day": "2026-11-05", "seq": 4, "role": "user"}},
+      "relationship_target": {"status": "answered", "value": "친구", "source": {"day": "2026-11-05", "seq": 4, "role": "user"}},
+      "relationship_duration": {"status": "answered", "value": "한 석달전부터? 중간고사 이후부터요.", "source": {"day": "2026-11-05", "seq": 6, "role": "user"}},
+      "support": {"status": "answered", "value": "다 해도 다른 친구들한테 금방 따라잡히지 않나? 이런 생각요", "source": {"day": "2026-11-05", "seq": 4, "role": "user"}},
+      "expectation": {"status": "answered", "value": "저녁에 책상에 앉으면요", "source": {"day": "2026-11-05", "seq": 12, "role": "user"}}
+    }
+  },
+  "sources": {
+    "track": [{"day": "2026-11-05", "seq": 4, "role": "user"}],
+    "relationship_target": [{"day": "2026-11-05", "seq": 4, "role": "user"}],
+    "relationship_duration": [{"day": "2026-11-05", "seq": 6, "role": "user"}],
+    "support": [{"day": "2026-11-05", "seq": 4, "role": "user"}],
+    "expectation": [{"day": "2026-11-05", "seq": 12, "role": "user"}]
+  },
+  "documents": [{
+    "day": "2026-11-05",
+    "turns": [
+      {"seq": 0, "role": "user", "text": "공부에 집중하기가 너무 힘들어요"},
+      {"seq": 3, "role": "assistant", "text": "마음이 다른 생각으로 끌려가는 쪽인지 알려주실 수 있을까요?"},
+      {"seq": 4, "role": "user", "text": "다 해도 다른 친구들한테 금방 따라잡히지 않나? 이런 생각요"},
+      {"seq": 5, "role": "assistant", "text": "이런 비교 생각은 언제부터 이어졌고 일상에는 어떤 영향을 주나요?"},
+      {"seq": 6, "role": "user", "text": "한 석달전부터? 중간고사 이후부터요."},
+      {"seq": 8, "role": "user", "text": "시험 성적 때문에 불안해요"},
+      {"seq": 11, "role": "assistant", "text": "이 생각들이 가장 크게 올라오는 때는 주로 언제인가요?"},
+      {"seq": 12, "role": "user", "text": "저녁에 책상에 앉으면요"}
+    ]
+  }]
+}

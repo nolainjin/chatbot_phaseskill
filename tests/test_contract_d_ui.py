@@ -148,7 +148,8 @@ const walk = el => [el, ...el.children.flatMap(walk)];
   if (spec.scenario === 'pending-chat-reload') {
     assert.equal(node('message-input').value, '보존된 재시도 원문');
     assert.equal(node('chips').hidden, true);
-    assert.equal(node('retry-button').hidden, false);
+    node('chat-form').fire('submit'); await tick();
+    assert.equal(requests.filter(r => r.url === '/api/chat').at(-1).payload.request_id, 'retry-id-123');
     return;
   }
   assert.equal(node('message-input').disabled, true);
@@ -179,19 +180,21 @@ const walk = el => [el, ...el.children.flatMap(walk)];
   if (spec.scenario === 'closing-recovery') {
     node('message-input').value = '시간을 목요일로 정정해 주세요';
     node('chat-form').fire('submit'); await tick();
+    const firstRequestId = requests.filter(r => r.url === '/api/chat').at(-1).payload.request_id;
     assert.equal(node('delivery-status').textContent, '처리 다시 시도 필요');
-    node('retry-button').fire('click'); await tick();
+    node('chat-form').fire('submit'); await tick();
+    assert.equal(requests.filter(r => r.url === '/api/chat').at(-1).payload.request_id, firstRequestId);
     const matching = walk(node('messages')).filter(el => el.className === 'message message-assistant' && el.textContent === '수정 내용을 분석하지 못했어요.');
     assert.equal(matching.length, 1, 'retry must not append the same transient error again');
     node('message-input').value = '시간을 금요일 오전으로 정정해 주세요';
     node('message-input').fire('input');
     node('chat-form').fire('submit'); await tick();
+    assert.notEqual(requests.filter(r => r.url === '/api/chat').at(-1).payload.request_id, firstRequestId);
     assert.ok(node('messages').children.at(-2).textContent.includes('금요일 오전'), 'new failure follows the newly edited input');
     const cancel = walk(node('contextual-replies')).find(el => el.tag === 'button' && el.textContent.includes('수정 취소'));
     assert.ok(cancel, 'server-provided recovery action must remain available');
     cancel.fire('click'); await tick();
     assert.equal(requests.filter(r => r.url === '/api/chat').at(-1).payload.message, '수정 취소');
-    assert.equal(node('retry-button').hidden, true);
     assert.equal(node('delivery-status').textContent, '접수 완료 전 확인');
     return;
   }
@@ -200,7 +203,6 @@ const walk = el => [el, ...el.children.flatMap(walk)];
     node('chat-form').fire('submit'); await tick();
     const first = requests.filter(r => r.url === '/api/chat').at(-1);
     assert.equal(node('message-input').value, '합성 재시도 원문');
-    assert.equal(node('retry-button').hidden, false);
     node('chat-form').fire('submit'); await tick();
     const second = requests.filter(r => r.url === '/api/chat').at(-1);
     assert.equal(second.payload.request_id, first.payload.request_id);

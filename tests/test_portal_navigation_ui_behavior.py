@@ -118,3 +118,42 @@ resolve({ok:true,json:async()=>({logged_out:true})});
 console.log(JSON.stringify(await pending));
 """)
     assert result == {"logged_out": True}
+
+
+def test_unconfirmed_report_field_never_displays_a_stale_answer():
+    source = SCRIPT[SCRIPT.index("async function showReport("):SCRIPT.index('$("google-login").onclick')]
+    result = run(source, """
+c.has=()=>true;
+c.api=async()=>({management_id:'TEST-QUALITY',status:'complete',updated_at:'2026-11-05',
+ version:9,summary:{slots:{expectation:'저녁에 책상에 앉으면요',symptom_context:'저녁에 책상에 앉으면요'},
+ slot_evidence:{expectation:{status:'unconfirmed',value:'오래된 잘못된 값'}},
+ report_quality:{repairs:[{field:'expectation'}]}},
+ slot_labels:{expectation:'상담 기대',symptom_context:'증상 시기·일상 영향'},
+ sources:{symptom_context:[{day:'2026-11-05',seq:6},{day:'2026-11-05',seq:12}]},reviews:[]});
+await c.showReport('1');
+const walk=n=>[n,...n.children.flatMap(walk)];
+const fields=walk(nodes.report).filter(n=>n.children[0]?.text==='상담 기대');
+const all=walk(nodes.report).map(n=>n.text);
+console.log(JSON.stringify({expectation:fields[0].children.map(n=>n.text),
+ staleValueVisible:all.includes('오래된 잘못된 값'),
+ timingOccurrences:all.filter(t=>t==='저녁에 책상에 앉으면요').length,
+ repairNotices:all.filter(t=>t?.includes('미확인 항목은 상담사가 직접 확인')).length,
+ sources:all.filter(t=>t?.startsWith('출처 #'))}));
+""")
+    assert result == {"expectation": ["상담 기대", "unconfirmed", "미확인"],
+                      "staleValueVisible": False, "timingOccurrences": 1,
+                      "repairNotices": 1, "sources": ["출처 #6", "출처 #12"]}
+
+
+def test_unchanged_report_has_no_repair_notice():
+    source = SCRIPT[SCRIPT.index("async function showReport("):SCRIPT.index('$("google-login").onclick')]
+    result = run(source, """
+c.api=async()=>({management_id:'TEST-VALID',status:'complete',updated_at:'2026-11-05',
+ version:1,summary:{slots:{expectation:'걱정을 다루는 방법을 배우고 싶어요'}},
+ slot_labels:{expectation:'상담 기대'},sources:{},reviews:[]});
+await c.showReport('1');
+const walk=n=>[n,...n.children.flatMap(walk)];
+console.log(JSON.stringify({notices:walk(nodes.report).filter(n=>n.text?.includes('미확인 항목은 상담사가 직접 확인')).length,
+ preserved:walk(nodes.report).some(n=>n.text==='걱정을 다루는 방법을 배우고 싶어요')}));
+""")
+    assert result == {"notices": 0, "preserved": True}

@@ -198,7 +198,8 @@ def test_intake_ui_preserves_drafts_and_retries_the_same_request():
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'id="delivery-status"' in html
-    assert 'id="retry-button"' in html
+    assert '같은 내용 다시 전송' not in html
+    assert 'id="retry-button"' not in html
     assert 'request_id: request.request_id' in script
     assert 'sessionStorage.setItem(PENDING_REQUEST_KEY' in script
     assert 'sessionStorage.setItem(UI_STATE_KEY' in script
@@ -219,7 +220,8 @@ def test_intake_ui_preserves_drafts_and_retries_the_same_request():
     assert 'deleteCodeValueEl.textContent = "";' in script
     assert 'data.handoff.mode === "center")) return "delivered"' not in script
     assert script.count('if (handoffDelivered(data.handoff)) turnCounterEl.textContent = "전달 완료";') == 2
-    assert 'sendMessage(pendingRequest.message, {request: pendingRequest, retry: true})' in script
+    assert 'retryButtonEl' not in script
+    assert 'options.retry' not in script
     assert '접수 완료로 표시되었습니다. 상담사 검토 완료를 뜻하지는 않습니다.' in script
     assert '접수 중에도 소속 센터의 권한 있는 담당자가 확인할 수 있어요.' in script
     assert '아직 센터 전달 전입니다.' not in script
@@ -240,6 +242,8 @@ def test_portal_separates_intake_review_and_evidence_states():
     assert 'confirmed:"내담자 진술",answered:"내담자 진술",unclear:"추가 확인 필요"' in script
     assert 'state==="unconfirmed"&&value!=="미확인"?"answered":state' not in script
     assert 'Object.prototype.hasOwnProperty.call(evidence,key)||Boolean(slots[key])' in script
+    assert 'Array.isArray(reportRepairs)&&reportRepairs.length' in script
+    assert 'const value=state==="unconfirmed"?"미확인"' in script
     assert 'const coreKeys=visibleKeys.filter' in script
     assert 'detailSection.append(el("h3","세부 항목"))' in script
     assert 'r.sources["center_request:"+index]' in script

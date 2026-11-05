@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from fastapi import HTTPException
 
-from app import cloud_store, portal_config
+from app import cloud_store, portal_config, report_quality
 
 
 def digest(value):
@@ -245,5 +245,27 @@ def detail(conn, org_id, intake_id):
         # retention scrub was introduced. A later project() call repairs it.
         row["summary"] = retained_summary(row["summary"])
         row["sources"] = {}
+    elif isinstance(row.get("summary"), dict):
+        documents = None
+        raw_boundary_hit = False
+        permitted = conn.execute(
+            "SELECT maeum.permitted(%s,%s) AS ok", (org_id, "raw:read")
+        ).fetchone()
+        if permitted and permitted.get("ok"):
+            raw_rows = conn.execute(
+                "SELECT maeum.read_transcript(%s) AS document", (intake_id,)
+            ).fetchall()
+            documents = [item["document"] for item in raw_rows]
+            if any(isinstance(document, dict) and document.get("raw_purged_at")
+                   for document in documents):
+                row["summary"] = retained_summary(row["summary"])
+                row["sources"] = {}
+                row["raw_expired"] = True
+                documents = None
+                raw_boundary_hit = True
+        if not raw_boundary_hit:
+            projection = report_quality.project(row["summary"], row.get("sources") or {}, documents)
+            row["summary"] = projection["summary"]
+            row["sources"] = projection["sources"]
     row["reviews"] = conn.execute("SELECT actor_id,status,created_at FROM maeum.portal_reviews WHERE org_id=%s AND intake_id=%s ORDER BY created_at,id", (org_id, intake_id)).fetchall()
     return row

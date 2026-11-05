@@ -181,17 +181,19 @@ def test_invalid_model_track_is_still_rejected(value):
 
 
 @pytest.mark.parametrize("answer", ["네", "네, 맞아요", "남편이요", "직장 동료예요"])
-def test_model_confirmation_accepts_yes_or_relationship_target(monkeypatch, answer):
+def test_hidden_model_track_proposal_cannot_capture_followup_answer(monkeypatch, answer):
     monkeypatch.setattr(llm, "ask", lambda **kw: "관계라고 이해해도 될까요?")
-    chat.handle_message("d2", MESSAGES[0], _settings("codex-cli"))
+    first = chat.handle_message("d2", MESSAGES[0], _settings("codex-cli"))
     result = chat.handle_message("d2", answer, _settings("codex-cli"))
-    assert chat._sessions["d2"].slots["track"] == "관계"
+    assert "track" not in chat._sessions["d2"].slots
+    assert first["reply"].endswith("중 어디에 가장 가깝나요?")
+    assert chat._sessions["d2"].pending_track is None
     assert "관계라고 이해해도" not in result["reply"]
     assert not _saved()["intake_snapshot"].get("track_inferred")
 
 
 @pytest.mark.parametrize("model", ["fake", "codex-cli"])
-@pytest.mark.parametrize("first,expected", [("할 말이 떠오르지 않아요", "정서"), ("남편 생각이 나요", "관계")])
+@pytest.mark.parametrize("first,expected", [("할 말이 떠오르지 않아요", "정서"), ("남편 생각이 나요", "정서")])
 def test_two_unanswered_questions_then_inferred_track(monkeypatch, model, first, expected):
     if model != "fake":
         monkeypatch.setattr(llm, "ask", lambda **kw: "관계라고 이해해도 될까요?")

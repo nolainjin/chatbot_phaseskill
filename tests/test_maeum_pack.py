@@ -63,12 +63,28 @@ def test_existing_slots_and_crisis_flags_are_preserved():
     schema = load_schema(PACK_DIR)
 
     # dataclass 전체 비교로 values, signals, red_flag, when/unless까지 보호한다.
-    # 실제 모델이 원인 설명을 상담 기대에 미리 채우는 오류를 막는 명시적 차이.
-    assert [slot for slot in schema.slots if slot.id != "cause"] == [
-        replace(slot, priority=slot.priority + 1, extract="when_asked" if slot.id == "expectation" else slot.extract)
-        if slot.id in {"coping", "support", "expectation"} else slot
-        for slot in original.slots
-    ]
+    # 센터 팩의 의도적 학업 표현 보강과 when_asked 차이만 허용한다.
+    expected = []
+    for slot in original.slots:
+        if slot.id == "cause":
+            continue
+        updates = {}
+        if slot.id in {"coping", "support", "expectation"}:
+            updates["priority"] = slot.priority + 1
+        if slot.id == "expectation":
+            updates["extract"] = "when_asked"
+        if slot.id == "track":
+            signals = {key: list(values) for key, values in slot.signals.items()}
+            insert_at = signals["정서"].index("성적")
+            signals["정서"][insert_at:insert_at] = ["공부", "집중"]
+            updates["signals"] = signals
+        if slot.id == "chief_complaint":
+            signals = list(slot.signals)
+            insert_at = signals.index("성적")
+            signals[insert_at:insert_at] = ["공부", "집중"]
+            updates["signals"] = signals
+        expected.append(replace(slot, **updates))
+    assert [slot for slot in schema.slots if slot.id != "cause"] == expected
     track = schema.slots[0]
     assert track.values == ["위기", "중독", "관계", "정서"]
     assert list(track.signals) == ["위기", "중독", "관계", "정서"]

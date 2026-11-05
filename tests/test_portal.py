@@ -1384,6 +1384,60 @@ def test_T04_summary_only_strips_raw_provenance_and_revision_text(env):
     assert summary["slot_revisions"] == [{"field":"cause","source_turn":user_turn["seq"]}]
 
 
+def test_report_quality_projection_is_permission_gated_and_read_only(env):
+    manager = verified()
+    _, sid, receipt, _, _ = intake_case(manager)
+    summary_only = verified("a2@example.test")
+    fixture = json.loads((Path(__file__).parent / "fixtures/report-quality-legacy.json").read_text())
+
+    with owner() as conn:
+        key, payload = conn.execute(
+            "SELECT record_key,payload FROM maeum.records WHERE kind='conversation' "
+            "AND payload->>'session_id'=%s ORDER BY record_key LIMIT 1", (sid,)
+        ).fetchone()
+        actual_day = key.split("/", 1)[0]
+        fixture = json.loads(json.dumps(fixture).replace("2026-11-05", actual_day))
+        payload["turns"] = fixture["documents"][0]["turns"]
+        payload["intake_snapshot"] = fixture["summary"]
+        conn.execute(
+            "UPDATE maeum.records SET payload=%s WHERE kind='conversation' AND record_key=%s",
+            (Jsonb(payload), key),
+        )
+        conn.execute(
+            "UPDATE maeum.report_snapshots SET summary=%s,sources=%s WHERE intake_id=%s",
+            (Jsonb(fixture["summary"]), Jsonb(fixture["sources"]), receipt["intake_id"]),
+        )
+        stored_before_reads = conn.execute(
+            "SELECT version,source_revision,summary,sources FROM maeum.report_snapshots WHERE intake_id=%s",
+            (receipt["intake_id"],),
+        ).fetchone()
+
+    limited = report(summary_only, receipt["intake_id"]).json()
+    assert limited["summary"]["track"] == "관계"
+    assert "symptom_context" not in limited["summary"]["slots"]
+    assert limited["summary"]["slot_evidence"]["expectation"] == {"status": "unconfirmed"}
+    assert limited["summary"]["slot_evidence"]["support"] == {"status": "unconfirmed"}
+
+    projected = report(manager, receipt["intake_id"]).json()
+    assert projected["summary"]["track"] == "정서"
+    assert projected["summary"]["slots"]["symptom_context"] == (
+        "한 석달전부터? 중간고사 이후부터요. / 저녁에 책상에 앉으면요"
+    )
+    assert projected["sources"]["symptom_context"] == [
+        {"day": actual_day, "seq": 6, "role": "user"},
+        {"day": actual_day, "seq": 12, "role": "user"},
+    ]
+
+    with owner() as conn:
+        stored = conn.execute(
+            "SELECT version,source_revision,summary,sources FROM maeum.report_snapshots WHERE intake_id=%s",
+            (receipt["intake_id"],),
+        ).fetchone()
+    assert stored == stored_before_reads
+    assert stored[2] == fixture["summary"]
+    assert stored[3] == fixture["sources"]
+
+
 def test_T05_T06_device_cookie_is_not_login_and_ip_no_challenge(env):
     c=verified()
     assert post(c,"/auth/logout").status_code==200

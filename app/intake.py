@@ -164,7 +164,39 @@ def _fake_slot_value(message: str, matched_value: str, slot: Slot) -> str:
     return matched_value
 
 
-def _is_rejected_by_signal_guard(message: str | None, slot: Slot) -> bool:
+def _has_semantic_slot_evidence(
+    message: str | None, slot: Slot, last_question_slot_id: str | None = None
+) -> bool:
+    """Require meaning, not a shared noun, for narrow support/expectation slots."""
+    if message is None or slot.id not in {"support", "expectation"}:
+        return True
+    if last_question_slot_id == slot.id:
+        return True
+    normalized = safety.normalize_for_signal(message)
+    if slot.id == "support":
+        direct_support = any(marker in normalized for marker in (
+            "도와주", "곁에서", "이이야기를알고", "내상황을알고", "털어놓", "들어줘",
+            "들어주", "의지", "상의", "연락할사람",
+            "혼자예요", "혼자입니다", "아무도없", "아무도몰라", "도와줄사람이없",
+            "말할사람이없", "얘기할사람이없", "털어놓을사람이없",
+        ))
+        disclosure = any(
+            f"{person}{particle}{speech}" in normalized
+            for person in ("친구", "가족", "부모", "엄마", "아빠", "선생님", "상담사", "동료")
+            for particle in ("에게", "한테", "와", "랑")
+            for speech in ("말했", "말해봤", "얘기했", "얘기해", "이야기했", "이야기해")
+        )
+        return direct_support or disclosure
+    return any(marker in normalized for marker in (
+        "기대", "원하", "바라", "도움", "편해지", "나아지", "바뀌", "좋겠",
+        "했으면", "줄었으면", "알고싶", "배우고싶", "정리하고싶", "해결하고싶",
+        "상담받", "상담을받",
+    ))
+
+
+def _is_rejected_by_signal_guard(
+    message: str | None, slot: Slot, last_question_slot_id: str | None = None
+) -> bool:
     """slot-level negative signal guard.
 
     Some slots are semantically narrower than their keyword hints. Example:
@@ -174,6 +206,8 @@ def _is_rejected_by_signal_guard(message: str | None, slot: Slot) -> bool:
     """
     if message is None:
         return False
+    if not _has_semantic_slot_evidence(message, slot, last_question_slot_id):
+        return True
     if slot.id == "coping":
         normalized = safety.normalize_for_signal(message)
         counselor_preference = any(marker in normalized for marker in (
@@ -276,7 +310,7 @@ def extract_fake(message: str, schema: Schema, filled: dict, last_question_slot_
             matched_value = _match_signal(message, slot.signals)
         if matched_value is None:
             continue
-        if _is_rejected_by_signal_guard(message, slot):
+        if _is_rejected_by_signal_guard(message, slot, last_question_slot_id):
             continue
         if slot.id in filled and not _can_override(slot, filled[slot.id], matched_value, message):
             continue
@@ -380,7 +414,7 @@ def extract_real(
         # 자유 문자열("work-related stress")을 받으면 조건부 슬롯이 통째로 안 켜진다.
         if slot.values and value not in slot.values:
             continue
-        if _is_rejected_by_signal_guard(message, slot):
+        if _is_rejected_by_signal_guard(message, slot, last_question_slot_id):
             continue
         if slot_id in filled and not _can_override(slot, filled[slot_id], value, message):
             continue

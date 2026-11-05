@@ -141,7 +141,6 @@
   var deliveryStatusEl = document.getElementById("delivery-status");
   var deliveryHelpEl = document.getElementById("delivery-help");
   var deliveryProgressEl = document.getElementById("delivery-progress");
-  var retryButtonEl = document.getElementById("retry-button");
   var coachingStatusEl = document.getElementById("coaching-status");
   var coachingStageEl = document.getElementById("coaching-stage");
   var coachingNextActionEl = document.getElementById("coaching-next-action");
@@ -198,7 +197,6 @@
     pendingRequest = request || null;
     if (request) sessionStorage.setItem(PENDING_REQUEST_KEY, JSON.stringify(request));
     else sessionStorage.removeItem(PENDING_REQUEST_KEY);
-    if (retryButtonEl) retryButtonEl.hidden = !request;
   }
 
   function clearSensitiveTabState() {
@@ -206,7 +204,6 @@
     sessionStorage.removeItem(PENDING_REQUEST_KEY);
     sessionStorage.removeItem(DRAFT_KEY);
     sessionStorage.removeItem(UI_STATE_KEY);
-    if (retryButtonEl) retryButtonEl.hidden = true;
     inputEl.value = "";
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
     sessionStorage.removeItem(CONSENT_KEY);
@@ -231,7 +228,6 @@
     inputEl.value = pendingRequest.message;
     inputEl.readOnly = false;
     if (!consentRequired || consentGranted) inputEl.disabled = false;
-    if (retryButtonEl) retryButtonEl.hidden = false;
     setDeliveryState("retryable");
     return true;
   }
@@ -695,7 +691,6 @@
       characterCountEl.classList.toggle("near-limit", length > MAX_MESSAGE_LEN * 0.85);
     }
     sendButtonEl.disabled = requestPending || inputEl.disabled || !inputEl.value.trim();
-    if (retryButtonEl) retryButtonEl.disabled = requestPending;
     autoResizeInput();
   }
 
@@ -796,19 +791,18 @@
     inputEl.focus();
   }
 
-  function sendMessage(message, options) {
-    options = options || {};
+  function sendMessage(message) {
     if (requestPending || !configReady || (consentRequired && !consentGranted) || inputEl.disabled) return;
     message = String(message || "").trim().slice(0, MAX_MESSAGE_LEN);
     if (!message) return;
 
     var reusableRequest = pendingRequest && pendingRequest.session_id === getSessionId() && pendingRequest.message === message ? pendingRequest : null;
-    var request = options.request || reusableRequest || {
+    var request = reusableRequest || {
       request_id: crypto.randomUUID(),
       message: message,
       session_id: getSessionId()
     };
-    var isRetry = options.retry || request === reusableRequest;
+    var isRetry = request === reusableRequest;
     requestPending = true;
     rememberPending(request);
     userHasSpoken = true;
@@ -817,7 +811,7 @@
     setStatus("입력 내용을 저장하고 분석하고 있어요…");
     setDeliveryState("analyzing");
     if (!isRetry) addMessage("user", message);
-    if (!options.preserveInput) inputEl.value = "";
+    inputEl.value = "";
     saveDraft("");
     inputEl.readOnly = true;
     if (resetSessionEl) resetSessionEl.disabled = true;
@@ -957,14 +951,6 @@
 
   if (resetSessionEl) {
     resetSessionEl.addEventListener("click", resetSession);
-  }
-
-  if (retryButtonEl) {
-    retryButtonEl.addEventListener("click", function () {
-      if (!pendingRequest || requestPending) return;
-      inputEl.value = pendingRequest.message;
-      sendMessage(pendingRequest.message, {request: pendingRequest, retry: true});
-    });
   }
 
   if (chipsEl) {

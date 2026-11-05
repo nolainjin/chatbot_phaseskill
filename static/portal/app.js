@@ -296,6 +296,8 @@ async function showReport(id) {
   [["관리번호",r.management_id],["접수 상태",intakeStatus(r.status)],["검토 상태",reviewStatus(reportReviewStatus)],["저장 시각·버전",new Date(r.updated_at).toLocaleString()+" · v"+r.version]].forEach(([label,value])=>meta.append(el("p",label+": "+value)));
   if(/^TEST-/.test(r.management_id)) meta.append(el("p","자료 구분: TESTBED 합성 자료"));
   target.append(meta);
+  const reportRepairs=r.summary.report_quality?.repairs;
+  if(Array.isArray(reportRepairs)&&reportRepairs.length) target.append(el("p","내용이 맞지 않는 항목을 다시 정리했습니다. 미확인 항목은 상담사가 직접 확인해 주세요.","report-repair-notice"));
   if(r.summary.red_flags?.length) target.append(el("p","사람 확인 필요: 저장된 확인 신호가 있습니다. 상담사가 내용을 직접 확인해 주세요."));
   const slots=r.summary.slots||{};
   const evidence=r.summary.slot_evidence||r.slot_evidence||{};
@@ -308,7 +310,7 @@ async function showReport(id) {
   if(!detailKeys.length) detailSection.append(el("p","현재 확인된 세부 항목이 없습니다.","hint"));
   visibleKeys.forEach(key=>{
     const label=r.slot_labels[key]; const item=evidence[key]||{}; const state=item.status||(slots[key]?"answered":"unconfirmed");
-    const value=item.value||slots[key]||(state==="declined"?"답변하지 않음":state==="not_applicable"?"해당 없음":"미확인");
+    const value=state==="unconfirmed"?"미확인":item.value||slots[key]||(state==="declined"?"답변하지 않음":state==="not_applicable"?"해당 없음":"미확인");
     const field=el("div",undefined,"field");field.append(el("strong",label),el("span",evidenceStatus(state),"field-state"),el("p",value));
     if(has("raw:read") && !r.raw_expired) (r.sources[key]||[]).forEach(source=>field.append(sourceLink("출처 #"+source.seq,source)));
     (coreKeys.includes(key)?summarySection:detailSection).append(field);
