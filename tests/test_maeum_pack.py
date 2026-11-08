@@ -63,7 +63,13 @@ def test_existing_slots_and_crisis_flags_are_preserved():
     schema = load_schema(PACK_DIR)
 
     # dataclass 전체 비교로 values, signals, red_flag, when/unless까지 보호한다.
-    # 센터 팩의 의도적 학업 표현 보강과 when_asked 차이만 허용한다.
+    # 센터 팩의 의도적 학업 표현 보강과 when_asked 차이, 응답 분류용 문구와
+    # 관계 대상 호칭 보강(2026-11-09)만 허용한다.
+    pack_by_id = {slot.id: slot for slot in schema.slots}
+    classified = {"chief_complaint", "symptom_context", "relationship_target",
+                  "relationship_duration", "coping", "support", "expectation"}
+    family_targets = ["남자친구", "여자친구", "시어머니", "시아버지", "어머니", "아버지", "엄마", "아빠",
+                      "장모", "누나", "오빠", "언니", "동생", "애인", "팀장", "룸메이트"]
     expected = []
     for slot in original.slots:
         if slot.id == "cause":
@@ -83,8 +89,27 @@ def test_existing_slots_and_crisis_flags_are_preserved():
             insert_at = signals.index("성적")
             signals[insert_at:insert_at] = ["공부", "집중"]
             updates["signals"] = signals
+        if slot.id == "relationship_target":
+            signals = list(slot.signals)
+            insert_at = signals.index("배우자")
+            signals[insert_at:insert_at] = family_targets
+            updates["signals"] = signals
+        if slot.id == "relationship_duration":
+            rejects = list(slot.reject_signals)
+            insert_at = rejects.index("배우자")
+            rejects[insert_at:insert_at] = family_targets
+            updates["reject_signals"] = rejects
+        if slot.id in classified:
+            pack = pack_by_id[slot.id]
+            assert pack.describe and pack.reask
+            updates.update(describe=pack.describe, reask=pack.reask, answer_group=pack.answer_group,
+                           ask_timing=pack.ask_timing, ask_impact=pack.ask_impact)
         expected.append(replace(slot, **updates))
     assert [slot for slot in schema.slots if slot.id != "cause"] == expected
+    assert {slot.id: slot.answer_group for slot in schema.slots if slot.answer_group} == {
+        "symptom_context": "onset_impact", "relationship_duration": "onset_impact"}
+    assert {slot.id for slot in schema.slots if slot.ask_timing and slot.ask_impact} == {
+        "symptom_context", "relationship_duration"}
     track = schema.slots[0]
     assert track.values == ["위기", "중독", "관계", "정서"]
     assert list(track.signals) == ["위기", "중독", "관계", "정서"]

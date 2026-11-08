@@ -1,0 +1,438 @@
+{
+  "version": 1,
+  "note": "보류 세트: 응답 분류 지시문을 다듬기 전에 따로 쓴 합성 사례. 다듬는 데 쓰지 않고 일반화 확인에만 쓴다.",
+  "personas": {
+    "H1": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {
+          "text": "졸업을 앞두고 진로가 막막해서 하루 종일 초조해요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "막막"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "불안한 쪽이에요.",
+          "facts": []
+        },
+        "symptom_context": {
+          "text": "지난 학기 말부터요. 요즘은 밥을 거르고 수업에도 잘 안 가요.",
+          "facts": [
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "학기말"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "밥을거르"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "동기들이 하나둘 취업하는 걸 보면서부터인 것 같아요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "취업하는"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "취업 상담실에 한 번 가 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "취업상담실"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "룸메이트가 사정을 알고 챙겨 줘요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "룸메이트"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "불안을 좀 다스리면서 준비할 수 있으면 좋겠어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "다스리"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "H2": {
+      "track": "관계",
+      "bank": {
+        "chief_complaint": {
+          "text": "팀장님이랑 자꾸 부딪혀서 출근하기가 괴로워요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "출근하기가"
+              ]
+            },
+            {
+              "slot": "relationship_target",
+              "keys": [
+                "팀장"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "직장 사람과의 관계 문제예요.",
+          "facts": []
+        },
+        "relationship_target": {
+          "text": "팀장님이요.",
+          "facts": [
+            {
+              "slot": "relationship_target",
+              "keys": [
+                "팀장"
+              ]
+            }
+          ]
+        },
+        "relationship_duration": {
+          "text": "올봄 부서 이동 뒤로 넉 달째고, 주말에도 그 생각에 잠을 설쳐요.",
+          "facts": [
+            {
+              "slot": "relationship_duration",
+              "keys": [
+                "넉달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "relationship_duration",
+              "keys": [
+                "잠을설쳐"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "회의에서 제 보고서를 크게 지적받은 일이 시작이었어요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "보고서"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "인사팀에 면담을 신청해 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "인사팀"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "아내가 다 알고 있어요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "아내"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "팀장님과 일할 때 덜 위축되고 싶어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "위축"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "H3": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {
+          "text": "어머니 병간호를 하면서 너무 지치고 우울해요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "병간호"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "우울한 쪽이요.",
+          "facts": []
+        },
+        "symptom_context": {
+          "text": "반년 넘었고 요새는 사람 만나는 걸 다 피해요.",
+          "facts": [
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "반년"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "피해요"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "어머니가 넘어지셔서 입원하신 뒤로 그래요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "넘어지"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "주말에 동생한테 하루씩 맡겨 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "하루씩"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "남편은 바빠서 잘 몰라요. 기댈 사람이 없어요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "기댈사람"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "제 마음을 좀 추스르고 싶어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "추스르"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "h1-simple",
+      "persona": "H1",
+      "category": "control"
+    },
+    {
+      "id": "h1-multi-open",
+      "persona": "H1",
+      "category": "multi_info",
+      "opening": {
+        "text": "졸업을 앞두고 진로가 막막해요. 지난 학기 말부터 그랬고 동기들이 취업하는 걸 보면서 더 심해졌어요. 취업 상담실에도 가 봤어요.",
+        "facts": [
+          {
+            "slot": "chief_complaint",
+            "keys": [
+              "막막"
+            ]
+          },
+          {
+            "slot": "symptom_context",
+            "keys": [
+              "학기말"
+            ],
+            "aspect": "timing"
+          },
+          {
+            "slot": "cause",
+            "keys": [
+              "취업하는"
+            ]
+          },
+          {
+            "slot": "coping",
+            "keys": [
+              "취업상담실"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "h1-offtopic-support",
+      "persona": "H1",
+      "category": "offtopic",
+      "overrides": [
+        {
+          "when_asked": "support",
+          "occurrence": 1,
+          "offtopic": true,
+          "text": "솔직히 불안만 좀 줄었으면 좋겠어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "줄었으면"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h2-target-in-opening",
+      "persona": "H2",
+      "category": "pre_answered"
+    },
+    {
+      "id": "h2-multi-duration",
+      "persona": "H2",
+      "category": "multi_info",
+      "overrides": [
+        {
+          "when_asked": "relationship_duration",
+          "occurrence": 1,
+          "text": "넉 달째예요. 회의에서 보고서를 지적받은 뒤로 그랬고, 인사팀에 면담도 신청해 봤어요.",
+          "facts": [
+            {
+              "slot": "relationship_duration",
+              "keys": [
+                "넉달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "cause",
+              "keys": [
+                "보고서"
+              ]
+            },
+            {
+              "slot": "coping",
+              "keys": [
+                "인사팀"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h2-offtopic-cause",
+      "persona": "H2",
+      "category": "offtopic",
+      "overrides": [
+        {
+          "when_asked": "cause",
+          "occurrence": 1,
+          "offtopic": true,
+          "text": "아내가 다 알고 있어요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "아내"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h3-duration-in-complaint",
+      "persona": "H3",
+      "category": "pre_answered",
+      "opening": {
+        "text": "반년 넘게 어머니 병간호를 하면서 너무 지치고 우울해요.",
+        "facts": [
+          {
+            "slot": "symptom_context",
+            "keys": [
+              "반년"
+            ],
+            "aspect": "timing"
+          },
+          {
+            "slot": "chief_complaint",
+            "keys": [
+              "병간호"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "h3-decline-support",
+      "persona": "H3",
+      "category": "decline",
+      "overrides": [
+        {
+          "when_asked": "support",
+          "occurrence": 1,
+          "text": "그 얘기는 하고 싶지 않아요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "하고싶지않"
+              ],
+              "kind": "decline"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

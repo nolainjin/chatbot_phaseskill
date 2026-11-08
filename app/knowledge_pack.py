@@ -219,6 +219,9 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
             errors.append(ValidationIssue("SLOT_OVERRIDE_SIGNALS_TYPE", f"{path}.override_signals", "override_signals는 값별 문자열 목록이어야 합니다."))
         if "ask" in slot and not isinstance(slot["ask"], str):
             errors.append(ValidationIssue("SLOT_ASK_TYPE", f"{path}.ask", "ask는 문자열이어야 합니다."))
+        for key in ("describe", "reask", "answer_group", "ask_timing", "ask_impact"):
+            if key in slot and not _is_nonempty_str(slot[key]):
+                errors.append(ValidationIssue("SLOT_TEXT_TYPE", f"{path}.{key}", f"{key}는 비어있지 않은 문자열이어야 합니다."))
         if "capture" in slot and slot["capture"] != "full_message":
             errors.append(ValidationIssue("SLOT_CAPTURE_VALUE", f"{path}.capture", "capture는 full_message만 허용합니다."))
         if "extract" in slot and slot["extract"] != "when_asked":

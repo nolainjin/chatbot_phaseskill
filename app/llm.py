@@ -460,6 +460,49 @@ def ask_strict(system: str, history: list[dict[str, str]], user: str,
             f"model backend unavailable: {type(exc).__name__}: {exc}") from exc
 
 
+CLASSIFY_MAX_TOKENS = 4096
+
+
+def is_api_model(model: str) -> bool:
+    """Messages API backends (structured output, effort); not fake/auto/CLI."""
+    return model not in {"fake", AUTO_MODEL, CLI_MODEL} and not (
+        model == CODEX_CLI_MODEL or model.startswith(f"{CODEX_CLI_MODEL}:"))
+
+
+def classify(system: str, user: str, settings: Settings, json_schema: dict | None = None) -> str:
+    """Short evidence classification on a Messages API model at low effort.
+
+    CLI backends have no structured output and cost seconds per call, so the
+    caller enables classification only for API models (``is_api_model``)."""
+    if not is_api_model(settings.model):
+        raise ModelBackendError("classification needs a Messages API model")
+    if not settings.anthropic_api_key:
+        raise ModelBackendError("model backend unavailable: missing API key")
+    output_config: dict = {"effort": "low"}
+    if json_schema is not None:
+        output_config["format"] = {"type": "json_schema", "schema": json_schema}
+    try:
+        client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key,
+            **({"timeout": 30.0, "max_retries": 0} if os.getenv("VERCEL") == "1" else {}),
+        )
+        response = client.messages.create(
+            model=settings.model,
+            max_tokens=CLASSIFY_MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            output_config=output_config,
+        )
+    except anthropic.APIError as exc:
+        raise ModelBackendError(f"model backend unavailable: {type(exc).__name__}") from exc
+    if response.stop_reason != "end_turn":
+        raise ModelBackendError(f"classification stopped: {response.stop_reason}")
+    for block in response.content:
+        if block.type == "text":
+            return _bounded_output(block.text)
+    raise ModelBackendError("classification returned no text")
+
+
 def ask_without_fake(system: str, history: list[dict[str, str]], user: str,
                      doc_titles: list[str], settings: Settings) -> str:
     """Ordinary intake reply that may fail over real backends, never to demo fake."""

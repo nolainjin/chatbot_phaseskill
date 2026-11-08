@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import addiction, closing, consent, intake, knowledge, llm, prompting, referral, safety, storage
+from app import (addiction, answer_classifier, closing, consent, intake, knowledge, llm, prompting,
+                 referral, safety, storage)
 from app.config import Settings
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,19 @@ class ChatSession:
     track_questions: int = 0
     pending_track: str | None = None
     track_inferred: bool = False
+    # Answer classification (center mode): how often a question went unanswered,
+    # and grounded quotes waiting for the track to activate their slot.
+    slot_misses: dict[str, int] = field(default_factory=dict)
+    pending_slot_items: list[dict] = field(default_factory=list)
+    # Two-part slots: parts heard so far, and the part still to ask once
+    # ("timing"/"impact"; "done" after any question for that slot).
+    slot_aspects: dict[str, list[str]] = field(default_factory=dict)
+    slot_followups: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def skipped_slots(self) -> set[str]:
+        """Questions asked twice without an answer are left unconfirmed, not asked again."""
+        return {slot_id for slot_id, count in self.slot_misses.items() if count >= 2}
 
 
 _sessions: dict[str, ChatSession] = {}
@@ -213,7 +227,7 @@ def _question_for_slot(slot: intake.Slot) -> str:
     return f"{slot.label}에 대해 조금 더 말씀해 주세요."
 
 
-def _center_reply_for_slot(reply: str, slot: intake.Slot) -> str:
+def _center_reply_for_slot(reply: str, slot: intake.Slot, question: str | None = None) -> str:
     """Keep at most one safe reflection, then ask the exact owned question."""
     reflection = ""
     for sentence in re.split(r"(?<=[.!?。])\s+|\n+", reply.strip()):
@@ -232,7 +246,7 @@ def _center_reply_for_slot(reply: str, slot: intake.Slot) -> str:
         reflection = "말씀해 주셔서 감사합니다."
     elif reflection[-1] not in ".!。":
         reflection += "."
-    return f"{reflection} {_question_for_slot(slot)}"
+    return f"{reflection} {question or _question_for_slot(slot)}"
 
 
 def _build_fake_intake_reply(
@@ -521,6 +535,9 @@ def _save_retryable_center_input(session: ChatSession, participant_id: str, mess
     source = storage.append_turn(session.session_id, "user", message, participant_id=participant_id)
     session.history.append({"role": "user", "content": message})
     session.turns += 1
+    for item in session.pending_slot_items:
+        if item.get("source_turn") == session.turns:
+            item.setdefault("source", source)  # quotes classified before the reply failed
     if request_id:
         session.request_results[request_id] = {
             **existing, "status": "retryable", "user_saved": True, "source": source,
@@ -813,8 +830,13 @@ def _persist_intake_snapshot(
     )
 
 
-def _record_slot_evidence(session: ChatSession, fills: dict[str, str], source_text: str) -> None:
-    """Keep auditable source and revisions without inventing confirmation."""
+def _record_slot_evidence(session: ChatSession, fills: dict[str, str], source_text: str, *,
+                          statuses: dict[str, str] | None = None, merge: bool = True,
+                          source_turn: int | None = None, method: str | None = None) -> None:
+    """Keep auditable source and revisions without inventing confirmation.
+
+    Classified fills arrive already merged (``merge=False``) with the
+    classifier's status; ``method`` marks classifier and fallback fills."""
     mergeable_free_text = {
         "chief_complaint", "symptom_context", "relationship_duration",
         "cause", "coping", "expectation",
@@ -826,7 +848,7 @@ def _record_slot_evidence(session: ChatSession, fills: dict[str, str], source_te
                          for marker in ("정정할게", "정정합니다", "바꿀게", "바꿔주세요",
                                         "아니라", "잘못말했"))
         current = session.slots.get(slot_id)
-        if slot_id in mergeable_free_text and current and current != value and not correction:
+        if merge and slot_id in mergeable_free_text and current and current != value and not correction:
             if value in current:
                 # A retry can extract the same supplement again after the first
                 # attempt already merged it. Keep the combined value instead of
@@ -836,19 +858,24 @@ def _record_slot_evidence(session: ChatSession, fills: dict[str, str], source_te
             elif value in source_text:
                 value = current + " / " + value
                 fills[slot_id] = value
-        if normalized in {"말하지않음", "대답하지않음", "거절"}:
+        if statuses is not None and slot_id in statuses:
+            # "잘 모르겠어요" is still the client's own statement.
+            status = "declined" if statuses[slot_id] == "declined" else "answered"
+        elif normalized in {"말하지않음", "대답하지않음", "거절"}:
             status = "declined"
         elif normalized in {"해당없음", "해당사항없음"}:
             status = "not_applicable"
         else:
             status = "answered"
+        turn = source_turn if source_turn is not None else _logical_source_turn(session)
         evidence = {"status": status, "value": value, "source_text": source_text,
-                    "source_turn": _logical_source_turn(session),
-                    "updated_at": datetime.now(timezone.utc).isoformat()}
+                    "source_turn": turn, "updated_at": datetime.now(timezone.utc).isoformat()}
+        if method is not None:
+            evidence["method"] = method
         if previous and previous.get("value") != value:
             session.slot_revisions.append({"field": slot_id, "before": previous.get("value"),
                                            "after": value, "source_text": source_text,
-                                           "source_turn": _logical_source_turn(session),
+                                           "source_turn": turn,
                                            "source_request_id": session.current_request_id})
         session.slot_evidence[slot_id] = evidence
 
@@ -911,7 +938,9 @@ def _effective_question_slot_id(session: ChatSession, schema: intake.Schema) -> 
     )
     if not assistant:
         return None
-    exact = [slot.id for slot in schema.slots if slot.ask and slot.ask in assistant]
+    exact = [slot.id for slot in schema.slots
+             if any(text and text in assistant
+                    for text in (slot.ask, slot.reask, slot.ask_timing, slot.ask_impact))]
     if len(exact) == 1:
         return exact[0]
     if exact:
@@ -1027,6 +1056,127 @@ def _answer_to_previous_question(
     return {slot.id: value}
 
 
+def _uses_answer_classifier(session: ChatSession, schema: intake.Schema, settings: Settings) -> bool:
+    """API-model center turns outside the crisis/addiction flows classify the reply.
+
+    Fake and CLI backends keep the keyword/asked-slot capture (no structured output)."""
+    return (llm.is_api_model(settings.model) and answer_classifier.enabled(schema)
+            and session.slots.get("track") not in {"위기", "중독"})
+
+
+def _classify_reply(session: ChatSession, schema: intake.Schema, settings: Settings, message: str,
+                    asked_slot_id: str | None, filled: dict[str, str]) -> "answer_classifier.Resolution | None":
+    """Explicit failover: on a model or validation failure the caller keeps the
+    keyword/asked-slot capture, and the failure is logged without content."""
+    asked = _slot_by_id(schema, asked_slot_id)
+    if asked is None:
+        asked_text = None
+    elif asked.id == "chief_complaint" and not any(turn.get("role") == "assistant" for turn in session.history):
+        asked_text = schema.opening_question
+    else:
+        asked_text = _next_question_text(session, asked)
+    statuses = {slot_id: evidence.get("status") for slot_id, evidence in session.slot_evidence.items()
+                if isinstance(evidence, dict)}
+    try:
+        parsed = answer_classifier.classify(message, schema, filled, settings, asked, asked_text)
+        return answer_classifier.resolve(parsed, schema, filled, statuses, message, asked_slot_id)
+    except (answer_classifier.ClassifyError, llm.ModelOutputTooLarge, RuntimeError, TimeoutError, ValueError) as exc:
+        logger.warning("answer classification failover session=%s reason=%s",
+                       hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()[:16], type(exc).__name__)
+        return None
+
+
+def _apply_pending_items(session: ChatSession, schema: intake.Schema) -> dict[str, str]:
+    """Place earlier grounded quotes whose slot the track has now activated.
+
+    Returns fills that came from this turn's message; quotes from earlier turns
+    are recorded with their own source turn."""
+    if not session.pending_slot_items:
+        return {}
+    current_turn = _logical_source_turn(session)
+    statuses = {slot_id: evidence.get("status") for slot_id, evidence in session.slot_evidence.items()
+                if isinstance(evidence, dict)}
+    keys = answer_classifier.catalog(schema)
+    remaining, current_fills = [], {}
+    for item in session.pending_slot_items:
+        if item.get("key") not in keys:
+            continue
+        placed = answer_classifier.place([item], schema, session.slots, statuses, None)
+        if placed.pending:
+            remaining.append(item)
+            continue
+        if not placed.fills:
+            continue  # Already known, or an established complaint.
+        source_turn = item.get("source_turn")
+        _record_slot_evidence(session, placed.fills, item.get("source_text", ""), statuses=placed.statuses,
+                              merge=False, source_turn=source_turn, method="classifier")
+        filled_before = set(session.slots)
+        session.slots.update(placed.fills)
+        _update_followups(session, schema, placed.aspects, None, filled_before)
+        statuses.update(placed.statuses)
+        if source_turn == current_turn:
+            current_fills.update(placed.fills)
+        elif item.get("source") is not None:
+            for slot_id in placed.fills:
+                session.slot_evidence[slot_id]["source"] = item["source"]
+    session.pending_slot_items = remaining
+    return current_fills
+
+
+def _next_question_text(session: ChatSession, slot: intake.Slot) -> str:
+    """The owned wording for this slot now: the missing part, a second wording, or the question."""
+    followup = session.slot_followups.get(slot.id)
+    if followup == "timing" and slot.ask_timing:
+        return slot.ask_timing
+    if followup == "impact" and slot.ask_impact:
+        return slot.ask_impact
+    if slot.reask and session.slot_misses.get(slot.id, 0) == 1:
+        return slot.reask
+    return _question_for_slot(slot)
+
+
+def _update_followups(session: ChatSession, schema: intake.Schema, aspects: dict[str, set[str]],
+                      asked_slot_id: str | None, filled_before: set[str] = frozenset()) -> None:
+    """A two-part slot first heard without its question asks only the missing part, once.
+
+    A slot that already had a value (an earlier turn, or a session saved before
+    this feature) was answered in some form and gets no follow-up."""
+    asked = _slot_by_id(schema, asked_slot_id)
+    if asked is not None and asked.ask_timing and asked.ask_impact:
+        session.slot_followups[asked.id] = "done"  # asked in some form: never again
+    for slot_id, parts in aspects.items():
+        if slot_id in filled_before and slot_id not in session.slot_aspects:
+            session.slot_followups[slot_id] = "done"
+        known = set(session.slot_aspects.get(slot_id, ())) | set(parts)
+        session.slot_aspects[slot_id] = sorted(known)
+        if session.slot_followups.get(slot_id) == "done":
+            continue
+        if {"timing", "impact"} <= known:
+            session.slot_followups[slot_id] = "done"
+        else:
+            session.slot_followups[slot_id] = "impact" if "timing" in known else "timing"
+
+
+def _question_queue(session: ChatSession, schema: intake.Schema, red_flag_ids) -> list[intake.Slot]:
+    """Slots still to ask, in order. With answer classification, a question left
+    unanswered twice stays unconfirmed, and a missing complaint precedes the track."""
+    unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+    if not answer_classifier.enabled(schema):
+        return unfilled
+    skipped = session.skipped_slots
+    queue = [slot for slot in unfilled if slot.id not in skipped]
+    followups = [slot for slot in schema.active_slots(session.slots)
+                 if slot.id in session.slots and session.slot_followups.get(slot.id) in {"timing", "impact"}]
+    if followups:
+        flagged = set(red_flag_ids or ())
+        queue = sorted(queue + followups, key=lambda slot: (slot.id not in flagged, slot.priority))
+    chief = next((slot for slot in queue if slot.id == "chief_complaint"), None)
+    if chief is not None and queue[0] is not chief and not queue[0].red_flag:
+        queue.remove(chief)
+        queue.insert(0, chief)
+    return queue
+
+
 
 def _intake_state(
     schema: intake.Schema,
@@ -1036,11 +1186,12 @@ def _intake_state(
     """GUI 슬롯 패널용 상태. 스키마 활성 응답에만 additive로 실린다 —
     기존 {reply, turn, limit_reached} 계약은 그대로, 스키마 없는 지식셋
     (knowledge-alt 스왑)은 이 키 자체가 없다."""
+    still_asked = {slot.id for slot in unfilled}  # a part still to ask is shown once, as next
     return {
         "filled": [
             {"id": slot.id, "label": slot.label, "value": filled[slot.id]}
             for slot in schema.slots
-            if slot.id in filled
+            if slot.id in filled and slot.id not in still_asked
         ],
         "unfilled": [
             {"id": slot.id, "label": slot.label, "red_flag": slot.red_flag}
@@ -1447,49 +1598,91 @@ def handle_message(
                 return _continue_center_closing(session, schema, settings, effective_participant_id, message)
             if session.turns >= MAX_TURNS:
                 return _deliver_center_turn(session, schema, settings, effective_participant_id, message)
+    classified = None
     if schema is None:
         # 폴백 — 스키마 없는 지식셋(knowledge-alt)은 기존 경로 그대로.
         system = f"{persona}\n\n{progress}\n\n{doc_section}"
     else:
-        # 질문 순서·반복 방지는 모델이 아니라 슬롯 엔진이 책임진다. 실모드도
-        # 신호어/직전질문 fallback으로 먼저 상태를 갱신하고, 모델은 상담사 문장
-        # 생성에 집중시킨다. 추가 의미 추출은 아래 extract_real에서 보강한다.
+        # 질문 순서·반복 방지는 모델이 아니라 슬롯 엔진이 책임진다. 신호어로 닫힌 값
+        # (트랙 등)을 먼저 정하고, 실모델 센터 모드는 응답 분류로 자유서술 슬롯을 원문
+        # 조각 단위로 채운다. 분류가 실패하면 기록을 남기고 예전처럼 신호어/직전질문
+        # fallback으로 채운다. 모델 응답은 상담사 문장과 트랙 확인을 맡는다.
         new_fills = intake.extract_fake(message, schema, session.slots, asked_slot_id)
         if "track" in new_fills:
             session.slots["track"] = new_fills["track"]
             session.track_inferred = False
         new_fills.update(_resolve_track(session, schema, message))
-        # Capture the relationship target from the turn that determines track;
-        # timing/impact still gets its own question rather than a keyword fill.
-        if schema.handoff_mode == "center" and new_fills.get("track") == "관계":
-            branch_fills = intake.extract_fake(
-                message, schema, {**session.slots, **new_fills}, asked_slot_id
-            )
-            if "relationship_target" in branch_fills:
-                new_fills["relationship_target"] = branch_fills["relationship_target"]
-
-        if schema.handoff_mode == "center" and session.turns == 0:
-            new_fills.update(_answer_to_previous_question(
-                message, schema, {**session.slots, **new_fills}, "chief_complaint"
-            ))
-
-        filled_after_signals = {**session.slots, **new_fills}
-        asked_slot = _slot_by_id(schema, asked_slot_id)
-        if (schema.handoff_mode == "center" or not new_fills
-                or (asked_slot is not None and asked_slot.extract == "when_asked")):
-            new_fills.update(
-                _answer_to_previous_question(
-                    message, schema, filled_after_signals, asked_slot_id
+        saved_retry = session.request_results.get(session.current_request_id or "") or {}
+        retrying_saved_input = saved_retry.get("status") == "retryable" and saved_retry.get("user_saved") is True
+        classify_asked_id = asked_slot_id
+        if classify_asked_id is None and not any(turn.get("role") == "assistant" for turn in session.history):
+            classify_asked_id = "chief_complaint"  # the opening question shown by the UI
+        classifier_failed = False
+        if _uses_answer_classifier(session, schema, settings):
+            # Keyword free-text fills are not shown to (or merged with) the classifier.
+            closed_fills = {slot_id: value for slot_id, value in new_fills.items()
+                            if (slot := _slot_by_id(schema, slot_id)) is not None and slot.values}
+            classified = _classify_reply(
+                session, schema, settings, message, classify_asked_id, {**session.slots, **closed_fills})
+            classifier_failed = classified is None
+        if classified is not None:
+            new_fills = closed_fills
+            _record_slot_evidence(session, new_fills, message)
+            session.slots.update(new_fills)
+            source_turn = _logical_source_turn(session)
+            _record_slot_evidence(session, classified.fills, message, statuses=classified.statuses,
+                                  merge=False, method="classifier")
+            filled_before = set(session.slots)
+            session.slots.update(classified.fills)
+            new_fills.update(classified.fills)
+            _update_followups(session, schema, classified.aspects, classify_asked_id, filled_before)
+            # A retried request classifies the same message again; keep one copy.
+            waiting = {(item.get("key"), item.get("quote")) for item in session.pending_slot_items}
+            session.pending_slot_items = (session.pending_slot_items + [
+                {**item, "source_text": message, "source_turn": source_turn} for item in classified.pending
+                if (item["key"], item["quote"]) not in waiting
+            ])[-answer_classifier.MAX_PENDING:]
+            new_fills.update(_apply_pending_items(session, schema))
+            if (classify_asked_id is not None and classify_asked_id not in session.slots
+                    and answer_classifier.participates(schema, classify_asked_id) and not retrying_saved_input):
+                session.slot_misses[classify_asked_id] = session.slot_misses.get(classify_asked_id, 0) + 1
+        else:
+            # Capture the relationship target from the turn that determines track;
+            # timing/impact still gets its own question rather than a keyword fill.
+            if schema.handoff_mode == "center" and new_fills.get("track") == "관계":
+                branch_fills = intake.extract_fake(
+                    message, schema, {**session.slots, **new_fills}, asked_slot_id
                 )
-            )
-        _record_slot_evidence(session, new_fills, message)
-        session.slots.update(new_fills)
+                if "relationship_target" in branch_fills:
+                    new_fills["relationship_target"] = branch_fills["relationship_target"]
+
+            if schema.handoff_mode == "center" and session.turns == 0:
+                new_fills.update(_answer_to_previous_question(
+                    message, schema, {**session.slots, **new_fills}, "chief_complaint"
+                ))
+
+            filled_after_signals = {**session.slots, **new_fills}
+            asked_slot = _slot_by_id(schema, asked_slot_id)
+            if (schema.handoff_mode == "center" or not new_fills
+                    or (asked_slot is not None and asked_slot.extract == "when_asked")):
+                new_fills.update(
+                    _answer_to_previous_question(
+                        message, schema, filled_after_signals, asked_slot_id
+                    )
+                )
+            _record_slot_evidence(session, new_fills, message,
+                                  method="fallback" if classifier_failed else None)
+            session.slots.update(new_fills)
+            _update_followups(session, schema, {}, asked_slot_id)
+            new_fills.update(_apply_pending_items(session, schema))
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
-        unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        unfilled = _question_queue(session, schema, red_flag_ids)
         slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)
         sections = [persona, progress, slot_section]
         sections.append(_CRISIS_ESCALATION_INSTRUCTION)
         if settings.model != "fake":
+            # The reply prompt stays as before (track and crisis escalation included);
+            # with classification only its closed-value slots are accepted below.
             sections.append(_EXTRACTION_INSTRUCTION)
         sections.append(doc_section)
         system = "\n\n".join(sections)
@@ -1554,12 +1747,18 @@ def handle_message(
             slot_id: value for slot_id, value in real_fills.items()
             if not (slot_id in new_fills and value in session.slots.get(slot_id, ""))
         }
+        if classified is not None:
+            # Slots the classifier owns already came from grounded quotes; the reply
+            # call keeps every other slot (track, crisis plan/means, ...).
+            real_fills = {slot_id: value for slot_id, value in real_fills.items()
+                          if not answer_classifier.participates(schema, slot_id)}
         _record_slot_evidence(session, real_fills, message)
         session.slots.update(real_fills)
         new_fills.update(real_fills)
         if "track" in real_fills:
             session.track_inferred = False
-            if schema.handoff_mode == "center" and real_fills["track"] == "관계":
+            new_fills.update(_apply_pending_items(session, schema))
+            if classified is None and schema.handoff_mode == "center" and real_fills["track"] == "관계":
                 branch_fills = intake.extract_fake(message, schema, session.slots, asked_slot_id)
                 if "relationship_target" in branch_fills:
                     session.slots["relationship_target"] = branch_fills["relationship_target"]
@@ -1567,7 +1766,7 @@ def handle_message(
         if not reply.strip():
             reply = _build_guardrail_reply(schema, unfilled)
     if schema is not None:
-        fallback_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        fallback_unfilled = _question_queue(session, schema, red_flag_ids)
         reply = safety.sanitize_model_reply(
             reply,
             _build_guardrail_reply(schema, fallback_unfilled),
@@ -1582,7 +1781,7 @@ def handle_message(
         reply = safety.sanitize_model_reply(reply, _build_guardrail_reply(None, []))
 
     if schema is not None:
-        final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        final_unfilled = _question_queue(session, schema, red_flag_ids)
         asks_track, proposed_track = _track_confirmation(reply, schema)
         track_slot = _slot_by_id(schema, "track")
         if track_slot and session.slots.get("track") in (track_slot.values or ()):
@@ -1596,7 +1795,8 @@ def handle_message(
             session.pending_track = proposed_track
         if (schema.handoff_mode == "center" and final_unfilled
                 and session.slots.get("track") not in {"위기", "중독"}):
-            reply = _center_reply_for_slot(reply, final_unfilled[0])
+            next_slot = final_unfilled[0]
+            reply = _center_reply_for_slot(reply, next_slot, _next_question_text(session, next_slot))
             session.pending_track = None
         if (not final_unfilled or session.turns + 1 >= MAX_TURNS) and _center_closing_safe(session, schema):
             session.closing_started = True
@@ -1645,13 +1845,17 @@ def handle_message(
     if schema is not None:
         # 실모드는 extract_real이 unfilled 계산 이후에 슬롯을 채우므로,
         # 패널 상태와 다음 fallback 기준은 최종 session.slots 기준으로 다시 계산한다.
-        final_unfilled = schema.unfilled_by_priority(session.slots, red_flag_ids)
+        final_unfilled = _question_queue(session, schema, red_flag_ids)
         session.last_question_slot_id = final_unfilled[0].id if final_unfilled else None
         result["intake"] = _intake_state(schema, session.slots, final_unfilled)
         if session.handoff is not None:
             result.update(handoff=session.handoff, conversation_ended=True)
     def metadata(refs):
         source = retry.get("source") if reused_user else refs[0]
+        this_turn = retry.get("user_turn") if reused_user else session.turns
+        for item in session.pending_slot_items:
+            if item.get("source_turn") == this_turn:
+                item.setdefault("source", source)  # quotes kept pending from this turn
         for slot_id in new_fills:
             if slot_id in session.slot_evidence:
                 session.slot_evidence[slot_id]["source"] = source

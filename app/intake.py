@@ -83,6 +83,16 @@ class Slot:
     capture: str | None = None
     extract: str | None = None
     when_any: list[str] | None = None
+    # Answer classification (center mode): what belongs in this slot, the
+    # second wording used once after an off-topic reply, and a shared key for
+    # slots that receive the same kind of answer on different tracks.
+    describe: str | None = None
+    reask: str | None = None
+    answer_group: str | None = None
+    # Two-part slots (when something started, what it changed): when only one
+    # part arrived without being asked, the missing part is asked once.
+    ask_timing: str | None = None
+    ask_impact: str | None = None
 
     def accepts_answer(self, last_question_slot_id=None):
         return self.extract != "when_asked" or last_question_slot_id == self.id
@@ -504,6 +514,11 @@ def _parse_slot(raw) -> Slot:
         capture=raw.get("capture") if isinstance(raw.get("capture"), str) else None,
         extract=raw.get("extract"),
         when_any=raw.get("when_any"),
+        describe=raw.get("describe") if isinstance(raw.get("describe"), str) else None,
+        reask=raw.get("reask") if isinstance(raw.get("reask"), str) else None,
+        answer_group=raw.get("answer_group") if isinstance(raw.get("answer_group"), str) else None,
+        ask_timing=raw.get("ask_timing") if isinstance(raw.get("ask_timing"), str) else None,
+        ask_impact=raw.get("ask_impact") if isinstance(raw.get("ask_impact"), str) else None,
     )
 
 

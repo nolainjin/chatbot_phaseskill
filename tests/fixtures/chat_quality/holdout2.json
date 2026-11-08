@@ -1,0 +1,455 @@
+{
+  "version": 1,
+  "note": "보류 세트 2: v4(빠진 쪽만 되묻기·분명한 말만 적재)를 만들기 전에 따로 쓴 합성 사례. 최종 확인에만 쓰고 지시문을 다듬는 데 쓰지 않는다.",
+  "personas": {
+    "K1": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {
+          "text": "지하철만 타면 숨이 막히고 심장이 빨리 뛰어요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "숨이막"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "불안한 쪽 같아요.",
+          "facts": []
+        },
+        "symptom_context": {
+          "text": "석 달쯤 됐고, 요즘은 약속을 자꾸 취소하게 돼요.",
+          "facts": [
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "석달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "약속을"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "출근길에 열차가 한참 멈춘 일이 있었는데 그 뒤로 시작됐어요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "열차가"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "버스로 바꿔서 다녀 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "버스로"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "동생이 알고 있어서 같이 다녀 주기도 해요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "동생이"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "다시 혼자 지하철을 탈 수 있으면 좋겠어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "혼자지하철"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "K2": {
+      "track": "관계",
+      "bank": {
+        "chief_complaint": {
+          "text": "반 친구들이 저만 빼고 단톡방을 만들어서 학교 가기가 싫어요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "단톡방"
+              ]
+            },
+            {
+              "slot": "relationship_target",
+              "keys": [
+                "반친구"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "친구 관계 문제예요.",
+          "facts": []
+        },
+        "relationship_target": {
+          "text": "같은 반 친구들이요.",
+          "facts": [
+            {
+              "slot": "relationship_target",
+              "keys": [
+                "반친구"
+              ]
+            }
+          ]
+        },
+        "relationship_duration": {
+          "text": "2학기 시작하고부터니까 두 달쯤이고, 점심을 혼자 먹어요.",
+          "facts": [
+            {
+              "slot": "relationship_duration",
+              "keys": [
+                "두달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "relationship_duration",
+              "keys": [
+                "점심을혼자"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "제가 한 친구 비밀을 다른 애한테 말한 게 퍼진 뒤로 그래요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "비밀을"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "담임 선생님께 한 번 말씀드려 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "담임"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "엄마한테만 얘기했어요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "엄마한테만"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "친구들이랑 다시 편하게 지내고 싶어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "편하게지내"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "K3": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {
+          "text": "키우던 강아지가 떠나고 나서 너무 슬퍼요.",
+          "facts": [
+            {
+              "slot": "chief_complaint",
+              "keys": [
+                "슬퍼"
+              ]
+            }
+          ]
+        },
+        "track": {
+          "text": "슬픈 쪽이에요.",
+          "facts": []
+        },
+        "symptom_context": {
+          "text": "한 달 됐어요. 집에 들어가면 계속 울게 돼서 회사에서도 멍해요.",
+          "facts": [
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "한달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "멍해"
+              ],
+              "aspect": "impact"
+            }
+          ]
+        },
+        "cause": {
+          "text": "갑자기 아파서 손쓸 틈 없이 보낸 게 제일 마음에 걸려요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "손쓸틈"
+              ]
+            }
+          ]
+        },
+        "coping": {
+          "text": "사진첩을 정리하면서 마음을 달래 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "사진첩"
+              ]
+            }
+          ]
+        },
+        "support": {
+          "text": "같이 키운 남편이랑 얘기해요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "남편이랑"
+              ]
+            }
+          ]
+        },
+        "expectation": {
+          "text": "일상으로 조금씩 돌아가고 싶어요.",
+          "facts": [
+            {
+              "slot": "expectation",
+              "keys": [
+                "일상으로"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "k1-timing-in-opening",
+      "persona": "K1",
+      "category": "pre_answered",
+      "opening": {
+        "text": "석 달째 지하철만 타면 숨이 막히고 심장이 빨리 뛰어요.",
+        "facts": [
+          {
+            "slot": "symptom_context",
+            "keys": [
+              "석달"
+            ],
+            "aspect": "timing"
+          },
+          {
+            "slot": "chief_complaint",
+            "keys": [
+              "숨이막"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "k1-multi-open",
+      "persona": "K1",
+      "category": "multi_info",
+      "opening": {
+        "text": "지하철만 타면 숨이 막혀요. 출근길에 열차가 한참 멈춘 뒤로 그랬고, 요즘은 약속을 자꾸 취소해요. 버스로 바꿔서 다녀 봤어요.",
+        "facts": [
+          {
+            "slot": "chief_complaint",
+            "keys": [
+              "숨이막"
+            ]
+          },
+          {
+            "slot": "cause",
+            "keys": [
+              "열차가"
+            ]
+          },
+          {
+            "slot": "symptom_context",
+            "keys": [
+              "약속을"
+            ],
+            "aspect": "impact"
+          },
+          {
+            "slot": "coping",
+            "keys": [
+              "버스로"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "k1-offtopic-cause",
+      "persona": "K1",
+      "category": "offtopic",
+      "overrides": [
+        {
+          "when_asked": "cause",
+          "occurrence": 1,
+          "offtopic": true,
+          "text": "동생이 같이 다녀 주기도 해요.",
+          "facts": [
+            {
+              "slot": "support",
+              "keys": [
+                "동생이"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "k2-simple",
+      "persona": "K2",
+      "category": "control"
+    },
+    {
+      "id": "k2-context-mention",
+      "persona": "K2",
+      "category": "pre_answered",
+      "opening": {
+        "text": "2학기 들어서 반 친구들이 저만 빼고 단톡방을 만들어서 학교 가기가 싫어요.",
+        "facts": [
+          {
+            "slot": "chief_complaint",
+            "keys": [
+              "단톡방"
+            ]
+          },
+          {
+            "slot": "relationship_target",
+            "keys": [
+              "반친구"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "k2-offtopic-duration",
+      "persona": "K2",
+      "category": "offtopic",
+      "overrides": [
+        {
+          "when_asked": "relationship_duration",
+          "occurrence": 1,
+          "offtopic": true,
+          "text": "담임 선생님께 말씀드려 봤어요.",
+          "facts": [
+            {
+              "slot": "coping",
+              "keys": [
+                "담임"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "k3-reason-mention",
+      "persona": "K3",
+      "category": "pre_answered",
+      "overrides": [
+        {
+          "when_asked": "cause",
+          "occurrence": 1,
+          "text": "갑자기 아파서 손쓸 틈 없이 보냈어요. 혼자 키운 게 아니라 다행이긴 해요.",
+          "facts": [
+            {
+              "slot": "cause",
+              "keys": [
+                "손쓸틈"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "k3-multi-mid",
+      "persona": "K3",
+      "category": "multi_info",
+      "overrides": [
+        {
+          "when_asked": "symptom_context",
+          "occurrence": 1,
+          "text": "한 달 됐어요. 집에 가면 계속 울어서 회사에서도 멍하고, 사진첩을 정리하면서 버텨 봤어요.",
+          "facts": [
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "한달"
+              ],
+              "aspect": "timing"
+            },
+            {
+              "slot": "symptom_context",
+              "keys": [
+                "멍하"
+              ],
+              "aspect": "impact"
+            },
+            {
+              "slot": "coping",
+              "keys": [
+                "사진첩"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
