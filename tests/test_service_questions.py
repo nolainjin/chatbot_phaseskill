@@ -505,6 +505,7 @@ def test_classification_on_opus_or_sonnet_asks_for_the_server_fallback(monkeypat
                         daily_request_cap=500, classify_model=classify_model, classify_effort="low")
     assert llm.classify("s", "u", settings, {"type": "object"}) == '{"ok":true}'
     assert seen["model"] == (classify_model or "claude-haiku-5-5")
+    assert seen["system"] == [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]
     assert (seen["endpoint"] == "beta") is expect_beta
     if expect_beta:
         assert seen["fallbacks"] == "default" and seen["betas"] == [llm.SERVER_FALLBACK_BETA]
