@@ -145,7 +145,7 @@ def session_scope(session_id):
                 # an opaque ID can accidentally contain phone-like digit runs.
                 state = asdict(session)
                 for field in ('history', 'slots', 'handoff', 'center_requests', 'closing_draft',
-                              'slot_evidence', 'pending_slot_items'):
+                              'slot_evidence', 'pending_slot_items', 'attention_notes'):
                     state[field] = storage._redact_obj(state[field])
                 pending = state.get('closing_analysis_pending')
                 if isinstance(pending, dict):

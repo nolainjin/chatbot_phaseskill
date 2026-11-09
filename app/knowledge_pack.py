@@ -167,6 +167,20 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
         errors.append(ValidationIssue("SCHEMA_VERSION", "schema.version", "version은 비어있지 않은 문자열이어야 합니다."))
     if not _is_nonempty_str(schema.get("opening_question")):
         errors.append(ValidationIssue("SCHEMA_OPENING_QUESTION", "schema.opening_question", "opening_question이 필요합니다."))
+    if "service_answers" in schema:
+        from app.service_questions import TOPICS
+        answers = _as_mapping(schema.get("service_answers"))
+        if answers is None:
+            errors.append(ValidationIssue("SCHEMA_SERVICE_ANSWERS", "schema.service_answers", "service_answers는 주제별 문자열 매핑이어야 합니다."))
+        else:
+            from app.service_questions import unknown_fields
+            for topic, text in answers.items():
+                if topic not in TOPICS or not _is_nonempty_str(text):
+                    errors.append(ValidationIssue("SCHEMA_SERVICE_ANSWERS", f"schema.service_answers.{topic}",
+                                                  "알려진 주제의 비어있지 않은 문자열이어야 합니다."))
+                elif unknown_fields(str(text)):
+                    errors.append(ValidationIssue("SCHEMA_SERVICE_ANSWERS", f"schema.service_answers.{topic}",
+                                                  f"알 수 없는 자리표시: {sorted(unknown_fields(str(text)))}"))
 
     from app.intake import HandoffConfigError, validate_handoff_config
     try:
@@ -219,7 +233,7 @@ def _validate_schema(root: Path, errors: list[ValidationIssue]) -> dict[str, obj
             errors.append(ValidationIssue("SLOT_OVERRIDE_SIGNALS_TYPE", f"{path}.override_signals", "override_signals는 값별 문자열 목록이어야 합니다."))
         if "ask" in slot and not isinstance(slot["ask"], str):
             errors.append(ValidationIssue("SLOT_ASK_TYPE", f"{path}.ask", "ask는 문자열이어야 합니다."))
-        for key in ("describe", "reask", "answer_group", "ask_timing", "ask_impact"):
+        for key in ("describe", "reask", "answer_group", "ask_timing", "ask_impact", "ask_timing_plain", "none_value"):
             if key in slot and not _is_nonempty_str(slot[key]):
                 errors.append(ValidationIssue("SLOT_TEXT_TYPE", f"{path}.{key}", f"{key}는 비어있지 않은 문자열이어야 합니다."))
         if "capture" in slot and slot["capture"] != "full_message":

@@ -103,7 +103,12 @@ def test_existing_slots_and_crisis_flags_are_preserved():
             pack = pack_by_id[slot.id]
             assert pack.describe and pack.reask
             updates.update(describe=pack.describe, reask=pack.reask, answer_group=pack.answer_group,
-                           ask_timing=pack.ask_timing, ask_impact=pack.ask_impact)
+                           ask_timing=pack.ask_timing, ask_impact=pack.ask_impact,
+                           ask_timing_plain=pack.ask_timing_plain, none_value=pack.none_value)
+        if slot.id == "coping":
+            # 2026-11-09 2차: '기간이나 영향이 아니라,' 앞머리는 첫 질문에서 빼고 다시 묻는 문장으로 옮겼다.
+            assert slot.ask.startswith("기간이나 영향이 아니라, ")
+            updates["ask"] = slot.ask.removeprefix("기간이나 영향이 아니라, ")
         expected.append(replace(slot, **updates))
     assert [slot for slot in schema.slots if slot.id != "cause"] == expected
     assert {slot.id: slot.answer_group for slot in schema.slots if slot.answer_group} == {

@@ -27,7 +27,7 @@ def retained_summary(value):
         return {key: retained_summary(item) for key, item in value.items()
                 if key not in {"center_requests", "sources", "quotes", "source_turns",
                                "slot_evidence", "slot_revisions", "source_text",
-                               "request_results"}}
+                               "request_results", "attention_notes"}}
     if isinstance(value, list):
         return [retained_summary(item) for item in value]
     return value
@@ -157,6 +157,10 @@ def consent_scope(request, payload, callback):
                 # No client-supplied org, participant or old v1 credentials control ownership.
                 clean = {k: v for k, v in payload.items() if k not in {"management_id", "link_ticket", "org_id"}}
                 result = callback(request, clean)
+                # The chatbot names the receiving center when the client asks who sees the story.
+                named = conn.execute("SELECT name FROM maeum.organizations WHERE id=%s", (org_id,)).fetchone()
+                if named and sid in chat._sessions:
+                    chat._sessions[sid].center_name = named[0]
                 intake_id = str(uuid4())
                 conn.execute("INSERT INTO maeum.intakes(id,org_id,link_id,session_id,management_id,consent_version,idempotency_hash) VALUES(%s,%s,%s,%s,%s,%s,%s)",
                              (intake_id, org_id, link_id, sid, management, payload["consent_version"], digest(idem)))
@@ -203,7 +207,7 @@ def project(session_id):
                         sources[slot] = matches
             for key, evidence in summary.get("slot_evidence", {}).items():
                 source = evidence.get("source") if isinstance(evidence, dict) else None
-                if (key.startswith("center_request:") and isinstance(source, dict)
+                if (key.startswith(("center_request:", "attention:")) and isinstance(source, dict)
                         and isinstance(source.get("day"), str)
                         and isinstance(source.get("seq"), int) and source.get("role") == "user"):
                     sources[key] = [source]

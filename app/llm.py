@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import signal
@@ -461,6 +462,12 @@ def ask_strict(system: str, history: list[dict[str, str]], user: str,
 
 
 CLASSIFY_MAX_TOKENS = 4096
+CLASSIFY_MAX_TOKENS_DEEP = 16000
+# Claude API refusal fallback ("default" routing): a declined classification is re-run
+# server-side on a fallback model instead of dropping the turn to the keyword path.
+SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+_SERVER_FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5"})
+logger = logging.getLogger(__name__)
 
 
 def is_api_model(model: str) -> bool:
@@ -469,16 +476,23 @@ def is_api_model(model: str) -> bool:
         model == CODEX_CLI_MODEL or model.startswith(f"{CODEX_CLI_MODEL}:"))
 
 
-def classify(system: str, user: str, settings: Settings, json_schema: dict | None = None) -> str:
-    """Short evidence classification on a Messages API model at low effort.
+def classify_model(settings: Settings) -> str:
+    return settings.classify_model or settings.model
 
-    CLI backends have no structured output and cost seconds per call, so the
-    caller enables classification only for API models (``is_api_model``)."""
-    if not is_api_model(settings.model):
+
+def classify(system: str, user: str, settings: Settings, json_schema: dict | None = None) -> str:
+    """Short evidence classification on a Messages API model.
+
+    Model and effort come from CLASSIFY_MODEL/CLASSIFY_EFFORT (default: the reply
+    model at low effort). CLI backends have no structured output and cost seconds
+    per call, so the caller enables classification only for API models."""
+    model = classify_model(settings)
+    if not is_api_model(model) or not is_api_model(settings.model):
         raise ModelBackendError("classification needs a Messages API model")
     if not settings.anthropic_api_key:
         raise ModelBackendError("model backend unavailable: missing API key")
-    output_config: dict = {"effort": "low"}
+    effort = settings.classify_effort
+    output_config: dict = {"effort": effort}
     if json_schema is not None:
         output_config["format"] = {"type": "json_schema", "schema": json_schema}
     try:
@@ -486,17 +500,26 @@ def classify(system: str, user: str, settings: Settings, json_schema: dict | Non
             api_key=settings.anthropic_api_key,
             **({"timeout": 30.0, "max_retries": 0} if os.getenv("VERCEL") == "1" else {}),
         )
-        response = client.messages.create(
-            model=settings.model,
-            max_tokens=CLASSIFY_MAX_TOKENS,
+        request = dict(
+            model=model,
+            # Thinking shares the budget; above low effort it needs room to finish.
+            max_tokens=CLASSIFY_MAX_TOKENS if effort == "low" else CLASSIFY_MAX_TOKENS_DEEP,
             system=system,
             messages=[{"role": "user", "content": user}],
             output_config=output_config,
         )
+        if model in _SERVER_FALLBACK_MODELS:
+            response = client.beta.messages.create(**request, betas=[SERVER_FALLBACK_BETA], fallbacks="default")
+        else:
+            response = client.messages.create(**request)
     except anthropic.APIError as exc:
         raise ModelBackendError(f"model backend unavailable: {type(exc).__name__}") from exc
     if response.stop_reason != "end_turn":
+        # Includes "refusal": the caller falls back to the keyword path, observably.
         raise ModelBackendError(f"classification stopped: {response.stop_reason}")
+    served = getattr(response, "model", model)
+    if served != model:
+        logger.warning("classification served by fallback model=%s requested=%s", served, model)
     for block in response.content:
         if block.type == "text":
             return _bounded_output(block.text)

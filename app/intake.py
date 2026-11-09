@@ -93,6 +93,11 @@ class Slot:
     # part arrived without being asked, the missing part is asked once.
     ask_timing: str | None = None
     ask_impact: str | None = None
+    # The timing question when the relationship target is unknown or several
+    # people ("그 관계에서" would point at nobody in particular).
+    ask_timing_plain: str | None = None
+    # Stored instead of a bare "아니"/"없어요" when the client says there is none.
+    none_value: str | None = None
 
     def accepts_answer(self, last_question_slot_id=None):
         return self.extract != "when_asked" or last_question_slot_id == self.id
@@ -124,6 +129,9 @@ class Schema:
     # 상단 원칙의 UI 연장. 비어 있으면 static/의 기본(상담) 문구를 쓴다.
     ui: dict = field(default_factory=dict)
     closing: dict | None = None
+    # Fixed answers to questions about the service itself (who sees it, family,
+    # deletion, ...). Only facts already stated in the privacy notice.
+    service_answers: dict = field(default_factory=dict)
 
     @property
     def handoff_mode(self) -> str | None:
@@ -519,6 +527,8 @@ def _parse_slot(raw) -> Slot:
         answer_group=raw.get("answer_group") if isinstance(raw.get("answer_group"), str) else None,
         ask_timing=raw.get("ask_timing") if isinstance(raw.get("ask_timing"), str) else None,
         ask_impact=raw.get("ask_impact") if isinstance(raw.get("ask_impact"), str) else None,
+        ask_timing_plain=raw.get("ask_timing_plain") if isinstance(raw.get("ask_timing_plain"), str) else None,
+        none_value=raw.get("none_value") if isinstance(raw.get("none_value"), str) else None,
     )
 
 
@@ -569,5 +579,11 @@ def load_schema(knowledge_dir) -> Schema | None:
     if not isinstance(ui, dict):
         ui = {}
 
+    service_answers = data.get("service_answers")
+    if not isinstance(service_answers, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) and value.strip()
+            for key, value in service_answers.items()):
+        service_answers = {}
+
     return Schema(version=version, opening_question=opening_question, slots=slots, ui=ui,
-                  closing=data.get("closing"))
+                  closing=data.get("closing"), service_answers=service_answers)

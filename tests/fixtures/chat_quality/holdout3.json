@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "note": "보류 세트 3: 2차 개선(서비스 질문 응답·마무리 질문·'없음' 답·가족에 대한 두려움 표시·여러 영역 트랙) 구현 전에 쓴 합성 사례. 지시문·코드 다듬기에 쓰지 않는다. 실제 상담 내용 없음.",
+  "personas": {
+    "Q1": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {"text": "시험만 다가오면 숨이 막히고 손이 떨려요.", "facts": [{"slot": "chief_complaint", "keys": ["숨이막히"]}]},
+        "track": {"text": "정서 쪽인 것 같아요.", "facts": []},
+        "symptom_context": {"text": "중학교 3학년 올라오고부터 그랬고, 시험 전 주에는 밥을 거의 못 먹어요.", "facts": [{"slot": "symptom_context", "keys": ["3학년"], "aspect": "timing"}, {"slot": "symptom_context", "keys": ["밥을"], "aspect": "impact"}]},
+        "cause": {"text": "작년 기말고사를 망치고 나서부터인 것 같아요.", "facts": [{"slot": "cause", "keys": ["기말고사"]}]},
+        "coping": {"text": "유튜브에서 긴장 푸는 영상을 찾아봤어요.", "facts": [{"slot": "coping", "keys": ["유튜브"]}]},
+        "support": {"text": "단짝 친구가 알고 있어요.", "facts": [{"slot": "support", "keys": ["단짝"]}]},
+        "expectation": {"text": "시험 볼 때 덜 떨고 싶어요.", "facts": [{"slot": "expectation", "keys": ["덜떨"]}]}
+      }
+    },
+    "Q2": {
+      "track": "정서",
+      "bank": {
+        "chief_complaint": {"text": "요즘 계속 우울하고 아무것도 하기 싫어요.", "facts": [{"slot": "chief_complaint", "keys": ["우울"]}]},
+        "track": {"text": "기분 쪽이요.", "facts": []},
+        "symptom_context": {"text": "두 달쯤 됐고 학원도 자꾸 빠지게 돼요.", "facts": [{"slot": "symptom_context", "keys": ["두달"], "aspect": "timing"}, {"slot": "symptom_context", "keys": ["학원"], "aspect": "impact"}]},
+        "cause": {"text": "잘 모르겠어요.", "facts": [{"slot": "cause", "keys": ["모르겠"], "kind": "unknown"}]},
+        "coping": {"text": "주말에 혼자 산책을 해 봤어요.", "facts": [{"slot": "coping", "keys": ["산책"]}]},
+        "support": {"text": "이모한테 가끔 얘기해요.", "facts": [{"slot": "support", "keys": ["이모"]}]},
+        "expectation": {"text": "다시 뭔가 하고 싶어지면 좋겠어요.", "facts": [{"slot": "expectation", "keys": ["하고싶어지"]}]}
+      }
+    }
+  },
+  "cases": [
+    {"id": "h3-family-question-mid", "persona": "Q1", "category": "service_question",
+     "overrides": [{"when_asked": "symptom_context", "occurrence": 1, "offtopic": true, "question_topic": "family",
+                    "text": "근데 이거 아빠도 알게 되는 거예요?", "facts": []}]},
+    {"id": "h3-who-sees-closing", "persona": "Q1", "category": "service_question",
+     "closing_script": [{"text": "이거 선생님 말고 누가 또 봐요?", "question_topic": "who_sees"}, "확인한 내용 전달하기"],
+     "expect": {"handoff_sent": true}},
+    {"id": "h3-deletion-question", "persona": "Q2", "category": "service_question",
+     "overrides": [{"when_asked": "coping", "occurrence": 1, "offtopic": true, "question_topic": "deletion",
+                    "text": "나중에 이 내용 지울 수도 있어요?", "facts": []}]},
+    {"id": "h3-none-coping", "persona": "Q2", "category": "none_answer",
+     "overrides": [{"when_asked": "coping", "occurrence": 1, "text": "아뇨.. 딱히요",
+                    "facts": [{"slot": "coping", "keys": ["없음"], "kind": "none"}]}]},
+    {"id": "h3-mixed-track", "persona": "Q2", "category": "mixed_track",
+     "opening": {"text": "요즘 계속 우울하고 아무것도 하기 싫어요. 밥도 잘 안 먹히고, 반 친구들이랑도 좀 서먹해졌어요.",
+                 "facts": [{"slot": "chief_complaint", "keys": ["우울"]},
+                           {"slot": "symptom_context", "also": ["chief_complaint"], "keys": ["밥도"], "aspect": "impact"}]},
+     "expect_track": "정서"},
+    {"id": "h3-family-fear", "persona": "Q1", "category": "attention",
+     "overrides": [{"when_asked": "cause", "occurrence": 1, "text": "엄마가 성적표 볼 때마다 너무 무서워서 말을 못 하겠어요.",
+                    "facts": [{"slot": "cause", "keys": ["성적표"]}]}],
+     "expect": {"attention_contains": "무서워서"}},
+    {"id": "h3-closing-ai-question", "persona": "Q2", "category": "service_question",
+     "closing_script": [{"text": "이거 사람이 아니라 AI가 답하는 거예요?", "question_topic": "ai"}, "확인한 내용 전달하기"],
+     "expect": {"handoff_sent": true}},
+    {"id": "h3-question-then-info", "persona": "Q1", "category": "service_question",
+     "overrides": [{"when_asked": "cause", "occurrence": 1, "question_topic": "family", "answers_asked": true,
+                    "text": "그거 말하면 엄마한테 연락 가요? 사실 엄마랑 크게 싸운 게 계기예요.",
+                    "facts": [{"slot": "cause", "keys": ["크게싸운"]}]}]}
+  ]
+}

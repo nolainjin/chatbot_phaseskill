@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app import (addiction, answer_classifier, closing, consent, intake, knowledge, llm, prompting,
-                 referral, safety, storage)
+                 referral, safety, service_questions, storage)
 from app.config import Settings
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,11 @@ class ChatSession:
     # ("timing"/"impact"; "done" after any question for that slot).
     slot_aspects: dict[str, list[str]] = field(default_factory=dict)
     slot_followups: dict[str, str] = field(default_factory=dict)
+    # Whole sentences the counselor should see as said (fear of a family member
+    # or of home); shown in the report as "상담사 확인 필요".
+    attention_notes: list[dict] = field(default_factory=list)
+    # The receiving center's name, set at consent through an institution link.
+    center_name: str | None = None
 
     @property
     def skipped_slots(self) -> set[str]:
@@ -235,9 +240,12 @@ def _center_reply_for_slot(reply: str, slot: intake.Slot, question: str | None =
         if not candidate or len(candidate) > 180 or "?" in candidate:
             continue
         normalized = safety.normalize_for_signal(candidate)
+        # Also a sentence that only announces a check ("…있었는지도 확인하고 싶어요"):
+        # the owned question follows, so the check would be raised and never asked.
         if any(marker in normalized for marker in (
             "말씀해주세요", "알려주세요", "여쭤볼게", "있나요", "인가요", "할까요",
             "어떤", "언제", "누구", "무엇",
+            "확인하고싶", "확인해보고싶", "여쭤보고싶", "묻고싶", "물어보고싶", "있었는지",
         )):
             continue
         reflection = candidate
@@ -378,6 +386,10 @@ def _session_summary(session: ChatSession, schema: intake.Schema) -> dict:
         summary["track_inferred"] = True
     if schema.handoff_mode == "center":
         summary["center_requests"] = list(session.center_requests)
+        if session.attention_notes:
+            # Whole sentences for the counselor (raw text: dropped after the raw retention boundary).
+            summary["attention_notes"] = [{"text": note.get("text", ""), "reason": note.get("reason", "family_fear")}
+                                          for note in session.attention_notes]
         # Report readers receive state and stable turn references, not raw
         # provenance text. Raw text remains inside the protected session and is
         # subject to the transcript retention boundary.
@@ -474,6 +486,16 @@ def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple
     return reply, choices
 
 
+_CLOSING_NOTHING_LEAD = "괜찮아요. "
+_CLOSING_FILLERS = {"음", "음음", "흠", "어", "아", "글쎄", "글쎄요", "그냥", "그냥요", "몰라요", "모르겠어요",
+                    "잘모르겠어요", "네", "예", "아니요", "아뇨", "괜찮아요", "됐어요"}
+
+
+def _closing_filler(text: str) -> bool:
+    compact = re.sub(r"[^가-힣a-zA-Z0-9]", "", text)
+    return len(compact) <= 2 or compact in _CLOSING_FILLERS
+
+
 def _center_sent_reply() -> str:
     return ("확인한 내용을 센터에 전달했어요. 검토 방법과 연락 일정은 센터가 정합니다.\n"
             "긴급 도움이 필요하면 자살예방상담전화 109 · 생명의전화 1588-9191 · 119에 연락해 주세요.\n"
@@ -500,6 +522,11 @@ def _record_center_turn(session: ChatSession, schema: intake.Schema, participant
         if session.closing_draft:
             for item in session.closing_draft.get("items", [session.closing_draft]):
                 item.setdefault("source", source)
+        for key, evidence in session.slot_evidence.items():
+            # Sentences noted on the turn that opened the closing step.
+            if (key.startswith("attention:") and isinstance(evidence, dict) and "source" not in evidence
+                    and evidence.get("source_turn") == session.turns):
+                evidence["source"] = source
         for revision in session.slot_revisions:
             same_request = (session.current_request_id is not None
                             and revision.get("source_request_id") == session.current_request_id)
@@ -538,6 +565,9 @@ def _save_retryable_center_input(session: ChatSession, participant_id: str, mess
     for item in session.pending_slot_items:
         if item.get("source_turn") == session.turns:
             item.setdefault("source", source)  # quotes classified before the reply failed
+    for key, evidence in session.slot_evidence.items():
+        if key.startswith("attention:") and isinstance(evidence, dict) and evidence.get("source_turn") == session.turns:
+            evidence.setdefault("source", source)  # noted before the reply failed; a retry adds nothing new
     if request_id:
         session.request_results[request_id] = {
             **existing, "status": "retryable", "user_saved": True, "source": source,
@@ -659,6 +689,9 @@ def _commit_center_draft(session: ChatSession) -> None:
 
 def _continue_center_closing(session: ChatSession, schema: intake.Schema, settings: Settings,
                              participant_id: str, message: str) -> dict:
+    # A family-fear sentence said at the end is noted for the counselor like any other.
+    stored_wording = storage.redact_pii(message)
+    _record_attention(session, _family_fear_sentences(stored_wording), _logical_source_turn(session), stored_wording)
     compact = re.sub(r"[\s·,.!?。]", "", message)
     _, explicit_send = _closing_choice(message, schema)
     if (session.closing_analysis_pending is not None
@@ -738,6 +771,16 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                                            "message": "수정 취소", "action": "cancel_revision"}],
                         "intake": _intake_state(schema, session.slots,
                                                 schema.unfilled_by_priority(session.slots, ()))}
+            topic = analysis.get("service_topic")
+            if not analysis["items"] and (topic or not analysis["needs_clarification"]):
+                # A question about the service, or nothing to change: the draft stays.
+                session.closing_analysis_pending = None
+                session.closing_revision = False
+                reply, choices = _center_closing_prompt(session, schema)
+                answer = _service_answer(session, schema, settings, topic, message) if topic else None
+                return _record_center_turn(session, schema, participant_id, message,
+                                           f"{answer}\n\n{reply}" if answer else _CLOSING_NOTHING_LEAD + reply,
+                                           choices)
             if analysis["needs_clarification"]:
                 session.closing_analysis_pending = {"message": message,
                                                     "request_id": session.current_request_id}
@@ -773,9 +816,12 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                                      "source_text": message.strip(), "items": merged,
                                      "status": "unconfirmed"}
             reply, choices = _center_closing_prompt(session, schema)
-            return _record_center_turn(session, schema, participant_id, message, reply, choices)
+            answer = _service_answer(session, schema, settings, topic, message) if topic else None
+            return _record_center_turn(session, schema, participant_id, message,
+                                       f"{answer}\n\n{reply}" if answer else reply, choices)
     selected, send = _closing_choice(message, schema)
     used = {item["label"] for item in session.center_requests}
+    closing_answer = None
     if not send:
         if selected is not None:
             if selected not in used:
@@ -798,9 +844,38 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
                                            "message": "수정 취소", "action": "cancel_revision"}],
                         "intake": _intake_state(schema, session.slots,
                                                 schema.unfilled_by_priority(session.slots, ()))}
+            topic = analysis.get("service_topic")
+            if (topic and not analysis["items"]
+                    and session.closing_pending == closing.CATEGORY_LABELS["center_question"]):
+                # The client picked "센터에 묻고 싶은 것" first: the question is that note.
+                analysis = {**analysis, "items": [{"category": "center_question", "evidence": message.strip()}]}
+            if not analysis["items"] and (topic or not analysis["needs_clarification"]):
+                session.closing_analysis_pending = None
+                reply, choices = _center_closing_prompt(session, schema)
+                answer = _service_answer(session, schema, settings, topic, message) if topic else None
+                return _record_center_turn(session, schema, participant_id, message,
+                                           f"{answer}\n\n{reply}" if answer else _CLOSING_NOTHING_LEAD + reply,
+                                           choices)
+            if topic:
+                closing_answer = _service_answer(session, schema, settings, topic, message)
             if analysis["needs_clarification"]:
-                session.closing_analysis_pending = {"message": message,
-                                                    "request_id": session.current_request_id}
+                # Unlike a failed analysis, the send button offered here must work ("음.." then 보내기),
+                # and a substantive but unclear note goes along as written instead of being dropped.
+                session.closing_analysis_pending = None
+                text = " ".join(message.split())
+                if not _closing_filler(text):
+                    label = session.closing_pending or closing.CATEGORY_LABELS["other"]
+                    session.closing_pending = None
+                    session.closing_draft = {
+                        "label": "추가 전달 내용", "text": text, "source_text": text, "status": "unconfirmed",
+                        "items": [{"category": "other", "label": label, "text": text, "source_text": text,
+                                   "source_turn": _logical_source_turn(session), "status": "unconfirmed",
+                                   "operation": "supplement"}]}
+                    reply, choices = _center_closing_prompt(session, schema)
+                    return _record_center_turn(
+                        session, schema, participant_id, message,
+                        "어떤 뜻인지 한 문장으로 더 구체적으로 말씀해 주시면 정리해서 전할게요. "
+                        "이대로 보내면 적어 주신 그대로 전해요.\n" + reply, choices)
                 session.closing_pending = "센터에 전할 내용"
                 reply = "어떤 내용을 센터에 전하면 좋을지 한 문장으로 더 구체적으로 말씀해 주세요."
                 return _record_center_turn(session, schema, participant_id, message, reply,
@@ -815,6 +890,8 @@ def _continue_center_closing(session: ChatSession, schema: intake.Schema, settin
     if send:
         return _deliver_center_turn(session, schema, settings, participant_id, message)
     reply, choices = _center_closing_prompt(session, schema)
+    if closing_answer:
+        reply = f"{closing_answer}\n\n{reply}"
     return _record_center_turn(session, schema, participant_id, message, reply, choices)
 
 
@@ -940,7 +1017,7 @@ def _effective_question_slot_id(session: ChatSession, schema: intake.Schema) -> 
         return None
     exact = [slot.id for slot in schema.slots
              if any(text and text in assistant
-                    for text in (slot.ask, slot.reask, slot.ask_timing, slot.ask_impact))]
+                    for text in (slot.ask, slot.reask, slot.ask_timing, slot.ask_impact, slot.ask_timing_plain))]
     if len(exact) == 1:
         return exact[0]
     if exact:
@@ -1065,9 +1142,14 @@ def _uses_answer_classifier(session: ChatSession, schema: intake.Schema, setting
 
 
 def _classify_reply(session: ChatSession, schema: intake.Schema, settings: Settings, message: str,
-                    asked_slot_id: str | None, filled: dict[str, str]) -> "answer_classifier.Resolution | None":
+                    asked_slot_id: str | None, filled: dict[str, str],
+                    choose_track: bool = False) -> "answer_classifier.Resolution | None":
     """Explicit failover: on a model or validation failure the caller keeps the
-    keyword/asked-slot capture, and the failure is logged without content."""
+    keyword/asked-slot capture, and the failure is logged without content.
+
+    With `choose_track` (a first message naming both 정서 and 관계 signals) the
+    classifier's primary track decides where quotes go; "unclear" leaves the
+    track open so its question is asked and the quotes wait as pending."""
     asked = _slot_by_id(schema, asked_slot_id)
     if asked is None:
         asked_text = None
@@ -1079,11 +1161,108 @@ def _classify_reply(session: ChatSession, schema: intake.Schema, settings: Setti
                 if isinstance(evidence, dict)}
     try:
         parsed = answer_classifier.classify(message, schema, filled, settings, asked, asked_text)
-        return answer_classifier.resolve(parsed, schema, filled, statuses, message, asked_slot_id)
+        choice = parsed.get("primary_track") if choose_track else None
+        if choice in {"정서", "관계"}:
+            filled = {**filled, "track": choice}
+        elif choice == "unclear":
+            filled = {key: value for key, value in filled.items() if key != "track"}
+        resolution = answer_classifier.resolve(parsed, schema, filled, statuses, message, asked_slot_id)
+        resolution.primary_track = choice if choice in {"정서", "관계", "unclear"} else None
+        return resolution
     except (answer_classifier.ClassifyError, llm.ModelOutputTooLarge, RuntimeError, TimeoutError, ValueError) as exc:
         logger.warning("answer classification failover session=%s reason=%s",
                        hashlib.sha256(session.session_id.encode("utf-8")).hexdigest()[:16], type(exc).__name__)
         return None
+
+
+def _mixed_track_signals(schema: intake.Schema, message: str) -> bool:
+    """A first message that names both a mood problem and a relationship problem."""
+    slot = _slot_by_id(schema, "track")
+    if slot is None or not isinstance(slot.signals, dict):
+        return False
+    return bool(intake._match_signal(message, slot.signals.get("정서", ()))
+                and intake._match_signal(message, slot.signals.get("관계", ())))
+
+
+def _service_answer(session: ChatSession, schema: intake.Schema, settings: Settings,
+                    topic: str | None, message: str) -> str | None:
+    privacy = consent.load_privacy(settings.knowledge_dir, settings)
+    return service_questions.compose(topic, schema, center=session.center_name, message=message, privacy=privacy)
+
+
+_FEAR_WORDS = ("무섭", "무서", "두렵", "두려", "겁나", "겁이", "혼날", "맞을까", "때리", "때려", "소리지르", "소리를지르")
+_FEAR_SUBJECTS = ("엄마", "아빠", "어머니", "아버지", "부모", "보호자", "가족", "새엄마", "새아빠", "새어머니",
+                  "새아버지", "계부", "계모", "오빠", "누나", "언니", "형이", "형한테", "형때문", "동생", "할머니",
+                  "할아버지", "삼촌", "이모", "고모", "집에", "집이", "집은")
+MAX_ATTENTION_NOTES = 8
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?。])\s+|\n+|\.{2,}|…+", text) if part.strip()]
+
+
+def _fear_subject(text: str) -> bool:
+    compact = safety.normalize_for_signal(text)
+    return any(word in compact for word in _FEAR_SUBJECTS)
+
+
+def _family_fear_sentences(wording: str) -> list[str]:
+    """Keyword safety net for "엄마 때문에 아무것도 하기 무서워요": whole sentences, never words.
+    Pass the stored (redacted) wording."""
+    found = []
+    for sentence in _sentences(wording):
+        compact = safety.normalize_for_signal(sentence)
+        if any(word in compact for word in _FEAR_WORDS) and any(word in compact for word in _FEAR_SUBJECTS):
+            found.append(sentence)
+    return found
+
+
+# Emergency and counselling lines a reply may point to; a number followed by a counter
+# ("109일째") is not a phone line.
+_HOTLINE_RE = re.compile(r"(?<![\d-])(?:109|112|119|1393|1388|1366|1391|1577-0199|1588-9191)(?![\d-])"
+                         r"(?!\s*(?:일|년|월|개월|번|회|명|분|시간|살|%|퍼센트))|응급실")
+
+
+def _mentions_hotline(text: str) -> bool:
+    return bool(_HOTLINE_RE.search(text))
+
+
+def _record_attention(session: ChatSession, quotes: list[str], source_turn: int, wording: str = "") -> list[str]:
+    """Keep each sentence once; return new evidence keys.
+
+    A model quote grows to the whole sentence of the stored wording it sits in, and
+    the longest come first, so "무서워요" never hides "엄마 때문에 무서워요"."""
+    sentences = _sentences(wording) if wording else []
+    keyword = set(_family_fear_sentences(wording)) if wording else set()
+    whole = []
+    for quote in quotes:
+        compact_quote = safety.normalize_for_signal(quote)
+        matches = [sentence for sentence in sentences
+                   if compact_quote and compact_quote in safety.normalize_for_signal(sentence)]
+        family = [sentence for sentence in matches if sentence in keyword]
+        if family:
+            whole.append(family[0])
+        elif len(matches) == 1 and _fear_subject(matches[0]):
+            whole.append(matches[0])  # fear words the keyword list lacks, about a family member
+        elif not matches and _fear_subject(quote):
+            whole.append(quote)  # a quote spanning sentences
+        # otherwise: no family member or home in it ("학교가 무서워요"), not this note
+    known = [safety.normalize_for_signal(note.get("text", "")) for note in session.attention_notes]
+    keys = []
+    for quote in sorted(dict.fromkeys(whole), key=len, reverse=True):
+        text = " ".join(storage.redact_pii(quote).split())[: intake._MAX_SLOT_VALUE_LEN]
+        compact = safety.normalize_for_signal(text)
+        if not compact or any(compact in seen or seen in compact for seen in known if seen):
+            continue
+        if len(session.attention_notes) >= MAX_ATTENTION_NOTES:
+            break
+        index = len(session.attention_notes)
+        session.attention_notes.append({"text": text, "reason": "family_fear", "source_turn": source_turn})
+        session.slot_evidence[f"attention:{index}"] = {"status": "answered", "value": text, "label": "상담사 확인 필요",
+                                                       "category": "family_fear", "source_turn": source_turn}
+        known.append(compact)
+        keys.append(f"attention:{index}")
+    return keys
 
 
 def _apply_pending_items(session: ChatSession, schema: intake.Schema) -> dict[str, str]:
@@ -1127,6 +1306,9 @@ def _next_question_text(session: ChatSession, slot: intake.Slot) -> str:
     """The owned wording for this slot now: the missing part, a second wording, or the question."""
     followup = session.slot_followups.get(slot.id)
     if followup == "timing" and slot.ask_timing:
+        target = session.slots.get("relationship_target")
+        if slot.ask_timing_plain and (not target or " / " in target):
+            return slot.ask_timing_plain  # "그 관계에서" would point at nobody in particular
         return slot.ask_timing
     if followup == "impact" and slot.ask_impact:
         return slot.ask_impact
@@ -1462,6 +1644,9 @@ def handle_message(
     new_fills: dict[str, str] = {}
     unfilled: list[intake.Slot] = []
     red_flag_ids: set[str] = set()
+    service_topic: str | None = None  # the client asked about the service itself this turn
+    hotline_hint = False  # the reply model pointed to an emergency line
+    question_only = False  # ... and said nothing that answers the question asked
     if schema is not None and session.crisis_followup_stage is not None:
         return _continue_crisis_followup(
             session, schema, effective_participant_id, message
@@ -1607,6 +1792,7 @@ def handle_message(
         # (트랙 등)을 먼저 정하고, 실모델 센터 모드는 응답 분류로 자유서술 슬롯을 원문
         # 조각 단위로 채운다. 분류가 실패하면 기록을 남기고 예전처럼 신호어/직전질문
         # fallback으로 채운다. 모델 응답은 상담사 문장과 트랙 확인을 맡는다.
+        track_before = session.slots.get("track")
         new_fills = intake.extract_fake(message, schema, session.slots, asked_slot_id)
         if "track" in new_fills:
             session.slots["track"] = new_fills["track"]
@@ -1622,10 +1808,27 @@ def handle_message(
             # Keyword free-text fills are not shown to (or merged with) the classifier.
             closed_fills = {slot_id: value for slot_id, value in new_fills.items()
                             if (slot := _slot_by_id(schema, slot_id)) is not None and slot.values}
+            choose_track = (track_before is None and session.slots.get("track") in {"정서", "관계"}
+                            and _mixed_track_signals(schema, message))
             classified = _classify_reply(
-                session, schema, settings, message, classify_asked_id, {**session.slots, **closed_fills})
+                session, schema, settings, message, classify_asked_id, {**session.slots, **closed_fills},
+                choose_track=choose_track)
             classifier_failed = classified is None
+        if schema.handoff_mode == "center":
+            service_topic = (classified.service_topic if classified is not None
+                             else service_questions.detect(message))
         if classified is not None:
+            if classified.primary_track in {"정서", "관계"}:
+                if classified.primary_track != session.slots.get("track"):
+                    session.track_inferred = True  # the model's reading, not a signal word
+                session.slots["track"] = closed_fills["track"] = classified.primary_track
+            elif classified.primary_track == "unclear":
+                session.slots.pop("track", None)  # ask the track question; quotes wait as pending
+                closed_fills.pop("track", None)
+                session.track_inferred = False
+            # A question about the service is not an answer to the question asked:
+            # it neither counts as a miss nor uses up the one-time follow-up.
+            question_only = bool(service_topic) and classify_asked_id not in classified.fills
             new_fills = closed_fills
             _record_slot_evidence(session, new_fills, message)
             session.slots.update(new_fills)
@@ -1635,7 +1838,8 @@ def handle_message(
             filled_before = set(session.slots)
             session.slots.update(classified.fills)
             new_fills.update(classified.fills)
-            _update_followups(session, schema, classified.aspects, classify_asked_id, filled_before)
+            _update_followups(session, schema, classified.aspects,
+                              None if question_only else classify_asked_id, filled_before)
             # A retried request classifies the same message again; keep one copy.
             waiting = {(item.get("key"), item.get("quote")) for item in session.pending_slot_items}
             session.pending_slot_items = (session.pending_slot_items + [
@@ -1643,10 +1847,22 @@ def handle_message(
                 if (item["key"], item["quote"]) not in waiting
             ])[-answer_classifier.MAX_PENDING:]
             new_fills.update(_apply_pending_items(session, schema))
-            if (classify_asked_id is not None and classify_asked_id not in session.slots
+            if (classify_asked_id is not None and classify_asked_id not in session.slots and not question_only
                     and answer_classifier.participates(schema, classify_asked_id) and not retrying_saved_input):
                 session.slot_misses[classify_asked_id] = session.slot_misses.get(classify_asked_id, 0) + 1
         else:
+            answer_text = message
+            if service_topic:
+                # Keyword path: the question itself fills nothing but closed values; the
+                # rest ("한 달 전부터예요. 엄마도 봐요?" → "한 달 전부터예요.") may still answer.
+                answer_text = service_questions.strip_questions(message)
+                new_fills = {slot_id: value for slot_id, value in new_fills.items()
+                             if (slot := _slot_by_id(schema, slot_id)) is not None and slot.values}
+                if answer_text:
+                    new_fills.update({slot_id: value for slot_id, value in intake.extract_fake(
+                        answer_text, schema, session.slots, asked_slot_id).items()
+                        if (slot := _slot_by_id(schema, slot_id)) is not None and not slot.values})
+            question_only = bool(service_topic) and not answer_text
             # Capture the relationship target from the turn that determines track;
             # timing/impact still gets its own question rather than a keyword fill.
             if schema.handoff_mode == "center" and new_fills.get("track") == "관계":
@@ -1656,25 +1872,33 @@ def handle_message(
                 if "relationship_target" in branch_fills:
                     new_fills["relationship_target"] = branch_fills["relationship_target"]
 
-            if schema.handoff_mode == "center" and session.turns == 0:
+            if schema.handoff_mode == "center" and session.turns == 0 and answer_text:
                 new_fills.update(_answer_to_previous_question(
-                    message, schema, {**session.slots, **new_fills}, "chief_complaint"
+                    answer_text, schema, {**session.slots, **new_fills}, "chief_complaint"
                 ))
 
             filled_after_signals = {**session.slots, **new_fills}
             asked_slot = _slot_by_id(schema, asked_slot_id)
-            if (schema.handoff_mode == "center" or not new_fills
-                    or (asked_slot is not None and asked_slot.extract == "when_asked")):
+            if answer_text and (schema.handoff_mode == "center" or not new_fills
+                                or (asked_slot is not None and asked_slot.extract == "when_asked")):
                 new_fills.update(
                     _answer_to_previous_question(
-                        message, schema, filled_after_signals, asked_slot_id
+                        answer_text, schema, filled_after_signals, asked_slot_id
                     )
                 )
             _record_slot_evidence(session, new_fills, message,
                                   method="fallback" if classifier_failed else None)
             session.slots.update(new_fills)
-            _update_followups(session, schema, {}, asked_slot_id)
+            _update_followups(session, schema, {}, None if question_only else asked_slot_id)
             new_fills.update(_apply_pending_items(session, schema))
+        if schema.handoff_mode == "center":
+            # The classifier's whole sentences first, then the keyword safety net.
+            quotes = list(classified.attention) if classified is not None else []
+            # Split the stored (redacted) wording: "이름은 홍길동이에요. 홍길동이 무서워요" must not
+            # lose the context the name redaction needs.
+            stored_wording = storage.redact_pii(message)
+            _record_attention(session, quotes + _family_fear_sentences(stored_wording),
+                              _logical_source_turn(session), stored_wording)
         red_flag_ids = intake.detect_red_flags(message, schema, session.slots)
         unfilled = _question_queue(session, schema, red_flag_ids)
         slot_section = _build_slot_section(schema, session.slots, unfilled, session.turns)
@@ -1777,6 +2001,8 @@ def handle_message(
             or intake.build_summary_json(schema, session.slots)["red_flags"]
         ):
             reply = _ensure_crisis_hotline(reply)
+        # Read before any wording is replaced (track confirmation, owned answer, one-sentence reflection).
+        hotline_hint = _mentions_hotline(reply)
     else:
         reply = safety.sanitize_model_reply(reply, _build_guardrail_reply(None, []))
 
@@ -1791,12 +2017,26 @@ def handle_message(
                 if session.slots["track"] == "위기":
                     reply = _ensure_crisis_hotline(reply)
         elif final_unfilled and final_unfilled[0].id == "track":
-            session.track_questions += 1
+            if not question_only:
+                session.track_questions += 1  # a question about the service leaves the track question unused
             session.pending_track = proposed_track
+        service_answer = (_service_answer(session, schema, settings, service_topic, message)
+                          if service_topic and session.slots.get("track") not in {"위기", "중독"} else None)
+        # The center reply replaces the model's text, never its safety reading: a reply
+        # that pointed to an emergency line keeps the full owned notice.
+        keep_hotline = hotline_hint
         if (schema.handoff_mode == "center" and final_unfilled
                 and session.slots.get("track") not in {"위기", "중독"}):
             next_slot = final_unfilled[0]
-            reply = _center_reply_for_slot(reply, next_slot, _next_question_text(session, next_slot))
+            question_text = _next_question_text(session, next_slot)
+            # The owned answer replaces the model's text whole (never cut to one
+            # sentence), then the question that was waiting is asked again.
+            if service_answer:
+                reply = f"{service_answer}\n\n{question_text}"
+            else:
+                reply = _center_reply_for_slot(reply, next_slot, question_text)
+            if keep_hotline:
+                reply = _ensure_crisis_hotline(reply)
             session.pending_track = None
         if (not final_unfilled or session.turns + 1 >= MAX_TURNS) and _center_closing_safe(session, schema):
             session.closing_started = True
@@ -1805,6 +2045,10 @@ def handle_message(
             if selected is not None or send:
                 return _continue_center_closing(session, schema, settings, effective_participant_id, message)
             reply, choices = _center_closing_prompt(session, schema)
+            if service_answer:
+                reply = f"{service_answer}\n\n{reply}"
+            if keep_hotline:
+                reply = _ensure_crisis_hotline(reply)
             return _record_center_turn(session, schema, effective_participant_id, message, reply, choices)
         if schema.handoff_mode != "center" and (not final_unfilled or session.turns + 1 >= MAX_TURNS):
             session.handoff = _build_handoff(session, schema, settings)
@@ -1856,6 +2100,10 @@ def handle_message(
         for item in session.pending_slot_items:
             if item.get("source_turn") == this_turn:
                 item.setdefault("source", source)  # quotes kept pending from this turn
+        for key, evidence in session.slot_evidence.items():
+            # Includes a sentence noted before a failed reply, now retried as this turn.
+            if key.startswith("attention:") and isinstance(evidence, dict) and evidence.get("source_turn") == this_turn:
+                evidence.setdefault("source", source)
         for slot_id in new_fills:
             if slot_id in session.slot_evidence:
                 session.slot_evidence[slot_id]["source"] = source

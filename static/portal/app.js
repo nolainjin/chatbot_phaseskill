@@ -299,6 +299,12 @@ async function showReport(id) {
   const reportRepairs=r.summary.report_quality?.repairs;
   if(Array.isArray(reportRepairs)&&reportRepairs.length) target.append(el("p","내용이 맞지 않는 항목을 다시 정리했습니다. 미확인 항목은 상담사가 직접 확인해 주세요.","report-repair-notice"));
   if(r.summary.red_flags?.length) target.append(el("p","사람 확인 필요: 저장된 확인 신호가 있습니다. 상담사가 내용을 직접 확인해 주세요."));
+  if(Array.isArray(r.summary.attention_notes)&&r.summary.attention_notes.length){
+    const attention=el("div",undefined,"report-section attention-notes");
+    attention.append(el("h3","상담사 확인 필요"),el("p","가족이나 집에 대한 두려움을 말한 문장을 쪼개지 않고 그대로 남겼습니다. 상담사가 직접 확인해 주세요.","hint"));
+    r.summary.attention_notes.forEach((note,index)=>{const field=el("div",undefined,"field");field.append(el("strong","가족·집에 대한 두려움"),el("p",note.text||""));if(has("raw:read")&&!r.raw_expired)(r.sources["attention:"+index]||[]).forEach(source=>field.append(sourceLink("원문 출처 #"+source.seq,source)));attention.append(field);});
+    target.append(attention);
+  }
   const slots=r.summary.slots||{};
   const evidence=r.summary.slot_evidence||r.slot_evidence||{};
   const visibleKeys=Object.keys(r.slot_labels).filter(key=>key!=="track" && (Object.prototype.hasOwnProperty.call(evidence,key)||Boolean(slots[key])));

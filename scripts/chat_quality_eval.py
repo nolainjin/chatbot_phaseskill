@@ -18,6 +18,7 @@
 """
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -61,8 +62,19 @@ def load_cases(path=CASES):
     for entry in entries:
         for fact in entry["facts"]:
             assert fact["slot"] in FREE_TEXT, fact
-            assert _hit(entry["text"], fact), (entry["text"], fact["keys"])
+            assert set(fact.get("also", ())) <= set(FREE_TEXT), fact
+            # A '없음' fact names the stored wording ("해 본 대처 없음"), not the reply text.
+            assert fact.get("kind") == "none" or _hit(entry["text"], fact), (entry["text"], fact["keys"])
     return data
+
+
+def _closing_entry(item):
+    """closing_script items are plain text or {"text", "question_topic"?, "no_retryable"?}."""
+    if isinstance(item, dict):
+        return ({"text": item["text"], "facts": []},
+                {"closing": True, "question_topic": item.get("question_topic"),
+                 "no_retryable": bool(item.get("no_retryable"))})
+    return {"text": item, "facts": []}, {"closing": True}
 
 
 def _counted(original):
@@ -76,7 +88,9 @@ def _reply_for(case, bank, asked, asked_counts, bank_used):
     occurrence = asked_counts[asked] = asked_counts.get(asked, 0) + 1
     for override in case.get("overrides", []):
         if override["when_asked"] == asked and override["occurrence"] == occurrence:
-            return override, {"override": True, "offtopic": bool(override.get("offtopic"))}
+            return override, {"override": True, "offtopic": bool(override.get("offtopic")),
+                              "question_topic": override.get("question_topic"),
+                              "answers_asked": bool(override.get("answers_asked"))}
     if asked in bank:
         if bank_used.get(asked):
             return {"text": REPEAT_PREFIX + bank[asked]["text"], "facts": bank[asked]["facts"]}, {"repeat": True}
@@ -103,7 +117,7 @@ def run_case(case, personas, settings, rep):
         elif session is not None and session.closing_started:
             if not closing_script:
                 break
-            entry, meta = {"text": closing_script.pop(0), "facts": []}, {"closing": True}
+            entry, meta = _closing_entry(closing_script.pop(0))
         elif index == 1:
             asked_counts["chief_complaint"] = 1
             if "opening" in case:
@@ -134,7 +148,9 @@ def run_case(case, personas, settings, rep):
                       "next_asked": session.last_question_slot_id, "track": after.get("track"),
                       "closing_started": session.closing_started, "seconds": round(elapsed, 2),
                       "model_calls": getattr(_calls, "count", 0), "retried": retried,
-                      "retryable_after_retry": result.get("processing_status") == "retryable"})
+                      "retryable_after_retry": result.get("processing_status") == "retryable",
+                      "status": result.get("processing_status"),
+                      "ended": bool(result.get("conversation_ended"))})
         last = result
         if session.closing_started and closing_turn is None:
             closing_turn = index
@@ -144,7 +160,9 @@ def run_case(case, personas, settings, rep):
     return {"case": case["id"], "category": case["category"], "rep": rep, "turns": turns,
             "final_slots": dict(session.slots), "closing_turn": closing_turn,
             "handoff_sent": bool((last.get("handoff") or {}).get("sent")),
-            "skipped": sorted(getattr(session, "skipped_slots", ()) or ())}
+            "skipped": sorted(getattr(session, "skipped_slots", ()) or ()),
+            "attention": [note.get("text", "") for note in getattr(session, "attention_notes", [])],
+            "center_requests": [item.get("text", "") for item in session.center_requests]}
 
 
 def _pieces(before, after):
@@ -172,18 +190,39 @@ def _aspects(personas, cases):
             for entry in entries for fact in entry["facts"] if fact.get("aspect")}
 
 
+@functools.lru_cache(maxsize=1)
+def _answer_sources():
+    from app import consent, intake
+    pack = ROOT / "knowledge-maeum"
+    return intake.load_schema(pack), consent.load_privacy(pack)
+
+
+def _expected_answer(topic, text):
+    """The owned answer the chatbot must show for this service question."""
+    from app import service_questions
+    schema, privacy = _answer_sources()
+    return service_questions.compose(topic, schema, center=None, message=text, privacy=privacy)
+
+
 def score_case(run, case, personas, part_questions=None, aspect_of=None):
     part_questions = _part_questions() if part_questions is None else part_questions
     aspect_of = aspect_of or {}
     expected_track = case.get("expect_track") or (personas[case["persona"]]["track"] if case.get("persona") else None)
     score = {"reask": 0, "reask_detail": [], "followup": 0, "correct": 0, "misplaced": 0, "wrong": 0, "wrong_detail": [],
              "facts": 0, "recalled": 0, "missed": [], "offtopic_turns": 0, "offtopic_misfill": 0,
+             "question_turns": 0, "question_ok": 0, "question_fail": [], "retryable_turns": 0,
              "track_ok": run["final_slots"].get("track") == expected_track, "expect_ok": True}
     disclosed = []
     previous_reply = ""
     followed = set()
+    previous = None
     for turn in run["turns"]:
-        if turn["index"] > 1 and turn["asked"] in FREE_TEXT and any(
+        # Asking again the question that waited while a service question was answered is a resume.
+        resumed_after_question = bool(previous and previous["meta"].get("question_topic")
+                                      and not previous["meta"].get("answers_asked")
+                                      and turn["asked"] == previous["asked"])
+        previous = turn
+        if turn["index"] > 1 and turn["asked"] in FREE_TEXT and not resumed_after_question and any(
                 fact["slot"] == turn["asked"] for _, fact in disclosed):
             asked_part = next((part for part, text in part_questions.get(turn["asked"], {}).items()
                                if text and text in previous_reply), None)
@@ -198,14 +237,35 @@ def score_case(run, case, personas, part_questions=None, aspect_of=None):
         previous_reply = turn["reply"]
         disclosed.extend((turn["index"], fact) for fact in turn["facts"])
         messages = [(t["index"], t["text"], t["facts"]) for t in run["turns"] if t["index"] <= turn["index"]]
+        if turn.get("status") == "retryable":
+            score["retryable_turns"] += 1
+        topic = turn["meta"].get("question_topic")
+        if topic:
+            # A question about the service: the owned answer is shown, the turn is not a
+            # failure, and the waiting question comes back (unless it was answered too).
+            score["question_turns"] += 1
+            expected = _expected_answer(topic, turn["text"])
+            answered = bool(expected) and expected in turn["reply"]
+            resumed = bool(turn["meta"].get("closing") or turn["meta"].get("answers_asked")
+                           or turn.get("next_asked") == turn["asked"])
+            healthy = turn.get("status") != "retryable" and not (turn["meta"].get("closing") and turn.get("ended"))
+            if answered and resumed and healthy:
+                score["question_ok"] += 1
+            else:
+                score["question_fail"].append([turn["index"], topic, answered, resumed, healthy])
+        if turn["meta"].get("no_retryable") and turn.get("status") == "retryable":
+            score["expect_ok"] = False
         if turn["meta"].get("scripted"):
             continue  # Safety scripts carry no slot facts; they are judged by `expect`.
         for slot, (before, after) in turn["changes"].items():
             for piece in _pieces(before, after):
                 source = next((facts for _, text, facts in reversed(messages) if _norm(piece) in _norm(text)), None)
                 pool = source if source is not None else [fact for _, fact in disclosed]
-                own = [fact for fact in pool if fact["slot"] == slot and _hit(piece, fact)]
-                foreign = [fact for fact in pool if fact["slot"] != slot and _hit(piece, fact)]
+                # `also`: the complaint may share a piece with a detail field.
+                own = [fact for fact in pool if (fact["slot"] == slot or slot in fact.get("also", ()))
+                       and _hit(piece, fact)]
+                foreign = [fact for fact in pool if fact["slot"] != slot and slot not in fact.get("also", ())
+                           and _hit(piece, fact)]
                 score["correct"] += len(own)
                 score["misplaced"] += len(foreign)
                 if not own:
@@ -227,7 +287,7 @@ def score_case(run, case, personas, part_questions=None, aspect_of=None):
             unique.setdefault((fact["slot"], tuple(fact["keys"])), fact)
     for fact in unique.values():
         score["facts"] += 1
-        if _hit(run["final_slots"].get(fact["slot"], ""), fact):
+        if any(_hit(run["final_slots"].get(slot) or "", fact) for slot in (fact["slot"], *fact.get("also", ()))):
             score["recalled"] += 1
         else:
             score["missed"].append([fact["slot"], fact["keys"][0]])
@@ -245,7 +305,7 @@ def score_case(run, case, personas, part_questions=None, aspect_of=None):
                     expected.setdefault((fact["slot"], tuple(fact["keys"])), fact)
         for fact in expected.values():
             score["coverage_total"] += 1
-            if _hit(run["final_slots"].get(fact["slot"], ""), fact):
+            if any(_hit(run["final_slots"].get(slot) or "", fact) for slot in (fact["slot"], *fact.get("also", ()))):
                 score["coverage_hit"] += 1
             else:
                 score["coverage_missed"].append([fact["slot"], fact["keys"][0]])
@@ -258,20 +318,27 @@ def score_case(run, case, personas, part_questions=None, aspect_of=None):
         upto, needle = expect["reply_contains_by_turn"]
         score["expect_ok"] = any(needle in reply for reply in replies[:upto])
     if expect.get("handoff_sent"):
-        score["expect_ok"] = run["handoff_sent"]
+        score["expect_ok"] = score["expect_ok"] and run["handoff_sent"]
+    if "attention_contains" in expect:
+        score["expect_ok"] = score["expect_ok"] and any(
+            expect["attention_contains"] in note for note in run.get("attention", []))
+    if "center_request_contains" in expect:
+        score["expect_ok"] = score["expect_ok"] and any(
+            expect["center_request_contains"] in text for text in run.get("center_requests", []))
     return score
 
 
 def summarize(runs, scores):
     total = {key: sum(s.get(key, 0) for s in scores) for key in
              ("reask", "followup", "correct", "misplaced", "wrong", "facts", "recalled", "offtopic_turns", "offtopic_misfill",
-              "coverage_total", "coverage_hit")}
+              "coverage_total", "coverage_hit", "question_turns", "question_ok", "retryable_turns")}
     placed = total["correct"] + total["misplaced"] + total["wrong"]
     turns = [turn for run in runs for turn in run["turns"]]
     closing = [run["closing_turn"] for run in runs if run["closing_turn"] and run["category"] != "safety"]
     safety = [s for run, s in zip(runs, scores) if run["category"] == "safety"]
     return {
         "runs": len(runs), "turns": len(turns), **total,
+        "question_answered": f"{total['question_ok']}/{total['question_turns']}",
         "precision": round(total["correct"] / placed, 3) if placed else None,
         "recall": round(total["recalled"] / total["facts"], 3) if total["facts"] else None,
         "coverage": round(total["coverage_hit"] / total["coverage_total"], 3) if total["coverage_total"] else None,
@@ -297,6 +364,8 @@ def main():
     parser.add_argument("--out", default="")
     parser.add_argument("--rescore", default="", help="저장한 결과 JSON을 모델 호출 없이 다시 채점")
     parser.add_argument("--cases", default=str(CASES), help="사례 파일(보류 세트는 holdout.json)")
+    parser.add_argument("--classify-model", default="", help="응답 분류 모델(비우면 --model)")
+    parser.add_argument("--classify-effort", default="low", help="응답 분류 effort(low~max)")
     args = parser.parse_args()
     if args.rescore:
         saved = json.loads(Path(args.rescore).read_text(encoding="utf-8"))
@@ -317,14 +386,16 @@ def main():
         llm._ask_single_backend = _counted(llm._ask_single_backend)
         if hasattr(llm, "classify"):
             llm.classify = _counted(llm.classify)
-        settings = replace(Settings.from_env(), model=args.model, knowledge_dir=str(ROOT / "knowledge-maeum"))
+        settings = replace(Settings.from_env(), model=args.model, knowledge_dir=str(ROOT / "knowledge-maeum"),
+                           classify_model=args.classify_model, classify_effort=args.classify_effort)
         data = load_cases(args.cases)
         wanted = {item for item in args.only.split(",") if item}
         cases = [case for case in data["cases"] if not wanted or case["id"] in wanted]
         jobs = [(case, rep) for rep in range(args.repeat) for case in cases]
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             runs = list(pool.map(lambda job: run_case(job[0], data["personas"], settings, job[1]), jobs))
-    report(runs, {case["id"]: case for case in cases}, data["personas"], args.label, args.model, args.out)
+    model_label = f"{args.model} | classify {args.classify_model or args.model}:{args.classify_effort}"
+    report(runs, {case["id"]: case for case in cases}, data["personas"], args.label, model_label, args.out)
 
 
 def report(runs, by_id, personas, label, model, out):

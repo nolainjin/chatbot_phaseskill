@@ -199,9 +199,11 @@ def test_uncertain_analysis_asks_for_clarification_instead_of_retry(monkeypatch)
     monkeypatch.setattr(llm, "ask_strict", lambda **kw:
                         '```json\n{"items":[],"needs_clarification":true}\n```')
     result = chat.handle_message("semantic", "그건 좀 그런 것 같아요", settings)
-    assert result["closing"]["stage"] == "answer"
-    assert result["processing_status"] == "saved"
+    # 2026-11-09 2차: unclear but substantive words go along as written when sent (not dropped).
+    assert result["closing"]["stage"] == "confirm"
+    assert result["processing_status"] == "confirmation_required"
     assert "더 구체적으로" in result["reply"]
+    assert result["closing"]["draft"]["items"][0]["text"] == "그건 좀 그런 것 같아요"
 
 
 def test_category_correction_preserves_other_draft_items(monkeypatch):
