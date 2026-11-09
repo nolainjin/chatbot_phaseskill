@@ -240,12 +240,11 @@ def _center_reply_for_slot(reply: str, slot: intake.Slot, question: str | None =
         if not candidate or len(candidate) > 180 or "?" in candidate:
             continue
         normalized = safety.normalize_for_signal(candidate)
-        # Also a sentence that only announces a check ("…있었는지도 확인하고 싶어요"):
-        # the owned question follows, so the check would be raised and never asked.
+        # A sentence that only says the model wants to check safety ("…있었는지도 확인하고
+        # 싶어요") stays: it lets the client bring it up (5th review).
         if any(marker in normalized for marker in (
             "말씀해주세요", "알려주세요", "여쭤볼게", "있나요", "인가요", "할까요",
             "어떤", "언제", "누구", "무엇",
-            "확인하고싶", "확인해보고싶", "여쭤보고싶", "묻고싶", "물어보고싶", "있었는지",
         )):
             continue
         reflection = candidate
@@ -488,12 +487,14 @@ def _center_closing_prompt(session: ChatSession, schema: intake.Schema) -> tuple
 
 _CLOSING_NOTHING_LEAD = "괜찮아요. "
 _CLOSING_FILLERS = {"음", "음음", "흠", "어", "아", "글쎄", "글쎄요", "그냥", "그냥요", "몰라요", "모르겠어요",
-                    "잘모르겠어요", "네", "예", "아니요", "아뇨", "괜찮아요", "됐어요"}
+                    "잘모르겠어요", "네", "예", "아니요", "아뇨", "괜찮아요", "됐어요", "응", "웅", "넵", "넹",
+                    "좋아", "좋아요", "알겠어요", "알았어요", "ok", "okay"}
 
 
 def _closing_filler(text: str) -> bool:
-    compact = re.sub(r"[^가-힣a-zA-Z0-9]", "", text)
-    return len(compact) <= 2 or compact in _CLOSING_FILLERS
+    # By the word, not its length: "폭력" or "이혼" is something to forward (5th review).
+    compact = re.sub(r"[^가-힣a-zA-Z0-9]", "", text).lower()
+    return not compact or compact in _CLOSING_FILLERS
 
 
 def _center_sent_reply() -> str:
@@ -1227,6 +1228,21 @@ def _mentions_hotline(text: str) -> bool:
     return bool(_HOTLINE_RE.search(text))
 
 
+def _hotline_sentences(text: str) -> list[str]:
+    """The model's sentences that point to an emergency or counselling line, in order."""
+    return [part.strip() for part in re.split(r"(?<=[.!?。])\s+|\n+", text)
+            if part.strip() and _mentions_hotline(part)]
+
+
+def _keep_hotline(reply: str, sentences: list[str]) -> str:
+    """An assembled reply keeps the model's own emergency sentences (112 for danger from
+    others, 1391, 1388 …) and the full owned crisis notice."""
+    missing = [sentence for sentence in sentences if sentence not in reply]
+    if missing:
+        reply = reply.rstrip() + "\n\n" + " ".join(missing)
+    return _ensure_crisis_hotline(reply)
+
+
 def _record_attention(session: ChatSession, quotes: list[str], source_turn: int, wording: str = "") -> list[str]:
     """Keep each sentence once; return new evidence keys.
 
@@ -1645,7 +1661,7 @@ def handle_message(
     unfilled: list[intake.Slot] = []
     red_flag_ids: set[str] = set()
     service_topic: str | None = None  # the client asked about the service itself this turn
-    hotline_hint = False  # the reply model pointed to an emergency line
+    hotline_lines: list[str] = []  # the reply model's sentences that point to an emergency line
     question_only = False  # ... and said nothing that answers the question asked
     if schema is not None and session.crisis_followup_stage is not None:
         return _continue_crisis_followup(
@@ -2002,7 +2018,7 @@ def handle_message(
         ):
             reply = _ensure_crisis_hotline(reply)
         # Read before any wording is replaced (track confirmation, owned answer, one-sentence reflection).
-        hotline_hint = _mentions_hotline(reply)
+        hotline_lines = _hotline_sentences(reply)
     else:
         reply = safety.sanitize_model_reply(reply, _build_guardrail_reply(None, []))
 
@@ -2023,8 +2039,7 @@ def handle_message(
         service_answer = (_service_answer(session, schema, settings, service_topic, message)
                           if service_topic and session.slots.get("track") not in {"위기", "중독"} else None)
         # The center reply replaces the model's text, never its safety reading: a reply
-        # that pointed to an emergency line keeps the full owned notice.
-        keep_hotline = hotline_hint
+        # that pointed to an emergency line keeps those sentences and the full owned notice.
         if (schema.handoff_mode == "center" and final_unfilled
                 and session.slots.get("track") not in {"위기", "중독"}):
             next_slot = final_unfilled[0]
@@ -2035,20 +2050,19 @@ def handle_message(
                 reply = f"{service_answer}\n\n{question_text}"
             else:
                 reply = _center_reply_for_slot(reply, next_slot, question_text)
-            if keep_hotline:
-                reply = _ensure_crisis_hotline(reply)
             session.pending_track = None
         if (not final_unfilled or session.turns + 1 >= MAX_TURNS) and _center_closing_safe(session, schema):
             session.closing_started = True
             session.last_question_slot_id = None
             selected, send = _closing_choice(message, schema)
-            if selected is not None or send:
+            # With emergency guidance this turn, show it with the choices instead of acting at once.
+            if (selected is not None or send) and not hotline_lines:
                 return _continue_center_closing(session, schema, settings, effective_participant_id, message)
             reply, choices = _center_closing_prompt(session, schema)
             if service_answer:
                 reply = f"{service_answer}\n\n{reply}"
-            if keep_hotline:
-                reply = _ensure_crisis_hotline(reply)
+            if hotline_lines:
+                reply = _keep_hotline(reply, hotline_lines)
             return _record_center_turn(session, schema, effective_participant_id, message, reply, choices)
         if schema.handoff_mode != "center" and (not final_unfilled or session.turns + 1 >= MAX_TURNS):
             session.handoff = _build_handoff(session, schema, settings)
@@ -2056,6 +2070,8 @@ def handle_message(
                 reply = "이야기를 정리했어요. 아래 정리문을 기관에 그대로 전할 수 있어요."
                 if session.handoff["fallback_used"]:
                     reply += "\n\n" + referral.DEFAULT_GUIDANCE
+        if hotline_lines:  # every wording above (track confirmation, owned answer, reflection, summary)
+            reply = _keep_hotline(reply, hotline_lines)
 
     retry = session.request_results.get(session.current_request_id or "") or {}
     reused_user = retry.get("status") == "retryable" and retry.get("user_saved") is True

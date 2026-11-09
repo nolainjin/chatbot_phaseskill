@@ -417,11 +417,11 @@ def test_placeholder_typo_never_reaches_the_screen(tmp_path):
 
 # --- confirmation review (Codex, 4th) regressions --------------------------------------------
 
-@pytest.mark.parametrize("model_reply", [
-    "지금 위험하게 들려요. 109에 바로 연락해 주세요.",
-    "집이 위험하면 112에 바로 신고해 주세요.",
+@pytest.mark.parametrize("model_reply, kept", [
+    ("지금 위험하게 들려요. 109에 바로 연락해 주세요.", "109에 바로 연락해 주세요."),
+    ("많이 무서웠겠어요. 집이 위험하면 112에 바로 신고해 주세요.", "집이 위험하면 112에 바로 신고해 주세요."),
 ])
-def test_hotline_the_model_gave_survives_an_ordinary_turn(stub, monkeypatch, model_reply):
+def test_hotline_the_model_gave_survives_an_ordinary_turn(stub, monkeypatch, model_reply, kept):
     symptom = _slot("symptom_context")
     _asked("h0", "symptom_context", symptom.ask, track="정서", chief_complaint="불안해요")
     monkeypatch.setattr(llm, "ask", lambda **kwargs: model_reply + "\n```slots\n{}\n```")
@@ -431,6 +431,7 @@ def test_hotline_the_model_gave_survives_an_ordinary_turn(stub, monkeypatch, mod
     result = chat.handle_message("h0", message, _settings())
     for required in ("109", "1577-0199", "1588-9191", "119"):
         assert required in result["reply"]
+    assert kept in result["reply"]  # the model's own line (112 for danger at home) is not swapped out
 
 
 def test_counting_words_are_not_hotlines():
@@ -513,10 +514,38 @@ def test_classification_on_opus_or_sonnet_asks_for_the_server_fallback(monkeypat
         assert "fallbacks" not in seen and "betas" not in seen
 
 
-def test_reflection_that_only_announces_a_check_is_not_kept():
-    # Seen in a replay: the model raised a home-safety check, then the owned question moved on.
+def test_reflection_that_raises_a_safety_check_is_kept():
+    # 5th review: dropping it would also drop the client's opening to talk about safety.
     question = "이번 상담에서 어떤 도움을 가장 기대하시나요?"
-    reply = "집에서 몸이 다치거나 안전이 위협받는다고 느끼는 일이 있었는지도 함께 확인하고 싶어요. " + question
-    assert chat._center_reply_for_slot(reply, _slot("expectation"), question) == "말씀해 주셔서 감사합니다. " + question
-    kept = chat._center_reply_for_slot("엄마의 기대가 무겁게 느껴지셨겠어요. " + question, _slot("expectation"), question)
-    assert kept == "엄마의 기대가 무겁게 느껴지셨겠어요. " + question
+    check = "집에서 몸이 다치거나 안전이 위협받는다고 느끼는 일이 있었는지도 함께 확인하고 싶어요."
+    assert chat._center_reply_for_slot(f"{check} {question}", _slot("expectation"), question) == f"{check} {question}"
+
+
+# --- confirmation review (Codex, 5th) regressions --------------------------------------------
+
+def test_keep_hotline_puts_back_the_model_lines_once():
+    lines = chat._hotline_sentences("많이 무서웠겠어요. 집이 위험하면 112에 신고해 주세요. 1391도 있어요.")
+    assert lines == ["집이 위험하면 112에 신고해 주세요.", "1391도 있어요."]
+    once = chat._keep_hotline("다음 질문이에요?", lines)
+    assert "112에 신고해 주세요." in once and "1391도 있어요." in once and "1588-9191" in once
+    assert chat._keep_hotline(once, lines) == once
+
+
+def test_closing_start_with_emergency_guidance_shows_it_before_acting(stub, monkeypatch):
+    session = _asked("h5", "expectation", _slot("expectation").ask, track="정서", chief_complaint="불안해요")
+    session.turns = chat.MAX_TURNS - 1
+    monkeypatch.setattr(llm, "ask", lambda **kwargs: "집이 위험하면 112에 바로 신고해 주세요.\n```slots\n{}\n```")
+    stub.append(_payload(answered="no"))
+    result = chat.handle_message("h5", "그냥 보낼게요", _settings())
+    assert not (result.get("handoff") or {}).get("sent") and session.closing_started
+    assert "집이 위험하면 112에 바로 신고해 주세요." in result["reply"] and "1588-9191" in result["reply"]
+
+
+def test_two_letter_note_is_forwarded_after_clarification(stub):
+    session = _closing()
+    stub.append(json.dumps({"items": [], "corrections": [], "needs_clarification": True,
+                            "service_question": {"topic": "none", "quote": ""}}))
+    chat.handle_message("c1", "폭력", _settings())
+    sent = chat.handle_message("c1", "확인한 내용 전달하기", _settings())
+    assert sent["handoff"]["sent"] and session.center_requests == [{"label": "센터에 전할 내용", "text": "폭력"}]
+    assert chat._closing_filler("음..") and chat._closing_filler("네") and not chat._closing_filler("이혼")
