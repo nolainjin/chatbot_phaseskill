@@ -581,3 +581,13 @@ def test_last_turn_retry_gets_its_reply_and_the_closing_choices(stub, monkeypatc
     again = chat.handle_message("h6", message, _settings(), request_id="last-1")
     assert not (again.get("handoff") or {}).get("sent") and session.closing_started and again.get("quick_replies")
     assert [turn["content"] for turn in session.history if turn["role"] == "user"].count(message) == 1
+
+
+# --- confirmation review (Codex, 7th) regressions --------------------------------------------
+
+def test_attached_call_word_and_mixed_guidance_keep_the_line():
+    assert chat._mentions_hotline("위급하면 119호출하세요") and not chat._mentions_hotline("112호에서 지내시는군요.")
+    mixed = "위험하면 112로 신고해 주세요, 가능하신가요?"
+    assert chat._hotline_sentences(mixed) == ["위험하면 112로 신고해 주세요."]
+    kept = chat._keep_hotline(mixed, chat._hotline_sentences(mixed))  # already shown whole: not added twice
+    assert kept.count("112로 신고해 주세요") == 1 and "1588-9191" in kept

@@ -1226,7 +1226,7 @@ def _family_fear_sentences(wording: str) -> list[str]:
 # Emergency and counselling lines a reply may point to; a number followed by a counter
 # ("109일째") is not a phone line.
 _HOTLINE_RE = re.compile(r"(?<![\d-])(?:109|112|119|1393|1388|1366|1391|1577-0199|1588-9191)(?![\d-])"
-                         r"(?!\s*(?:일|년|월|개월|번째|회|명|분|초|시간|살|%|퍼센트))(?!호|층|번지)|응급실")
+                         r"(?!\s*(?:일|년|월|개월|번째|회|명|분|초|시간|살|%|퍼센트))(?!호(?!출)|층|번지)|응급실")
 
 
 def _mentions_hotline(text: str) -> bool:
@@ -1234,16 +1234,25 @@ def _mentions_hotline(text: str) -> bool:
 
 
 def _hotline_sentences(text: str) -> list[str]:
-    """The model's sentences that point to an emergency or counselling line, in order.
-    A question ("112에 전화해 보셨나요?") is not guidance and would compete with the owned question."""
-    return [part.strip() for part in re.split(r"(?<=[.!?。])\s+|\n+", text)
-            if part.strip() and _mentions_hotline(part) and "?" not in part and "？" not in part]
+    """The model's guidance that points to an emergency or counselling line, in order. A question
+    ("112에 전화해 보셨나요?") is not guidance and would compete with the owned question; in a
+    sentence that mixes both ("…112로 신고해 주세요, 가능하신가요?") the guidance clause stays."""
+    found = []
+    for part in (piece.strip() for piece in re.split(r"(?<=[.!?。])\s+|\n+", text)):
+        if not part or not _mentions_hotline(part):
+            continue
+        if "?" not in part and "？" not in part:
+            found.append(part)
+            continue
+        found.extend(clause.strip().rstrip(",，") + "." for clause in re.split(r"[,，]", part)
+                     if _mentions_hotline(clause) and "?" not in clause and "？" not in clause)
+    return found
 
 
 def _keep_hotline(reply: str, sentences: list[str]) -> str:
     """An assembled reply keeps the model's own emergency sentences (112 for danger from
     others, 1391, 1388 …) and the full owned crisis notice."""
-    missing = [sentence for sentence in sentences if sentence not in reply]
+    missing = [sentence for sentence in sentences if sentence.rstrip(".") not in reply]
     if missing:
         reply = reply.rstrip() + "\n\n" + " ".join(missing)
     return _ensure_crisis_hotline(reply)
