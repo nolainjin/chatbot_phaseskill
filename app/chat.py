@@ -232,9 +232,13 @@ def _question_for_slot(slot: intake.Slot) -> str:
     return f"{slot.label}에 대해 조금 더 말씀해 주세요."
 
 
+_SAFETY_WORDS = ("안전", "위험", "위협", "해치", "다치", "자해", "자살", "죽고", "죽을", "폭력", "학대", "때리")
+
+
 def _center_reply_for_slot(reply: str, slot: intake.Slot, question: str | None = None) -> str:
-    """Keep at most one safe reflection, then ask the exact owned question."""
-    reflection = ""
+    """Keep at most one safe reflection, then ask the exact owned question. A sentence in
+    which the model raised safety wins over plain empathy (6th review)."""
+    candidates = []
     for sentence in re.split(r"(?<=[.!?。])\s+|\n+", reply.strip()):
         candidate = sentence.strip()
         if not candidate or len(candidate) > 180 or "?" in candidate:
@@ -247,8 +251,9 @@ def _center_reply_for_slot(reply: str, slot: intake.Slot, question: str | None =
             "어떤", "언제", "누구", "무엇",
         )):
             continue
-        reflection = candidate
-        break
+        candidates.append(candidate)
+    reflection = next((text for text in candidates if any(word in text for word in _SAFETY_WORDS)),
+                      candidates[0] if candidates else "")
     if not reflection:
         reflection = "말씀해 주셔서 감사합니다."
     elif reflection[-1] not in ".!。":
@@ -1221,7 +1226,7 @@ def _family_fear_sentences(wording: str) -> list[str]:
 # Emergency and counselling lines a reply may point to; a number followed by a counter
 # ("109일째") is not a phone line.
 _HOTLINE_RE = re.compile(r"(?<![\d-])(?:109|112|119|1393|1388|1366|1391|1577-0199|1588-9191)(?![\d-])"
-                         r"(?!\s*(?:일|년|월|개월|번|회|명|분|시간|살|%|퍼센트))|응급실")
+                         r"(?!\s*(?:일|년|월|개월|번째|회|명|분|초|시간|살|%|퍼센트))(?!호|층|번지)|응급실")
 
 
 def _mentions_hotline(text: str) -> bool:
@@ -1229,9 +1234,10 @@ def _mentions_hotline(text: str) -> bool:
 
 
 def _hotline_sentences(text: str) -> list[str]:
-    """The model's sentences that point to an emergency or counselling line, in order."""
+    """The model's sentences that point to an emergency or counselling line, in order.
+    A question ("112에 전화해 보셨나요?") is not guidance and would compete with the owned question."""
     return [part.strip() for part in re.split(r"(?<=[.!?。])\s+|\n+", text)
-            if part.strip() and _mentions_hotline(part)]
+            if part.strip() and _mentions_hotline(part) and "?" not in part and "？" not in part]
 
 
 def _keep_hotline(reply: str, sentences: list[str]) -> str:
@@ -1797,7 +1803,10 @@ def handle_message(
                         "handoff": session.handoff}
             if session.closing_started:
                 return _continue_center_closing(session, schema, settings, effective_participant_id, message)
-            if session.turns >= MAX_TURNS:
+            saved = session.request_results.get(session.current_request_id or "") or {}
+            # A retry of the last turn whose reply failed still gets its reply and the closing
+            # choices; only a later message past the limit is delivered as is (6th review).
+            if session.turns >= MAX_TURNS and not (saved.get("status") == "retryable" and saved.get("user_saved")):
                 return _deliver_center_turn(session, schema, settings, effective_participant_id, message)
     classified = None
     if schema is None:

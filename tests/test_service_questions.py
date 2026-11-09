@@ -549,3 +549,35 @@ def test_two_letter_note_is_forwarded_after_clarification(stub):
     sent = chat.handle_message("c1", "확인한 내용 전달하기", _settings())
     assert sent["handoff"]["sent"] and session.center_requests == [{"label": "센터에 전할 내용", "text": "폭력"}]
     assert chat._closing_filler("음..") and chat._closing_filler("네") and not chat._closing_filler("이혼")
+
+# --- confirmation review (Codex, 6th) regressions --------------------------------------------
+
+def test_hotline_words_read_as_lines_and_rooms_do_not():
+    assert chat._mentions_hotline("긴급하면 112번으로 신고하세요") and chat._mentions_hotline("119 호출해 주세요")
+    assert not chat._mentions_hotline("112호에서 지내시는군요.") and not chat._mentions_hotline("112번째 날이에요")
+    assert chat._hotline_sentences("112에 전화해 보셨나요? 위험하면 112로 신고해 주세요.") == ["위험하면 112로 신고해 주세요."]
+
+
+def test_reflection_prefers_the_sentence_that_raises_safety():
+    question = "이번 상담에서 어떤 도움을 가장 기대하시나요?"
+    check = "집에서 안전이 위협받는 일이 있었는지 확인하고 싶어요."
+    reply = chat._center_reply_for_slot(f"많이 힘드셨겠어요. {check} {question}", _slot("expectation"), question)
+    assert reply == f"{check} {question}"
+
+
+def test_last_turn_retry_gets_its_reply_and_the_closing_choices(stub, monkeypatch):
+    message = "덜 불안했으면 좋겠어요"
+    session = _asked("h6", "expectation", _slot("expectation").ask, track="정서", chief_complaint="불안해요")
+    session.turns = chat.MAX_TURNS - 1
+
+    def down(**kwargs):
+        raise llm.ModelBackendError("model backend unavailable: test")
+
+    monkeypatch.setattr(llm, "ask", down)
+    stub.extend([_payload(("expectation", message)), _payload(("expectation", message))])
+    first = chat.handle_message("h6", message, _settings(), request_id="last-1")
+    assert first["processing_status"] == "retryable" and session.turns == chat.MAX_TURNS
+    monkeypatch.setattr(llm, "ask", lambda **kwargs: REPLY)
+    again = chat.handle_message("h6", message, _settings(), request_id="last-1")
+    assert not (again.get("handoff") or {}).get("sent") and session.closing_started and again.get("quick_replies")
+    assert [turn["content"] for turn in session.history if turn["role"] == "user"].count(message) == 1
