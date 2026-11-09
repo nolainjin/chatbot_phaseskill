@@ -21,12 +21,18 @@ class Settings:
     # empty model means the reply model.
     classify_model: str = ""
     classify_effort: str = "low"
+    # The closing-step analysis (notes for the center, questions about the service)
+    # may run on its own model and effort; empty means the classify settings.
+    closing_model: str = ""
+    closing_effort: str = ""
 
     def __post_init__(self):
         if self.referral_min_check not in {"verified", "web"}:
             raise ValueError("REFERRAL_MIN_CHECK는 verified 또는 web이어야 합니다.")
         if self.classify_effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError("CLASSIFY_EFFORT는 low·medium·high·xhigh·max 중 하나여야 합니다.")
+        if self.closing_effort not in {"", "low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("CLOSING_EFFORT는 비우거나 low·medium·high·xhigh·max 중 하나여야 합니다.")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -42,4 +48,6 @@ class Settings:
             referral_min_check=os.getenv("REFERRAL_MIN_CHECK", "verified"),
             classify_model=os.getenv("CLASSIFY_MODEL", ""),
             classify_effort=os.getenv("CLASSIFY_EFFORT", "low"),
+            closing_model=os.getenv("CLOSING_MODEL", ""),
+            closing_effort=os.getenv("CLOSING_EFFORT", ""),
         )

@@ -480,18 +480,20 @@ def classify_model(settings: Settings) -> str:
     return settings.classify_model or settings.model
 
 
-def classify(system: str, user: str, settings: Settings, json_schema: dict | None = None) -> str:
+def classify(system: str, user: str, settings: Settings, json_schema: dict | None = None, *,
+             model: str = "", effort: str = "") -> str:
     """Short evidence classification on a Messages API model.
 
     Model and effort come from CLASSIFY_MODEL/CLASSIFY_EFFORT (default: the reply
-    model at low effort). CLI backends have no structured output and cost seconds
-    per call, so the caller enables classification only for API models."""
-    model = classify_model(settings)
+    model at low effort) unless the caller names its own, as the closing step does
+    with CLOSING_MODEL/CLOSING_EFFORT. CLI backends have no structured output and cost
+    seconds per call, so the caller enables classification only for API models."""
+    model = model or classify_model(settings)
     if not is_api_model(model) or not is_api_model(settings.model):
         raise ModelBackendError("classification needs a Messages API model")
     if not settings.anthropic_api_key:
         raise ModelBackendError("model backend unavailable: missing API key")
-    effort = settings.classify_effort
+    effort = effort or settings.classify_effort
     output_config: dict = {"effort": effort}
     if json_schema is not None:
         output_config["format"] = {"type": "json_schema", "schema": json_schema}

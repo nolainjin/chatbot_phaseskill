@@ -50,7 +50,7 @@ def stub(monkeypatch, tmp_path):
     monkeypatch.setenv("KNOWLEDGE_DIR", PACK)
     queue = []
 
-    def classify(system, user, settings, json_schema=None):
+    def classify(system, user, settings, json_schema=None, *, model="", effort=""):
         response = queue.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -512,6 +512,63 @@ def test_classification_on_opus_or_sonnet_asks_for_the_server_fallback(monkeypat
         assert seen["fallbacks"] == "default" and seen["betas"] == [llm.SERVER_FALLBACK_BETA]
     else:
         assert "fallbacks" not in seen and "betas" not in seen
+
+
+# --- the closing step may run on its own model (CLOSING_MODEL/CLOSING_EFFORT) -------------------
+
+_CLASSIFY_BASE = dict(anthropic_api_key="k", knowledge_dir=PACK, model="claude-haiku-5-5", trust_proxy_hops=0,
+                      daily_request_cap=500, classify_model="claude-opus-5-5", classify_effort="low")
+
+
+@pytest.mark.parametrize("override, expect", [
+    ({}, ("claude-opus-5-5", "low")),
+    ({"model": "claude-sonnet-5-5", "effort": "medium"}, ("claude-sonnet-5-5", "medium"))])
+def test_classify_runs_on_the_callers_model_and_effort(monkeypatch, override, expect):
+    from types import SimpleNamespace
+
+    import anthropic
+    seen = {}
+
+    class Endpoint:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return SimpleNamespace(stop_reason="end_turn", model=kwargs["model"],
+                                   content=[SimpleNamespace(type="text", text="{}")])
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.messages = Endpoint()
+            self.beta = SimpleNamespace(messages=Endpoint())
+
+    monkeypatch.setattr(anthropic, "Anthropic", Client)
+    llm.classify("s", "u", Settings(**_CLASSIFY_BASE), {"type": "object"}, **override)
+    assert (seen["model"], seen["output_config"]["effort"]) == expect
+    assert seen["max_tokens"] == (llm.CLASSIFY_MAX_TOKENS if expect[1] == "low" else llm.CLASSIFY_MAX_TOKENS_DEEP)
+
+
+def test_closing_analysis_passes_its_own_model_and_effort(monkeypatch):
+    seen = []
+
+    def fake_classify(system, user, settings, json_schema=None, *, model="", effort=""):
+        seen.append((model, effort))
+        return '{"items":[],"corrections":[],"needs_clarification":false,"service_question":{"topic":"none","quote":""}}'
+
+    monkeypatch.setattr(llm, "classify", fake_classify)
+    closing.analyze("평일 저녁이 좋아요.",
+                    Settings(**_CLASSIFY_BASE, closing_model="claude-sonnet-5-5", closing_effort="medium"))
+    closing.analyze("평일 저녁이 좋아요.", Settings(**_CLASSIFY_BASE))
+    # Empty closing settings leave the classify model and effort in charge.
+    assert seen == [("claude-sonnet-5-5", "medium"), ("", "")]
+
+
+def test_closing_settings_come_from_env_and_reject_an_unknown_effort(monkeypatch):
+    monkeypatch.setenv("CLOSING_MODEL", "claude-sonnet-5-5")
+    monkeypatch.setenv("CLOSING_EFFORT", "medium")
+    settings = Settings.from_env()
+    assert (settings.closing_model, settings.closing_effort) == ("claude-sonnet-5-5", "medium")
+    monkeypatch.setenv("CLOSING_EFFORT", "fast")
+    with pytest.raises(ValueError):
+        Settings.from_env()
 
 
 def test_reflection_that_raises_a_safety_check_is_kept():

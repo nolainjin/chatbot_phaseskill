@@ -366,6 +366,8 @@ def main():
     parser.add_argument("--cases", default=str(CASES), help="사례 파일(보류 세트는 holdout.json)")
     parser.add_argument("--classify-model", default="", help="응답 분류 모델(비우면 --model)")
     parser.add_argument("--classify-effort", default="low", help="응답 분류 effort(low~max)")
+    parser.add_argument("--closing-model", default="", help="마무리 분석 모델(비우면 분류 모델)")
+    parser.add_argument("--closing-effort", default="", help="마무리 분석 effort(비우면 분류 effort)")
     args = parser.parse_args()
     if args.rescore:
         saved = json.loads(Path(args.rescore).read_text(encoding="utf-8"))
@@ -387,7 +389,8 @@ def main():
         if hasattr(llm, "classify"):
             llm.classify = _counted(llm.classify)
         settings = replace(Settings.from_env(), model=args.model, knowledge_dir=str(ROOT / "knowledge-maeum"),
-                           classify_model=args.classify_model, classify_effort=args.classify_effort)
+                           classify_model=args.classify_model, classify_effort=args.classify_effort,
+                           closing_model=args.closing_model, closing_effort=args.closing_effort)
         data = load_cases(args.cases)
         wanted = {item for item in args.only.split(",") if item}
         cases = [case for case in data["cases"] if not wanted or case["id"] in wanted]
@@ -395,6 +398,9 @@ def main():
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             runs = list(pool.map(lambda job: run_case(job[0], data["personas"], settings, job[1]), jobs))
     model_label = f"{args.model} | classify {args.classify_model or args.model}:{args.classify_effort}"
+    if args.closing_model or args.closing_effort:
+        model_label += (f" | closing {args.closing_model or args.classify_model or args.model}:"
+                        f"{args.closing_effort or args.classify_effort}")
     report(runs, {case["id"]: case for case in cases}, data["personas"], args.label, model_label, args.out)
 
 

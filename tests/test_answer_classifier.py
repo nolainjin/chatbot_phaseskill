@@ -45,7 +45,7 @@ def stub(monkeypatch):
     calls = {"classify": [], "ask": []}
     queue = []
 
-    def classify(system, user, settings, json_schema=None):
+    def classify(system, user, settings, json_schema=None, *, model="", effort=""):
         calls["classify"].append({"system": system, "user": user, "schema": json_schema})
         response = queue.pop(0)
         if isinstance(response, Exception):
