@@ -135,10 +135,12 @@ def link_for_token(token, *, lock=False, allow_consumed=False):
 
 # Shared review link: an administrator creates a link whose management id starts with OPEN-
 # directly in the database. It is never consumed itself; every visit gets a fresh single-use
-# TRY-… link of the same organization, so many reviewers can use one URL. Parent names must not
-# be prefixes of one another (the cap counts TRY-<name>-…). To stop a shared link, revoke the
-# parent; per-visit links it already handed out live at most REUSABLE_CHILD_SECONDS.
+# TRY-<name>-<parent hash>-… link of the same organization, so many reviewers can use one URL.
+# The parent hash keeps each shared link's children apart even when names overlap; staff cannot
+# issue OPEN- or TRY- ids. To stop a shared link, revoke the parent; per-visit links it already
+# handed out live at most REUSABLE_CHILD_SECONDS.
 REUSABLE_PREFIX = "OPEN-"
+RESERVED_PREFIXES = (REUSABLE_PREFIX, "TRY-")
 REUSABLE_CHILD_LIMIT = 300
 REUSABLE_CHILD_SECONDS = 24 * 3600
 
@@ -147,9 +149,13 @@ def reusable(management):
     return isinstance(management, str) and management.startswith(REUSABLE_PREFIX)
 
 
+def _child_base(parent_id, management):
+    return "TRY-" + management[len(REUSABLE_PREFIX):][:8] + "-" + digest(parent_id)[:8].upper()
+
+
 def issue_reusable_child(parent_id, org_id, management, link_seconds):
     """Mint one single-use link under a shared review link and return its raw token."""
-    base = "TRY-" + management[len(REUSABLE_PREFIX):][:20]
+    base = _child_base(parent_id, management)
     token = secrets.token_urlsafe(32)
     with cloud_store.transaction("reusable-link:" + parent_id):
         with cloud_store.connection() as conn:
@@ -165,33 +171,53 @@ def issue_reusable_child(parent_id, org_id, management, link_seconds):
     return token
 
 
-def shared_review_cases(org_id, management, limit=30):
+def _shared_summary(summary, raw_expired):
+    """Only what the shared view shows: slot values and states, attention notes, center requests."""
+    if not isinstance(summary, dict):
+        return {}
+    if raw_expired:
+        summary = retained_summary(summary)
+    plain = lambda value: isinstance(value, str) or (isinstance(value, list) and all(isinstance(v, str) for v in value))
+    slots = summary.get("slots") if isinstance(summary.get("slots"), dict) else {}
+    evidence = summary.get("slot_evidence") if isinstance(summary.get("slot_evidence"), dict) else {}
+    return {
+        "slots": {key: value for key, value in slots.items() if plain(value)},
+        "slot_evidence": {key: {field: item[field] for field in ("status", "value") if plain(item.get(field))}
+                          for key, item in evidence.items() if isinstance(item, dict)},
+        "attention_notes": [{"text": note["text"]} for note in summary.get("attention_notes") or []
+                            if isinstance(note, dict) and isinstance(note.get("text"), str)],
+        "center_requests": [{field: item[field] for field in ("label", "category", "text", "status") if isinstance(item.get(field), str)}
+                            for item in summary.get("center_requests") or [] if isinstance(item, dict)],
+    }
+
+
+def shared_review_cases(org_id, parent_id, management, limit=30):
     """Newest cases opened through one shared review link: report summary and conversation turns.
     Anyone holding the shared link may read them (두찬 11/10); other cases of the org stay hidden."""
-    base = "TRY-" + management[len(REUSABLE_PREFIX):][:20]
-    cases = []
     with cloud_store.connection() as conn:
         rows = conn.execute(
             "SELECT i.session_id,i.management_id,i.created_at,r.summary,r.status,r.raw_expired "
             "FROM maeum.intakes i JOIN maeum.intake_links l ON l.id=i.link_id AND l.org_id=i.org_id "
             "LEFT JOIN maeum.report_snapshots r ON r.intake_id=i.id AND r.org_id=i.org_id "
             "WHERE i.org_id=%s AND l.management_id LIKE %s ORDER BY i.created_at DESC LIMIT %s",
-            (org_id, base + "-%", limit)).fetchall()
-        for session_id, case_id, created_at, summary, status, raw_expired in rows:
-            turns = []
-            documents = [] if raw_expired else conn.execute(
-                "SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s "
-                "ORDER BY record_key", (session_id,)).fetchall()
-            for (document,) in documents:
-                if document.get("raw_purged_at"):
-                    raw_expired, turns = True, []
-                    break
-                turns += [{"role": turn["role"], "text": turn["text"]} for turn in document.get("turns") or []
-                          if turn.get("role") in ("user", "assistant") and isinstance(turn.get("text"), str)]
-            shown = summary if isinstance(summary, dict) else {}
-            cases.append({"case": case_id, "created_at": created_at, "status": status or "draft",
-                          "summary": retained_summary(shown) if raw_expired else projected_summary(shown),
-                          "turns": turns})
+            (org_id, _child_base(parent_id, management) + "-%", limit)).fetchall()
+        documents = conn.execute(
+            "SELECT payload->>'session_id',payload FROM maeum.records WHERE kind='conversation' "
+            "AND payload->>'session_id' = ANY(%s) ORDER BY record_key", ([row[0] for row in rows],)).fetchall() if rows else []
+    by_session = {}
+    for session_id, document in documents:
+        by_session.setdefault(session_id, []).append(document)
+    cases = []
+    for session_id, case_id, created_at, summary, status, raw_expired in rows:
+        turns = []
+        for document in [] if raw_expired else by_session.get(session_id, []):
+            if document.get("raw_purged_at"):
+                raw_expired, turns = True, []
+                break
+            turns += [{"role": turn["role"], "text": turn["text"]} for turn in document.get("turns") or []
+                      if turn.get("role") in ("user", "assistant") and isinstance(turn.get("text"), str)]
+        cases.append({"case": case_id, "created_at": created_at, "status": status or "draft",
+                      "summary": _shared_summary(summary, raw_expired), "turns": turns})
     return cases
 
 

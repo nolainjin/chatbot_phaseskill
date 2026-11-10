@@ -1627,7 +1627,8 @@ def test_shared_review_link_gives_every_visit_its_own_single_use_link(env, monke
 
 def test_shared_review_view_shows_only_that_links_cases(env):
     a = verified()
-    shared, other = shared_review_link(), shared_review_link(management="OPEN-OTHER")
+    # Same first eight name characters: only the parent hash in TRY-<name>-<hash>-… keeps them apart.
+    shared, other = shared_review_link(management="OPEN-SAMENAME1"), shared_review_link(management="OPEN-SAMENAME2")
     raw = shared["url"].split("#intake=")[1]
 
     def chat_once(link, text):
@@ -1647,10 +1648,14 @@ def test_shared_review_view_shows_only_that_links_cases(env):
     r = client().post("/api/intake-link/review", json={"token": raw})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert [case["case"][:11] for case in body["cases"]] == ["TRY-REVIEW-"]
+    assert len(body["cases"]) == 1 and body["cases"][0]["case"].startswith("TRY-SAMENAME-")
     turns = body["cases"][0]["turns"]
     assert any(t["role"] == "user" and "회사 일" in t["text"] for t in turns) and any(t["role"] == "assistant" for t in turns)
-    assert isinstance(body["cases"][0]["summary"], dict) and body["slot_labels"] and "track" not in dict(body["slot_labels"])
+    summary = body["cases"][0]["summary"]
+    assert set(summary) == {"slots", "slot_evidence", "attention_notes", "center_requests"}
+    assert all(set(item) <= {"status", "value"} for item in summary["slot_evidence"].values())
+    assert body["slot_labels"] and "track" not in dict(body["slot_labels"])
+    assert post(a, "/links", {"org_id": "A", "management_id": "TRY-STAFF"}).status_code == 400
     # Only the shared link itself opens the view.
     child = exchange(client(), shared).json()["link_token"]
     for token in (issue(a)["url"].split("#intake=")[1], child, ""):

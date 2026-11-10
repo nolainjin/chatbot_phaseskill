@@ -287,8 +287,8 @@ def issue_link(request: Request, payload: dict = Body(...)):
     management = payload.get("management_id")
     if not _valid_management_id(management):
         raise HTTPException(400, "관리번호는 개인정보 없이 영문·숫자·하이픈 1~32자로 입력해 주세요.")
-    if store.reusable(management):
-        raise HTTPException(400, "OPEN-으로 시작하는 관리번호는 여러 사람이 함께 쓰는 시험 링크용이라 쓸 수 없습니다.")
+    if management.startswith(store.RESERVED_PREFIXES):
+        raise HTTPException(400, "OPEN-·TRY-로 시작하는 관리번호는 여러 사람이 함께 쓰는 시험 링크용이라 쓸 수 없습니다.")
     org_id = payload.get("org_id", "")
     token, link_id = secrets.token_urlsafe(32), str(uuid4())
     with store.connect() as conn:
@@ -366,13 +366,14 @@ def exchange(request: Request, response: Response, payload: dict = Body(...)):
 def shared_review(request: Request, payload: dict = Body(...)):
     """Saved cases of one shared review link, report and conversation, for anyone holding that link."""
     auth.csrf(request)
-    auth.limit("shared-review:" + store.digest(request.client.host), count=240)
-    _, org_id, management, _ = store.link_for_token(payload.get("token", ""))
+    auth.limit("shared-review:" + store.digest(request.client.host), count=120)
+    link_id, org_id, management, _ = store.link_for_token(payload.get("token", ""))
     if not store.reusable(management):
         raise HTTPException(410, "함께 쓰는 시험 링크로만 볼 수 있습니다.")
+    auth.limit("shared-review-link:" + link_id, count=600)
     schema = intake.load_schema(Settings.from_env().knowledge_dir)
     return {"slot_labels": [[slot.id, slot.label] for slot in schema.slots if slot.id != "track"],
-            "cases": store.shared_review_cases(org_id, management)}
+            "cases": store.shared_review_cases(org_id, link_id, management)}
 
 
 @router.get("/api/portal/intakes")
