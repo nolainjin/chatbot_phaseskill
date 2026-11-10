@@ -1264,8 +1264,9 @@
     })
     .then(function (data) {
       if (data.institution_link_required && !getSessionToken()) {
-        var pinned = institutionToken || sessionStorage.getItem(LINK_PIN_KEY);
-        return postJson("/api/intake-link/exchange", pinned ? {token: pinned} : {}).then(function (link) {
+        // 주소에 #intake=가 있으면 비어 있어도 그 값이 우선이다(쿠키의 다른 링크로 대신하지 않는다).
+        var pinned = institutionToken !== null ? institutionToken : sessionStorage.getItem(LINK_PIN_KEY);
+        return postJson("/api/intake-link/exchange", pinned !== null ? {token: pinned} : {}).then(function (link) {
           // 서버가 돌려준 링크(함께 쓰는 시험 링크면 이 탭 몫의 일회용 링크)를 이 탭에 고정한다.
           if (link.link_token) sessionStorage.setItem(LINK_PIN_KEY, link.link_token);
           if (link.reusable === true) rememberReusableLink(pinned);
@@ -1313,7 +1314,10 @@
       hideChips();
       if (err.stage === "intake-link" && err.status === 410) {
         // 주소로 연 링크가 실패하면 다른 링크로 넘어가지 않는다(시험 링크 기억은 열 때 이미 지웠다).
-        var shared = institutionToken === null ? recentReusableLink() : null;
+        // 이 탭에 고정한 링크가 있으면 이 탭이 직접 연 시험 링크만 쓰고, 기기에 남은 기억은
+        // 링크 없이 처음 연 탭에서만 쓴다(다른 탭이 남긴 시험 링크로 개별 링크 탭이 넘어가지 않게).
+        var shared = institutionToken !== null ? null
+          : (sessionStorage.getItem(LINK_PIN_KEY) !== null ? storedReusableLink() : recentReusableLink());
         if (shared && !sessionStorage.getItem(REUSABLE_RETRY_KEY)) {
           // 이미 쓴 일회용 링크로 다시 들어왔으면 함께 쓰는 시험 링크로 한 번만 새로 시작한다.
           sessionStorage.setItem(REUSABLE_RETRY_KEY, "1");
