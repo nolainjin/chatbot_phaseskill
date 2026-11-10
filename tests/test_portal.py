@@ -1234,6 +1234,8 @@ def test_cloud_identity_trigger_and_engine_role(env, monkeypatch):
         conn.execute('SET LOCAL ROLE maeum_engine')
         cloud_store.require_engine_role(conn)
         conn.execute("INSERT INTO maeum.records(kind,record_key,payload) VALUES('health','synthetic','{}')")
+        conn.execute("INSERT INTO maeum.intake_links(id,org_id,token_hash,management_id,expires_at) "
+                     "VALUES('engine-try','A','engine-try-hash','TRY-X-000000',9999999999)")
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute('SELECT * FROM maeum.portal_users')
         conn.rollback()
@@ -1564,6 +1566,63 @@ def test_T12_concurrent_consent_one_winner(env):
         return c.post("/api/consent",json={"accepted":True,"consent_version":version,"session_id":str(uuid4()),"idempotency_key":str(uuid4())})
     with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(accept,clients))
     assert sorted(r.status_code for r in results)==[200,410]
+
+
+def shared_review_link(org="A", management="OPEN-REVIEW", seconds=3600):
+    token = secrets.token_urlsafe(32)
+    with owner() as conn:
+        conn.execute("INSERT INTO maeum.intake_links(id,org_id,token_hash,management_id,expires_at) VALUES(%s,%s,%s,%s,%s)",
+                     (str(uuid4()), org, store.digest(token), management, time.time() + seconds))
+    return {"url": ORIGIN + "/#intake=" + token}
+
+
+def test_shared_review_link_gives_every_visit_its_own_single_use_link(env, monkeypatch):
+    a = verified()
+    shared = shared_review_link()
+    raw = shared["url"].split("#intake=")[1]
+
+    def open_tab(c):
+        r = exchange(c, shared)
+        assert r.status_code == 200 and r.json()["reusable"] is True, r.text
+        child = r.json()["link_token"]
+        assert child != raw and c.cookies.get("maeum_link") == child
+        return child
+
+    def consent(c, child=None, headers=None):
+        version = c.get("/api/config").json()["privacy"]["consent_version"]
+        body = {"accepted": True, "consent_version": version, "session_id": str(uuid4()), "idempotency_key": str(uuid4())}
+        if child:
+            body["link_token"] = child
+        return c.post("/api/consent", json=body, headers=headers)
+
+    c = client()
+    first = open_tab(c)
+    r1 = consent(c, first)
+    assert r1.status_code == 200, r1.text
+    # The used per-visit link stays single-use; '새 대화' reopens the shared link and starts fresh.
+    assert c.post("/api/intake-link/exchange", json={}).status_code == 410
+    # Two tabs of one browser share the cookie, yet each consent consumes its own tab's link.
+    tab1, tab2 = open_tab(c), open_tab(c)
+    r2, r3 = consent(c, tab1), consent(c, tab2)
+    assert r2.status_code == 200 and r3.status_code == 200, (r2.text, r3.text)
+    other = client()
+    r4 = consent(other, open_tab(other))
+    assert r4.status_code == 200, r4.text
+    assert len({r.json()["intake_id"] for r in (r1, r2, r3, r4)}) == 4
+    with owner() as conn:
+        parent = conn.execute("SELECT expires_at,consumed_intake_id FROM maeum.intake_links WHERE management_id='OPEN-REVIEW'").fetchone()
+        rows = conn.execute("SELECT token_hash,expires_at,consumed_intake_id FROM maeum.intake_links WHERE management_id LIKE %s",
+                            ("TRY-REVIEW-%",)).fetchall()
+    consumed = {token_hash: intake for token_hash, _, intake in rows}
+    assert parent[1] is None and len(rows) == 4 and all(consumed[store.digest(t)] for t in (first, tab1, tab2))
+    assert all(expires <= min(parent[0], time.time() + store.REUSABLE_CHILD_SECONDS) for _, expires, _ in rows)
+    # The shared link itself is never consumed, whether a tab names it or it is planted as the cookie.
+    assert consent(client(), raw).status_code == 410
+    assert consent(client(), headers={"Cookie": "maeum_link=" + raw}).status_code == 410
+    # Staff cannot create shared links through the portal, and the per-link cap holds.
+    assert post(a, "/links", {"org_id": "A", "management_id": "OPEN-STAFF"}).status_code == 400
+    monkeypatch.setattr(store, "REUSABLE_CHILD_LIMIT", 4)
+    assert exchange(client(), shared).status_code == 410
 
 
 def test_T13_atomic_projection_failure_rollback(env,monkeypatch):

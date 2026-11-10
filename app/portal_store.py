@@ -133,16 +133,54 @@ def link_for_token(token, *, lock=False, allow_consumed=False):
         return row
 
 
+# Shared review link: an administrator creates a link whose management id starts with OPEN-
+# directly in the database. It is never consumed itself; every visit gets a fresh single-use
+# TRY-… link of the same organization, so many reviewers can use one URL. Parent names must not
+# be prefixes of one another (the cap counts TRY-<name>-…). To stop a shared link, revoke the
+# parent; per-visit links it already handed out live at most REUSABLE_CHILD_SECONDS.
+REUSABLE_PREFIX = "OPEN-"
+REUSABLE_CHILD_LIMIT = 300
+REUSABLE_CHILD_SECONDS = 24 * 3600
+
+
+def reusable(management):
+    return isinstance(management, str) and management.startswith(REUSABLE_PREFIX)
+
+
+def issue_reusable_child(parent_id, org_id, management, link_seconds):
+    """Mint one single-use link under a shared review link and return its raw token."""
+    base = "TRY-" + management[len(REUSABLE_PREFIX):][:20]
+    token = secrets.token_urlsafe(32)
+    with cloud_store.transaction("reusable-link:" + parent_id):
+        with cloud_store.connection() as conn:
+            parent = conn.execute("SELECT expires_at FROM maeum.intake_links WHERE id=%s AND org_id=%s "
+                                  "AND NOT revoked AND expires_at>%s", (parent_id, org_id, time.time())).fetchone()
+            issued = conn.execute("SELECT count(*) FROM maeum.intake_links WHERE org_id=%s AND management_id LIKE %s",
+                                  (org_id, base + "-%")).fetchone()[0]
+            if parent is None or issued >= REUSABLE_CHILD_LIMIT:
+                raise HTTPException(410, "접수 링크를 사용할 수 없습니다.")
+            conn.execute("INSERT INTO maeum.intake_links(id,org_id,token_hash,management_id,expires_at) VALUES(%s,%s,%s,%s,%s)",
+                         (str(uuid4()), org_id, digest(token), base + "-" + secrets.token_hex(4).upper(),
+                          min(parent[0], time.time() + min(link_seconds, REUSABLE_CHILD_SECONDS))))
+    return token
+
+
 def consent_scope(request, payload, callback):
     """Lock link before consumption, then create consent+binding+projection atomically."""
     from app import chat
-    token = request.cookies.get("maeum_link")
+    # A tab that opened a shared review link names its own per-visit link, so another tab's
+    # cookie cannot decide which link this consent consumes.
+    tab_link = payload.pop("link_token", None)
+    token = tab_link if isinstance(tab_link, str) and tab_link else request.cookies.get("maeum_link")
     sid = payload.get("session_id")
     idem = payload.get("idempotency_key")
     if not isinstance(idem, str) or not 16 <= len(idem) <= 128:
         raise HTTPException(400, "접수 요청 키가 필요합니다.")
     with cloud_store.transaction("link:" + digest(token or "")):
         link_id, org_id, management, consumed = link_for_token(token, lock=True, allow_consumed=True)
+        if reusable(management):
+            # Only the per-visit TRY-… link is ever consumed; the shared link stays open for everyone.
+            raise HTTPException(410, "접수 링크를 사용할 수 없습니다.")
         if payload.get("accepted") is False:
             return callback(request, payload)
         with cloud_store.session_scope(sid):

@@ -276,6 +276,7 @@ async function list() {
     b.append(el("span",item.management_id,"case-title"),el("span","저장 "+new Date(item.updated_at||item.created_at).toLocaleString(),"case-meta"));
     const badges=el("span",undefined,"case-badges");
     if(/^TEST-/.test(item.management_id)) badges.append(el("span","TESTBED 합성","badge attention"));
+    else if(/^TRY-/.test(item.management_id)) badges.append(el("span","공용 시험 링크","badge attention"));
     badges.append(el("span",intakeStatus(item.status),"badge"),el("span",reviewStatus(item.review_status),"badge"+(item.review_status==="needs_followup"?" attention":"")));
     b.append(badges);
     b.dataset.caseId=item.id; b.className="case";b.setAttribute("aria-current",String(item.id===selected));$("cases").append(b);

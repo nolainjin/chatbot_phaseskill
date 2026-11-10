@@ -4,7 +4,8 @@ GRANT USAGE ON SCHEMA maeum TO maeum_engine;
 GRANT SELECT,INSERT,UPDATE,DELETE ON maeum.records TO maeum_engine;
 CREATE POLICY engine_records ON maeum.records TO maeum_engine USING(true) WITH CHECK(true);
 GRANT SELECT ON maeum.organizations TO maeum_engine;
-GRANT SELECT,UPDATE ON maeum.intake_links TO maeum_engine;
+-- INSERT: opening a shared review link (OPEN-…) mints one single-use TRY-… link per visit.
+GRANT SELECT,INSERT,UPDATE ON maeum.intake_links TO maeum_engine;
 GRANT SELECT,INSERT,UPDATE,DELETE ON maeum.intakes,maeum.report_snapshots TO maeum_engine;
 CREATE POLICY engine_links ON maeum.intake_links TO maeum_engine USING(true) WITH CHECK(true);
 CREATE POLICY engine_intakes ON maeum.intakes TO maeum_engine USING(true) WITH CHECK(true);

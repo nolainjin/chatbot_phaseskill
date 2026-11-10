@@ -11,6 +11,14 @@
   var DRAFT_KEY = "lmwiki_message_draft";
   var PENDING_REQUEST_KEY = "lmwiki_pending_chat_request";
   var UI_STATE_KEY = "lmwiki_chat_ui_state";
+  // 여러 사람이 함께 쓰는 시험 링크(서버가 reusable로 알려 준 것)와 그 링크가 이 탭에 준 일회용 링크는
+  // 이 탭에만 기억한다. '새 대화'는 시험 링크를 다시 열고, 동의는 이 탭의 일회용 링크로 한다.
+  // 탭을 닫았다 링크 없는 주소로 다시 들어온 경우만을 위해 12시간 동안 이 기기에도 남긴다.
+  var REUSABLE_LINK_KEY = "lmwiki_reusable_intake";
+  var REUSABLE_CHILD_KEY = "lmwiki_reusable_child";
+  var REUSABLE_RETRY_KEY = "lmwiki_reusable_retry";
+  var REUSABLE_RECENT_KEY = "lmwiki_reusable_recent";
+  var REUSABLE_RECENT_MS = 12 * 3600 * 1000;
   var institutionHash = new URL(window.location.href).hash;
   var institutionToken = institutionHash.indexOf("#intake=") === 0 ? institutionHash.slice(8) : null;
   if (institutionToken !== null) {
@@ -766,6 +774,51 @@
     coachingStatusEl.hidden = false;
   }
 
+  function storedReusableLink() {
+    return sessionStorage.getItem(REUSABLE_LINK_KEY);
+  }
+
+  function rememberReusableLink(token, child) {
+    if (token) sessionStorage.setItem(REUSABLE_LINK_KEY, token);
+    else sessionStorage.removeItem(REUSABLE_LINK_KEY);
+    if (child) sessionStorage.setItem(REUSABLE_CHILD_KEY, child);
+    else sessionStorage.removeItem(REUSABLE_CHILD_KEY);
+    try {
+      if (token) localStorage.setItem(REUSABLE_RECENT_KEY, JSON.stringify({token: token, until: Date.now() + REUSABLE_RECENT_MS}));
+      else localStorage.removeItem(REUSABLE_RECENT_KEY);
+    } catch (e) { /* 저장소를 막은 브라우저 */ }
+  }
+
+  function recentReusableLink() {
+    var shared = storedReusableLink();
+    if (shared) return shared;
+    try {
+      var recent = JSON.parse(localStorage.getItem(REUSABLE_RECENT_KEY) || "null");
+      if (recent && typeof recent.token === "string" && recent.until > Date.now()) return recent.token;
+      localStorage.removeItem(REUSABLE_RECENT_KEY);
+    } catch (e) { /* 저장소를 막은 브라우저 */ }
+    return null;
+  }
+
+  function reusableConsentLink() {
+    var child = sessionStorage.getItem(REUSABLE_CHILD_KEY);
+    return child ? {link_token: child} : {};
+  }
+
+  // #intake= 주소로 바꾸면 hashchange가 페이지를 다시 읽고, 서버가 새 일회용 링크를 준다.
+  function openReusableLink(token) {
+    window.location.hash = "intake=" + token;
+  }
+
+  function startNewConversation() {
+    var shared = storedReusableLink();
+    if (shared && !requestPending) {
+      openReusableLink(shared);
+      return;
+    }
+    resetSession();
+  }
+
   function resetSession() {
     if (requestPending) return;
     sessionStorage.removeItem(SESSION_KEY);
@@ -974,7 +1027,7 @@
   });
 
   if (resetSessionEl) {
-    resetSessionEl.addEventListener("click", resetSession);
+    resetSessionEl.addEventListener("click", startNewConversation);
   }
 
   if (chipsEl) {
@@ -1100,7 +1153,7 @@
     postJson("/api/consent", Object.assign({
       session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version,
       idempotency_key: getSessionId(), session_token: getSessionToken()
-    }, pendingIntakeLink())).then(function (data) {
+    }, pendingIntakeLink(), reusableConsentLink())).then(function (data) {
       consentCardEl.hidden = true;
       if (!data.accepted) {
         var refusal = addMessage("assistant", data.reply);
@@ -1111,6 +1164,7 @@
       rememberCredentials(data);
       sessionStorage.removeItem(UI_STATE_KEY);
       sessionStorage.removeItem(INTAKE_LINK_KEY);
+      sessionStorage.removeItem(REUSABLE_CHILD_KEY);
       sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
       consentGranted = true;
       setDeliveryState("ready");
@@ -1125,6 +1179,11 @@
       focusComposer();
     }).catch(function (error) {
       if (error.status === 401) clearSensitiveTabState();
+      if (error.status === 410 && storedReusableLink()) {
+        // 이 탭의 일회용 링크가 만료됐으면 함께 쓰는 시험 링크로 새로 받는다.
+        openReusableLink(storedReusableLink());
+        return;
+      }
       setStatus(error.message);
     }).finally(function () {
       requestPending = false;
@@ -1205,6 +1264,12 @@
     .then(function (data) {
       if (data.institution_link_required && !getSessionToken()) {
         return postJson("/api/intake-link/exchange", institutionToken ? {token: institutionToken} : {}).then(function (link) {
+          // 주소로 연 링크가 함께 쓰는 시험 링크면 기억하고, 개별 링크면 예전 기억을 지운다.
+          if (institutionToken) {
+            var shared = link.reusable === true;
+            rememberReusableLink(shared ? institutionToken : null, shared ? link.link_token : null);
+          }
+          sessionStorage.removeItem(REUSABLE_RETRY_KEY);
           data.privacy.body = "접수 기관: " + link.organization + "\n" + link.purpose + "\n\n" + data.privacy.body;
           institutionToken = null;
           return data;
@@ -1247,6 +1312,18 @@
       disableInput();
       hideChips();
       if (err.stage === "intake-link" && err.status === 410) {
+        var shared = recentReusableLink();
+        if (institutionToken !== null) {
+          // 주소로 연 링크가 실패하면 다른 링크로 넘어가지 않는다(기억해 둔 시험 링크도 지운다).
+          rememberReusableLink(null, null);
+          shared = null;
+        }
+        if (shared && !sessionStorage.getItem(REUSABLE_RETRY_KEY)) {
+          // 이미 쓴 일회용 링크로 다시 들어왔으면 함께 쓰는 시험 링크로 한 번만 새로 시작한다.
+          sessionStorage.setItem(REUSABLE_RETRY_KEY, "1");
+          openReusableLink(shared);
+          return;
+        }
         var linkHelp = "센터에서 받은 개별 접수 링크로 열어 주세요. 만료되었거나 이미 사용한 링크라면 담당자에게 새 링크를 요청해 주세요.";
         document.title = "마음 접수 · 링크 확인";
         setTextIf(".chat-title h1", "개별 접수 링크가 필요해요");

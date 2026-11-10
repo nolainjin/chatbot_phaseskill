@@ -287,6 +287,8 @@ def issue_link(request: Request, payload: dict = Body(...)):
     management = payload.get("management_id")
     if not _valid_management_id(management):
         raise HTTPException(400, "관리번호는 개인정보 없이 영문·숫자·하이픈 1~32자로 입력해 주세요.")
+    if store.reusable(management):
+        raise HTTPException(400, "OPEN-으로 시작하는 관리번호는 여러 사람이 함께 쓰는 시험 링크용이라 쓸 수 없습니다.")
     org_id = payload.get("org_id", "")
     token, link_id = secrets.token_urlsafe(32), str(uuid4())
     with store.connect() as conn:
@@ -344,11 +346,19 @@ def exchange(request: Request, response: Response, payload: dict = Body(...)):
     auth.csrf(request)
     auth.limit("exchange:" + store.digest(request.client.host), count=120)
     token = payload.get("token", request.cookies.get("maeum_link", ""))
-    link_id, org_id, _, _ = store.link_for_token(token)
+    link_id, org_id, management, _ = store.link_for_token(token)
+    shared = store.reusable(management)
+    if shared:
+        # A shared review link hands this visit its own single-use link; only that one goes in the cookie.
+        token = store.issue_reusable_child(link_id, org_id, management, Policy.load().link_seconds)
     with cloud_store.connection() as conn:
         name = conn.execute("SELECT name FROM maeum.organizations WHERE id=%s", (org_id,)).fetchone()[0]
     auth.cookie(response, "maeum_link", token, Policy.load().link_seconds)
-    return {"organization": name, "purpose": "상담 접수 내용과 요약을 이 기관 담당자에게 전달합니다."}
+    result = {"organization": name, "purpose": "상담 접수 내용과 요약을 이 기관 담당자에게 전달합니다."}
+    if shared:
+        # The tab keeps its own per-visit link and sends it with its consent (see consent_scope).
+        result.update(reusable=True, link_token=token)
+    return result
 
 
 @router.get("/api/portal/intakes")
