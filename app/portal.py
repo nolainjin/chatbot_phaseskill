@@ -365,8 +365,10 @@ def exchange(request: Request, response: Response, payload: dict = Body(...)):
 @router.post("/api/intake-link/review")
 def shared_review(request: Request, payload: dict = Body(...)):
     """Saved cases of one shared review link, report and conversation, for anyone holding that link."""
+    from app import ratelimit
     auth.csrf(request)
-    auth.limit("shared-review:" + store.digest(request.client.host), count=120)
+    ip = ratelimit.client_ip(request, Settings.from_env().trust_proxy_hops)
+    auth.limit("shared-review:" + store.digest(ip), count=120)
     link_id, org_id, management, _ = store.link_for_token(payload.get("token", ""))
     if not store.reusable(management):
         raise HTTPException(410, "함께 쓰는 시험 링크로만 볼 수 있습니다.")

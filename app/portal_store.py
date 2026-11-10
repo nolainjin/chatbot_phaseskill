@@ -153,6 +153,13 @@ def _child_base(parent_id, management):
     return "TRY-" + management[len(REUSABLE_PREFIX):][:8] + "-" + digest(parent_id)[:8].upper()
 
 
+def _children(parent_id, management):
+    """SQL condition on alias l for one shared link's per-visit links, including those minted on
+    2026-11-10 morning as TRY-<name>-<8 hex> before the parent hash was added (names are unique)."""
+    legacy = "^TRY-" + management[len(REUSABLE_PREFIX):][:20] + "-[0-9A-F]{8}$"
+    return "(l.management_id LIKE %s OR l.management_id ~ %s)", [_child_base(parent_id, management) + "-%", legacy]
+
+
 def issue_reusable_child(parent_id, org_id, management, link_seconds):
     """Mint one single-use link under a shared review link and return its raw token."""
     base = _child_base(parent_id, management)
@@ -161,8 +168,9 @@ def issue_reusable_child(parent_id, org_id, management, link_seconds):
         with cloud_store.connection() as conn:
             parent = conn.execute("SELECT expires_at FROM maeum.intake_links WHERE id=%s AND org_id=%s "
                                   "AND NOT revoked AND expires_at>%s", (parent_id, org_id, time.time())).fetchone()
-            issued = conn.execute("SELECT count(*) FROM maeum.intake_links WHERE org_id=%s AND management_id LIKE %s",
-                                  (org_id, base + "-%")).fetchone()[0]
+            condition, params = _children(parent_id, management)
+            issued = conn.execute("SELECT count(*) FROM maeum.intake_links l WHERE l.org_id=%s AND " + condition,
+                                  [org_id, *params]).fetchone()[0]
             if parent is None or issued >= REUSABLE_CHILD_LIMIT:
                 raise HTTPException(410, "접수 링크를 사용할 수 없습니다.")
             conn.execute("INSERT INTO maeum.intake_links(id,org_id,token_hash,management_id,expires_at) VALUES(%s,%s,%s,%s,%s)",
@@ -194,13 +202,14 @@ def _shared_summary(summary, raw_expired):
 def shared_review_cases(org_id, parent_id, management, limit=30):
     """Newest cases opened through one shared review link: report summary and conversation turns.
     Anyone holding the shared link may read them (두찬 11/10); other cases of the org stay hidden."""
+    condition, params = _children(parent_id, management)
     with cloud_store.connection() as conn:
         rows = conn.execute(
             "SELECT i.session_id,i.management_id,i.created_at,r.summary,r.status,r.raw_expired "
             "FROM maeum.intakes i JOIN maeum.intake_links l ON l.id=i.link_id AND l.org_id=i.org_id "
             "LEFT JOIN maeum.report_snapshots r ON r.intake_id=i.id AND r.org_id=i.org_id "
-            "WHERE i.org_id=%s AND l.management_id LIKE %s ORDER BY i.created_at DESC LIMIT %s",
-            (org_id, _child_base(parent_id, management) + "-%", limit)).fetchall()
+            "WHERE i.org_id=%s AND " + condition + " ORDER BY i.created_at DESC LIMIT %s",
+            [org_id, *params, limit]).fetchall()
         documents = conn.execute(
             "SELECT payload->>'session_id',payload FROM maeum.records WHERE kind='conversation' "
             "AND payload->>'session_id' = ANY(%s) ORDER BY record_key", ([row[0] for row in rows],)).fetchall() if rows else []

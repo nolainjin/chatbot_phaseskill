@@ -1644,14 +1644,21 @@ def test_shared_review_view_shows_only_that_links_cases(env):
 
     chat_once(shared, "요즘 회사 일 때문에 마음이 불안하고 잠을 잘 못 자요.")
     chat_once(other, "다른 공용 링크로 남긴 이야기예요.")
+    # A per-visit link minted on 11/10 morning before the parent hash (TRY-<name>-<8 hex>) still belongs to its link.
+    legacy = secrets.token_urlsafe(32)
+    with owner() as conn:
+        conn.execute("INSERT INTO maeum.intake_links(id,org_id,token_hash,management_id,expires_at) VALUES(%s,'A',%s,%s,%s)",
+                     (str(uuid4()), store.digest(legacy), "TRY-SAMENAME1-0A1B2C3D", time.time() + 3600))
+    chat_once({"url": ORIGIN + "/#intake=" + legacy}, "예전 형식 링크로 남긴 이야기예요.")
     intake_case(a)  # an individual-link case of the same organization stays hidden
     r = client().post("/api/intake-link/review", json={"token": raw})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert len(body["cases"]) == 1 and body["cases"][0]["case"].startswith("TRY-SAMENAME-")
-    turns = body["cases"][0]["turns"]
+    names = [case["case"] for case in body["cases"]]
+    assert len(names) == 2 and "TRY-SAMENAME1-0A1B2C3D" in names and any(n.startswith("TRY-SAMENAME-") for n in names)
+    turns = next(case for case in body["cases"] if case["case"].startswith("TRY-SAMENAME-"))["turns"]
     assert any(t["role"] == "user" and "회사 일" in t["text"] for t in turns) and any(t["role"] == "assistant" for t in turns)
-    summary = body["cases"][0]["summary"]
+    summary = next(case for case in body["cases"] if case["case"].startswith("TRY-SAMENAME-"))["summary"]
     assert set(summary) == {"slots", "slot_evidence", "attention_notes", "center_requests"}
     assert all(set(item) <= {"status", "value"} for item in summary["slot_evidence"].values())
     assert body["slot_labels"] and "track" not in dict(body["slot_labels"])
