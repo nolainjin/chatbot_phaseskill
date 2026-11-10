@@ -362,6 +362,19 @@ def exchange(request: Request, response: Response, payload: dict = Body(...)):
     return result
 
 
+@router.post("/api/intake-link/review")
+def shared_review(request: Request, payload: dict = Body(...)):
+    """Saved cases of one shared review link, report and conversation, for anyone holding that link."""
+    auth.csrf(request)
+    auth.limit("shared-review:" + store.digest(request.client.host), count=240)
+    _, org_id, management, _ = store.link_for_token(payload.get("token", ""))
+    if not store.reusable(management):
+        raise HTTPException(410, "함께 쓰는 시험 링크로만 볼 수 있습니다.")
+    schema = intake.load_schema(Settings.from_env().knowledge_dir)
+    return {"slot_labels": [[slot.id, slot.label] for slot in schema.slots if slot.id != "track"],
+            "cases": store.shared_review_cases(org_id, management)}
+
+
 @router.get("/api/portal/intakes")
 def intakes(request: Request, org_id: str, search: str = Query("", max_length=32),
             offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):

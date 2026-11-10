@@ -165,6 +165,36 @@ def issue_reusable_child(parent_id, org_id, management, link_seconds):
     return token
 
 
+def shared_review_cases(org_id, management, limit=30):
+    """Newest cases opened through one shared review link: report summary and conversation turns.
+    Anyone holding the shared link may read them (두찬 11/10); other cases of the org stay hidden."""
+    base = "TRY-" + management[len(REUSABLE_PREFIX):][:20]
+    cases = []
+    with cloud_store.connection() as conn:
+        rows = conn.execute(
+            "SELECT i.session_id,i.management_id,i.created_at,r.summary,r.status,r.raw_expired "
+            "FROM maeum.intakes i JOIN maeum.intake_links l ON l.id=i.link_id AND l.org_id=i.org_id "
+            "LEFT JOIN maeum.report_snapshots r ON r.intake_id=i.id AND r.org_id=i.org_id "
+            "WHERE i.org_id=%s AND l.management_id LIKE %s ORDER BY i.created_at DESC LIMIT %s",
+            (org_id, base + "-%", limit)).fetchall()
+        for session_id, case_id, created_at, summary, status, raw_expired in rows:
+            turns = []
+            documents = [] if raw_expired else conn.execute(
+                "SELECT payload FROM maeum.records WHERE kind='conversation' AND payload->>'session_id'=%s "
+                "ORDER BY record_key", (session_id,)).fetchall()
+            for (document,) in documents:
+                if document.get("raw_purged_at"):
+                    raw_expired, turns = True, []
+                    break
+                turns += [{"role": turn["role"], "text": turn["text"]} for turn in document.get("turns") or []
+                          if turn.get("role") in ("user", "assistant") and isinstance(turn.get("text"), str)]
+            shown = summary if isinstance(summary, dict) else {}
+            cases.append({"case": case_id, "created_at": created_at, "status": status or "draft",
+                          "summary": retained_summary(shown) if raw_expired else projected_summary(shown),
+                          "turns": turns})
+    return cases
+
+
 def consent_scope(request, payload, callback):
     """Lock link before consumption, then create consent+binding+projection atomically."""
     from app import chat

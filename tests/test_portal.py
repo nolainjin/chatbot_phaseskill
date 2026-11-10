@@ -1625,6 +1625,39 @@ def test_shared_review_link_gives_every_visit_its_own_single_use_link(env, monke
     assert exchange(client(), shared).status_code == 410
 
 
+def test_shared_review_view_shows_only_that_links_cases(env):
+    a = verified()
+    shared, other = shared_review_link(), shared_review_link(management="OPEN-OTHER")
+    raw = shared["url"].split("#intake=")[1]
+
+    def chat_once(link, text):
+        c = client()
+        token = exchange(c, link).json()["link_token"]
+        version = c.get("/api/config").json()["privacy"]["consent_version"]
+        sid = str(uuid4())
+        r = c.post("/api/consent", json={"accepted": True, "consent_version": version, "session_id": sid,
+                                         "idempotency_key": str(uuid4()), "link_token": token})
+        assert r.status_code == 200, r.text
+        r = c.post("/api/chat", json={"session_id": sid, "session_token": r.json()["session_token"], "message": text})
+        assert r.status_code == 200, r.text
+
+    chat_once(shared, "요즘 회사 일 때문에 마음이 불안하고 잠을 잘 못 자요.")
+    chat_once(other, "다른 공용 링크로 남긴 이야기예요.")
+    intake_case(a)  # an individual-link case of the same organization stays hidden
+    r = client().post("/api/intake-link/review", json={"token": raw})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [case["case"][:11] for case in body["cases"]] == ["TRY-REVIEW-"]
+    turns = body["cases"][0]["turns"]
+    assert any(t["role"] == "user" and "회사 일" in t["text"] for t in turns) and any(t["role"] == "assistant" for t in turns)
+    assert isinstance(body["cases"][0]["summary"], dict) and body["slot_labels"] and "track" not in dict(body["slot_labels"])
+    # Only the shared link itself opens the view.
+    child = exchange(client(), shared).json()["link_token"]
+    for token in (issue(a)["url"].split("#intake=")[1], child, ""):
+        assert client().post("/api/intake-link/review", json={"token": token}).status_code == 410
+    assert client().post("/api/intake-link/review", json={"token": raw}, headers={"Origin": "https://evil.example"}).status_code == 403
+
+
 def test_each_tab_consents_with_the_link_it_opened(env):
     a, b = verified(), verified("b0@example.test")
     link_a, link_b = issue(a, "A"), issue(b, "B")

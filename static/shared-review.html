@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>공용 시험 대화 보기</title>
+<style>
+/* 함께 쓰는 시험 링크로 남은 대화의 정리 글과 원문을, 그 링크를 받은 사람 누구나 보는 화면(두찬 11/10). */
+:root { --paper:#f5f8f6; --sheet:#fff; --ink:#13201b; --ink-2:#4a5a54; --line:#d4dfda; --accent:#1d5e54; --soft:#e2efea; --warn:#8a4b00; --warn-soft:#fbecd3; color-scheme:light; }
+@media (prefers-color-scheme: dark) {
+  :root { --paper:#0f1513; --sheet:#151d1a; --ink:#e2eae7; --ink-2:#a5b3ae; --line:#2a3632; --accent:#84c9bc; --soft:#19302b; --warn:#e3a94f; --warn-soft:#33270f; color-scheme:dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.7 "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; word-break: keep-all; overflow-wrap: anywhere; }
+main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 14px; }
+h1 { font-size: 24px; line-height: 1.35; margin: 0; }
+p { margin: 0; }
+.note { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 14.5px; }
+.state { color: var(--ink-2); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: inherit; font-size: 15px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); cursor: pointer; }
+details { background: var(--sheet); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+summary { cursor: pointer; font-weight: 700; }
+summary span { display: block; font-weight: 400; font-size: 14px; color: var(--ink-2); }
+h2 { font-size: 16px; margin: 16px 0 8px; color: var(--accent); }
+dl { margin: 0; display: grid; gap: 4px; }
+dt { font-weight: 700; font-size: 14.5px; margin-top: 6px; }
+dt small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+dd { margin: 0; white-space: pre-wrap; }
+ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+ol li { border-radius: 10px; padding: 8px 12px; max-width: 92%; white-space: pre-wrap; border: 1px solid var(--line); justify-self: start; }
+ol li.user { justify-self: end; background: var(--soft); border-color: transparent; }
+ol li b { display: block; font-size: 12.5px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+  <h1>공용 시험 링크로 남은 대화</h1>
+  <p class="note">이 화면은 시험 페이지를 받은 분 누구나 볼 수 있어요. 시험용이라 지어낸 이야기만 남아 있어야 해요.</p>
+  <p class="state" id="state" role="status">불러오는 중이에요.</p>
+  <div class="bar"><button type="button" id="reload" hidden>다시 불러오기</button></div>
+  <div id="cases"></div>
+</main>
+<script>
+(() => {
+  "use strict";
+  // 링크는 주소 해시로만 받고 바로 지운다(서버 기록·다른 사이트로 가지 않게). 새로고침용으로 이 탭에만 둔다.
+  const KEY = "lmwiki_shared_review_link";
+  if (location.hash.indexOf("#review=") === 0) {
+    sessionStorage.setItem(KEY, location.hash.slice(8));
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  const token = sessionStorage.getItem(KEY);
+  const state = document.getElementById("state");
+  const list = document.getElementById("cases");
+  const reload = document.getElementById("reload");
+  const STATES = {confirmed: "내담자 진술", answered: "내담자 진술", unclear: "추가 확인 필요", unconfirmed: "미확인",
+                  declined: "답변하지 않음", not_applicable: "해당 없음"};
+  const el = (tag, text, cls) => {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (cls) node.className = cls;
+    return node;
+  };
+  const when = (value) => {
+    const date = new Date(value);
+    return isNaN(date) ? "" : date.toLocaleString("ko-KR", {month: "long", day: "numeric", hour: "numeric", minute: "2-digit"});
+  };
+  const text = (value) => (typeof value === "string" ? value : JSON.stringify(value));
+
+  function summaryList(summary, labels) {
+    const slots = summary.slots || {};
+    const evidence = summary.slot_evidence || {};
+    const dl = el("dl");
+    labels.forEach(([key, label]) => {
+      if (!Object.prototype.hasOwnProperty.call(evidence, key) && !slots[key]) return;
+      const item = evidence[key] || {};
+      const status = item.status || (slots[key] ? "answered" : "unconfirmed");
+      const value = status === "unconfirmed" ? "미확인" : (item.value || slots[key] || STATES[status] || "미확인");
+      const dt = el("dt", label);
+      dt.append(el("small", STATES[status] || "미확인"));
+      dl.append(dt, el("dd", text(value)));
+    });
+    (summary.attention_notes || []).forEach((note) => dl.append(el("dt", "상담사 확인 필요"), el("dd", text(note.text || ""))));
+    (summary.center_requests || []).forEach((request) => dl.append(el("dt", request.label || request.category || "센터에 전할 내용"), el("dd", text(request.text || ""))));
+    if (!dl.childNodes.length) dl.append(el("dd", "아직 정리된 내용이 없어요."));
+    return dl;
+  }
+
+  function transcript(turns) {
+    const ol = el("ol");
+    turns.forEach((turn) => {
+      const li = el("li", undefined, turn.role === "user" ? "user" : "assistant");
+      li.append(el("b", turn.role === "user" ? "내담자" : "챗봇"), document.createTextNode(turn.text));
+      ol.append(li);
+    });
+    if (!turns.length) ol.append(el("li", "남은 대화 원문이 없어요."));
+    return ol;
+  }
+
+  function render(data) {
+    list.replaceChildren();
+    if (!data.cases.length) {
+      state.textContent = "아직 남은 대화가 없어요.";
+      return;
+    }
+    state.textContent = "최근 " + data.cases.length + "건이에요. 제목을 누르면 정리 글과 대화 원문이 펼쳐져요.";
+    data.cases.forEach((item) => {
+      const box = el("details");
+      const head = el("summary", item.case);
+      head.append(el("span", when(item.created_at) + " · " + (item.status === "complete" ? "센터 전달 완료" : "대화 중이거나 전달 전")));
+      box.append(head, el("h2", "정리 글"), summaryList(item.summary || {}, data.slot_labels || []),
+                 el("h2", "대화 원문"), transcript(item.turns || []));
+      list.append(box);
+    });
+  }
+
+  async function load() {
+    reload.hidden = true;
+    if (!token) {
+      state.textContent = "시험 페이지의 ‘다른 분들이 남긴 대화 보기’로 열어 주세요.";
+      return;
+    }
+    state.textContent = "불러오는 중이에요.";
+    try {
+      const response = await fetch("/api/intake-link/review", {
+        method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({token}),
+      });
+      if (response.status === 410) {
+        state.textContent = "이 링크로는 볼 수 없어요. 시험 페이지의 링크로 다시 열어 주세요.";
+        return;
+      }
+      if (!response.ok) throw new Error(String(response.status));
+      render(await response.json());
+    } catch (error) {
+      state.textContent = "불러오지 못했어요. 잠시 뒤 다시 불러와 주세요.";
+    }
+    reload.hidden = false;
+  }
+
+  reload.addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>
