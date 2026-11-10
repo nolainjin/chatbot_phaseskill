@@ -1625,6 +1625,23 @@ def test_shared_review_link_gives_every_visit_its_own_single_use_link(env, monke
     assert exchange(client(), shared).status_code == 410
 
 
+def test_each_tab_consents_with_the_link_it_opened(env):
+    a, b = verified(), verified("b0@example.test")
+    link_a, link_b = issue(a, "A"), issue(b, "B")
+    c = client()
+    ra, rb = exchange(c, link_a), exchange(c, link_b)  # the shared cookie now holds B's link
+    assert ra.status_code == 200 and rb.status_code == 200, (ra.text, rb.text)
+    assert ra.json()["link_token"] == link_a["url"].split("#intake=")[1] and "reusable" not in ra.json()
+    version = c.get("/api/config").json()["privacy"]["consent_version"]
+    r = c.post("/api/consent", json={"accepted": True, "consent_version": version, "session_id": str(uuid4()),
+                                     "idempotency_key": str(uuid4()), "link_token": ra.json()["link_token"]})
+    assert r.status_code == 200, r.text
+    with owner() as conn:
+        org = conn.execute("SELECT org_id FROM maeum.intakes WHERE id=%s", (r.json()["intake_id"],)).fetchone()[0]
+        b_left = conn.execute("SELECT consumed_intake_id FROM maeum.intake_links WHERE id=%s", (link_b["id"],)).fetchone()[0]
+    assert org == "A" and b_left is None
+
+
 def test_T13_atomic_projection_failure_rollback(env,monkeypatch):
     a=verified();c,sid,r,_,_=intake_case(a)
     before=report(a,r["intake_id"]).json()

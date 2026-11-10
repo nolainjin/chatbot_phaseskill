@@ -354,10 +354,11 @@ def exchange(request: Request, response: Response, payload: dict = Body(...)):
     with cloud_store.connection() as conn:
         name = conn.execute("SELECT name FROM maeum.organizations WHERE id=%s", (org_id,)).fetchone()[0]
     auth.cookie(response, "maeum_link", token, Policy.load().link_seconds)
-    result = {"organization": name, "purpose": "상담 접수 내용과 요약을 이 기관 담당자에게 전달합니다."}
+    # The tab pins the link it exchanged (for a shared review link, its own per-visit link) and
+    # consents with it, so another tab's cookie cannot change which organization receives this case.
+    result = {"organization": name, "purpose": "상담 접수 내용과 요약을 이 기관 담당자에게 전달합니다.", "link_token": token}
     if shared:
-        # The tab keeps its own per-visit link and sends it with its consent (see consent_scope).
-        result.update(reusable=True, link_token=token)
+        result["reusable"] = True
     return result
 
 

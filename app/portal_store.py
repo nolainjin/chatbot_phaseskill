@@ -168,8 +168,8 @@ def issue_reusable_child(parent_id, org_id, management, link_seconds):
 def consent_scope(request, payload, callback):
     """Lock link before consumption, then create consent+binding+projection atomically."""
     from app import chat
-    # A tab that opened a shared review link names its own per-visit link, so another tab's
-    # cookie cannot decide which link this consent consumes.
+    # Each tab names the link it exchanged, so another tab's cookie cannot decide which link
+    # (and organization) this consent consumes. Without it, the cookie is used as before.
     tab_link = payload.pop("link_token", None)
     token = tab_link if isinstance(tab_link, str) and tab_link else request.cookies.get("maeum_link")
     sid = payload.get("session_id")

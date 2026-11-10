@@ -11,17 +11,21 @@
   var DRAFT_KEY = "lmwiki_message_draft";
   var PENDING_REQUEST_KEY = "lmwiki_pending_chat_request";
   var UI_STATE_KEY = "lmwiki_chat_ui_state";
-  // 여러 사람이 함께 쓰는 시험 링크(서버가 reusable로 알려 준 것)와 그 링크가 이 탭에 준 일회용 링크는
-  // 이 탭에만 기억한다. '새 대화'는 시험 링크를 다시 열고, 동의는 이 탭의 일회용 링크로 한다.
-  // 탭을 닫았다 링크 없는 주소로 다시 들어온 경우만을 위해 12시간 동안 이 기기에도 남긴다.
+  // 탭마다 자기가 교환한 접수 링크를 고정하고, 새로고침과 동의를 그 링크로 한다. 쿠키는 모든 탭이 함께 쓰므로
+  // 다른 탭이 다른 링크를 열어도 이 탭이 보여 준 기관과 실제로 접수되는 기관이 어긋나지 않게 하려는 것이다.
+  var LINK_PIN_KEY = "lmwiki_intake_link_pin";
+  // 여러 사람이 함께 쓰는 시험 링크(서버가 reusable로 알려 준 것)는 이 탭에 기억해 '새 대화' 때 다시 연다.
+  // 탭을 닫았다 링크 없는 주소로 다시 들어온 경우를 위해 이 기기에도 남기되 12시간까지만 쓴다(지우는 건 다음 접속 때).
   var REUSABLE_LINK_KEY = "lmwiki_reusable_intake";
-  var REUSABLE_CHILD_KEY = "lmwiki_reusable_child";
   var REUSABLE_RETRY_KEY = "lmwiki_reusable_retry";
   var REUSABLE_RECENT_KEY = "lmwiki_reusable_recent";
   var REUSABLE_RECENT_MS = 12 * 3600 * 1000;
   var institutionHash = new URL(window.location.href).hash;
   var institutionToken = institutionHash.indexOf("#intake=") === 0 ? institutionHash.slice(8) : null;
   if (institutionToken !== null) {
+    // 주소로 연 링크를 곧바로 이 탭의 링크로 고정하고 예전 시험 링크 기억은 지운다(교환이 실패해도 그대로).
+    sessionStorage.setItem(LINK_PIN_KEY, institutionToken);
+    rememberReusableLink(null);
     window.history.replaceState({}, "", window.location.pathname + window.location.search);
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
@@ -778,11 +782,9 @@
     return sessionStorage.getItem(REUSABLE_LINK_KEY);
   }
 
-  function rememberReusableLink(token, child) {
+  function rememberReusableLink(token) {
     if (token) sessionStorage.setItem(REUSABLE_LINK_KEY, token);
     else sessionStorage.removeItem(REUSABLE_LINK_KEY);
-    if (child) sessionStorage.setItem(REUSABLE_CHILD_KEY, child);
-    else sessionStorage.removeItem(REUSABLE_CHILD_KEY);
     try {
       if (token) localStorage.setItem(REUSABLE_RECENT_KEY, JSON.stringify({token: token, until: Date.now() + REUSABLE_RECENT_MS}));
       else localStorage.removeItem(REUSABLE_RECENT_KEY);
@@ -800,9 +802,9 @@
     return null;
   }
 
-  function reusableConsentLink() {
-    var child = sessionStorage.getItem(REUSABLE_CHILD_KEY);
-    return child ? {link_token: child} : {};
+  function pinnedLinkPayload() {
+    var pinned = sessionStorage.getItem(LINK_PIN_KEY);
+    return pinned ? {link_token: pinned} : {};
   }
 
   // #intake= 주소로 바꾸면 hashchange가 페이지를 다시 읽고, 서버가 새 일회용 링크를 준다.
@@ -1153,7 +1155,7 @@
     postJson("/api/consent", Object.assign({
       session_id: getSessionId(), accepted: accepted, consent_version: privacy.consent_version,
       idempotency_key: getSessionId(), session_token: getSessionToken()
-    }, pendingIntakeLink(), reusableConsentLink())).then(function (data) {
+    }, pendingIntakeLink(), pinnedLinkPayload())).then(function (data) {
       consentCardEl.hidden = true;
       if (!data.accepted) {
         var refusal = addMessage("assistant", data.reply);
@@ -1164,7 +1166,6 @@
       rememberCredentials(data);
       sessionStorage.removeItem(UI_STATE_KEY);
       sessionStorage.removeItem(INTAKE_LINK_KEY);
-      sessionStorage.removeItem(REUSABLE_CHILD_KEY);
       sessionStorage.setItem(CONSENT_KEY, privacy.consent_version);
       consentGranted = true;
       setDeliveryState("ready");
@@ -1263,12 +1264,11 @@
     })
     .then(function (data) {
       if (data.institution_link_required && !getSessionToken()) {
-        return postJson("/api/intake-link/exchange", institutionToken ? {token: institutionToken} : {}).then(function (link) {
-          // 주소로 연 링크가 함께 쓰는 시험 링크면 기억하고, 개별 링크면 예전 기억을 지운다.
-          if (institutionToken) {
-            var shared = link.reusable === true;
-            rememberReusableLink(shared ? institutionToken : null, shared ? link.link_token : null);
-          }
+        var pinned = institutionToken || sessionStorage.getItem(LINK_PIN_KEY);
+        return postJson("/api/intake-link/exchange", pinned ? {token: pinned} : {}).then(function (link) {
+          // 서버가 돌려준 링크(함께 쓰는 시험 링크면 이 탭 몫의 일회용 링크)를 이 탭에 고정한다.
+          if (link.link_token) sessionStorage.setItem(LINK_PIN_KEY, link.link_token);
+          if (link.reusable === true) rememberReusableLink(pinned);
           sessionStorage.removeItem(REUSABLE_RETRY_KEY);
           data.privacy.body = "접수 기관: " + link.organization + "\n" + link.purpose + "\n\n" + data.privacy.body;
           institutionToken = null;
@@ -1312,12 +1312,8 @@
       disableInput();
       hideChips();
       if (err.stage === "intake-link" && err.status === 410) {
-        var shared = recentReusableLink();
-        if (institutionToken !== null) {
-          // 주소로 연 링크가 실패하면 다른 링크로 넘어가지 않는다(기억해 둔 시험 링크도 지운다).
-          rememberReusableLink(null, null);
-          shared = null;
-        }
+        // 주소로 연 링크가 실패하면 다른 링크로 넘어가지 않는다(시험 링크 기억은 열 때 이미 지웠다).
+        var shared = institutionToken === null ? recentReusableLink() : null;
         if (shared && !sessionStorage.getItem(REUSABLE_RETRY_KEY)) {
           // 이미 쓴 일회용 링크로 다시 들어왔으면 함께 쓰는 시험 링크로 한 번만 새로 시작한다.
           sessionStorage.setItem(REUSABLE_RETRY_KEY, "1");
